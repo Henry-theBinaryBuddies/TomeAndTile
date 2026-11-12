@@ -1,0 +1,17 @@
+# Later rules win. The last matching pattern decides the owner.
+
+*                       @Henry-theBinaryBuddies
+
+/integrations/          @aalemany00
+/web/                   @Danny-Defeato
+/web/media/             @aalemany00
+
+/docs/devlog/aalemany00.md      @aalemany00
+/docs/devlog/Danny-Defeato.md   @Danny-Defeato
+
+# Boundary files stay with the project owner even inside someone else's area.
+/integrations/CLAUDE.md @Henry-theBinaryBuddies
+/web/CLAUDE.md          @Henry-theBinaryBuddies
+/web/media/CLAUDE.md    @Henry-theBinaryBuddies
+/contracts/             @Henry-theBinaryBuddies
+/.github/               @Henry-theBinaryBuddies

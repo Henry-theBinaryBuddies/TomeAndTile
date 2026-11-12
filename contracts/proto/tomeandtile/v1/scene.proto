@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+import "tomeandtile/v1/common.proto";
+
+enum GridKind {
+  GRID_KIND_UNSPECIFIED = 0;
+  GRID_KIND_SQUARE = 1;
+  GRID_KIND_HEX_ROWS = 2;
+  GRID_KIND_HEX_COLUMNS = 3;
+  GRID_KIND_NONE = 4;
+}
+
+// How diagonal movement is counted on a square grid.
+enum DiagonalRule {
+  DIAGONAL_RULE_UNSPECIFIED = 0;
+  // Every diagonal costs 5 ft.
+  DIAGONAL_RULE_FIVE = 1;
+  // Diagonals alternate 5 ft and 10 ft.
+  DIAGONAL_RULE_FIVE_TEN = 2;
+  // True Euclidean distance.
+  DIAGONAL_RULE_EUCLIDEAN = 3;
+}
+
+message Grid {
+  GridKind kind = 1;
+  // Size of one cell in scene units (pixels of the source map image).
+  float cell_size = 2;
+  // Offset of the grid origin from the map's top-left, for manual alignment.
+  Vec2 offset = 3;
+  // Feet represented by one cell. 5 for standard 5e.
+  float feet_per_cell = 4;
+  DiagonalRule diagonal_rule = 5;
+}
+
+// A reference to an uploaded file in object storage. The bytes are never
+// sent over the game socket.
+message AssetRef {
+  string asset_id = 1;
+  // "image/png", "image/webp", "video/webm", ...
+  string media_type = 2;
+  string url = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+}
+
+// One floor of a scene. Single-level maps have exactly one.
+message Level {
+  string level_id = 1;
+  string name = 2;
+  // Height of this floor above the scene's ground, in feet.
+  float elevation_feet = 3;
+  AssetRef background = 4;
+}
+
+enum WallKind {
+  WALL_KIND_UNSPECIFIED = 0;
+  WALL_KIND_WALL = 1;
+  WALL_KIND_DOOR = 2;
+  WALL_KIND_WINDOW = 3;
+  // Blocks movement but not sight (a low wall, a pit edge).
+  WALL_KIND_TERRAIN = 4;
+}
+
+// A line segment that blocks movement, sight or both. Built after the class;
+// defined now so map importers have somewhere to put wall data.
+message Wall {
+  string wall_id = 1;
+  string level_id = 2;
+  Vec2 a = 3;
+  Vec2 b = 4;
+  WallKind kind = 5;
+  // Doors only.
+  bool open = 6;
+}
+
+message Scene {
+  string scene_id = 1;
+  string campaign_id = 2;
+  string name = 3;
+  Grid grid = 4;
+  repeated Level levels = 5;
+  repeated Wall walls = 6;
+}
+
+enum CreatureSize {
+  CREATURE_SIZE_UNSPECIFIED = 0;
+  CREATURE_SIZE_TINY = 1;
+  CREATURE_SIZE_SMALL = 2;
+  CREATURE_SIZE_MEDIUM = 3;
+  CREATURE_SIZE_LARGE = 4;
+  CREATURE_SIZE_HUGE = 5;
+  CREATURE_SIZE_GARGANTUAN = 6;
+}
+
+// What a viewer who does not control the token sees of its health.
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_HEALTHY = 1;
+  HEALTH_STATE_BLOODIED = 2;
+  HEALTH_STATE_NEAR_DEATH = 3;
+  HEALTH_STATE_DOWN = 4;
+}
+
+message Aura {
+  string label = 1;
+  float radius_feet = 2;
+  // CSS colour string.
+  string color = 3;
+}
+
+// A token as sent to one viewer. Fields the viewer may not see are left
+// unset by the server (ADR 0006); clients must treat unset as "unknown".
+message Token {
+  string token_id = 1;
+  string scene_id = 2;
+  string level_id = 3;
+  // The creature this token represents. Unset for props.
+  string creature_id = 4;
+  string name = 5;
+  AssetRef image = 6;
+  Vec2 position = 7;
+  CreatureSize size = 8;
+  // Degrees clockwise from north.
+  float facing_degrees = 9;
+  // Height above the level's floor, for flying creatures.
+  float elevation_feet = 10;
+  repeated Aura auras = 11;
+  // Always present.
+  HealthState health_state = 12;
+  // Present only for controllers, the GM, or when revealed.
+  optional int32 hp_current = 13;
+  optional int32 hp_max = 14;
+  optional int32 hp_temp = 15;
+  // Condition ids, e.g. "prone", "poisoned".
+  repeated string conditions = 16;
+  // User ids allowed to move and act with this token (control handover).
+  repeated string controller_user_ids = 17;
+  // Hidden tokens are sent only to the GM.
+  bool hidden = 18;
+}

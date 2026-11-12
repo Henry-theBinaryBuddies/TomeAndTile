@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+import "tomeandtile/v1/common.proto";
+import "tomeandtile/v1/creature.proto";
+import "tomeandtile/v1/dice.proto";
+
+message Combatant {
+  string token_id = 1;
+  // Server-rolled; the GM may overwrite it (ADR 0005).
+  int32 initiative = 2;
+  // Tie-breaker and manual ordering; lower acts first among equal initiative.
+  uint32 order = 3;
+  // What this combatant has used this round. Tracked for warnings only.
+  bool action_used = 4;
+  bool bonus_action_used = 5;
+  bool reaction_used = 6;
+  float movement_used_feet = 7;
+}
+
+message Encounter {
+  string encounter_id = 1;
+  string scene_id = 2;
+  uint32 round = 3;
+  // Index into `combatants` of whose turn it is.
+  uint32 turn_index = 4;
+  // Sorted in turn order. A creature that acts twice in a round appears twice.
+  repeated Combatant combatants = 5;
+}
+
+// Where an ability resolution currently is (ADR 0005).
+enum ResolutionState {
+  RESOLUTION_STATE_UNSPECIFIED = 0;
+  RESOLUTION_STATE_TARGETING = 1;
+  RESOLUTION_STATE_ATTACK_OR_SAVE = 2;
+  // Paused, waiting for another participant to use or decline a reaction.
+  // Reserved for later; no reaction is implemented yet.
+  RESOLUTION_STATE_AWAITING_REACTION = 3;
+  RESOLUTION_STATE_DAMAGE = 4;
+  RESOLUTION_STATE_EFFECTS = 5;
+  RESOLUTION_STATE_DONE = 6;
+  RESOLUTION_STATE_CANCELLED = 7;
+}
+
+enum HitOutcome {
+  HIT_OUTCOME_UNSPECIFIED = 0;
+  HIT_OUTCOME_HIT = 1;
+  HIT_OUTCOME_CRITICAL_HIT = 2;
+  HIT_OUTCOME_MISS = 3;
+  HIT_OUTCOME_SAVE_FAILED = 4;
+  HIT_OUTCOME_SAVE_SUCCEEDED = 5;
+  // No roll was needed.
+  HIT_OUTCOME_AUTOMATIC = 6;
+}
+
+// Damage dealt to one target, after resistances.
+message DamageApplied {
+  DamageType type = 1;
+  int32 rolled = 2;
+  // After resistance, immunity, vulnerability and half-on-save.
+  int32 applied = 3;
+}
+
+// What happened to one target of an ability.
+message TargetOutcome {
+  string token_id = 1;
+  HitOutcome outcome = 2;
+  // The attack roll, or the target's saving throw.
+  RollResult roll = 3;
+  repeated RollResult damage_rolls = 4;
+  repeated DamageApplied damage = 5;
+  int32 healing = 6;
+  // Condition and effect ids applied.
+  repeated string effects_applied = 7;
+  // True if this dropped the target to 0 HP. Death saves are not automated.
+  bool dropped_to_zero = 8;
+}
+
+// One use of an ability, from click to done.
+message Resolution {
+  string resolution_id = 1;
+  string source_token_id = 2;
+  string ability_id = 3;
+  // Snapshot of the ability name for the roll card.
+  string ability_name = 4;
+  ResolutionState state = 5;
+  repeated TargetOutcome outcomes = 6;
+  repeated Warning warnings = 7;
+}

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    name: Dependency boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tools/check-deps.sh
+
+  contracts:
+    name: Contracts lint and breaking check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: bufbuild/buf-action@v1
+        with:
+          input: contracts
+          lint: true
+          format: false
+          # Compare against main; skipped automatically on pushes to main.
+          breaking: ${{ github.event_name == 'pull_request' }}
+          breaking_against: "${{ github.event.repository.clone_url }}#branch=main,subdir=contracts"
+          push: false
+
+  rust:
+    name: Rust build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build -p tt-renderer --target wasm32-unknown-unknown

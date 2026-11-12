@@ -1,0 +1,211 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+import "tomeandtile/v1/common.proto";
+import "tomeandtile/v1/scene.proto";
+
+// This file is also the import and export file format. A character or monster
+// file is the Protobuf JSON form of `Creature` (ADR 0003, ADR 0010).
+
+enum CreatureKind {
+  CREATURE_KIND_UNSPECIFIED = 0;
+  CREATURE_KIND_PLAYER_CHARACTER = 1;
+  CREATURE_KIND_MONSTER = 2;
+  CREATURE_KIND_NPC = 3;
+}
+
+message AbilityScores {
+  int32 strength = 1;
+  int32 dexterity = 2;
+  int32 constitution = 3;
+  int32 intelligence = 4;
+  int32 wisdom = 5;
+  int32 charisma = 6;
+}
+
+enum DamageType {
+  DAMAGE_TYPE_UNSPECIFIED = 0;
+  DAMAGE_TYPE_ACID = 1;
+  DAMAGE_TYPE_BLUDGEONING = 2;
+  DAMAGE_TYPE_COLD = 3;
+  DAMAGE_TYPE_FIRE = 4;
+  DAMAGE_TYPE_FORCE = 5;
+  DAMAGE_TYPE_LIGHTNING = 6;
+  DAMAGE_TYPE_NECROTIC = 7;
+  DAMAGE_TYPE_PIERCING = 8;
+  DAMAGE_TYPE_POISON = 9;
+  DAMAGE_TYPE_PSYCHIC = 10;
+  DAMAGE_TYPE_RADIANT = 11;
+  DAMAGE_TYPE_SLASHING = 12;
+  DAMAGE_TYPE_THUNDER = 13;
+}
+
+// A spendable pool: spell slots of a level, ki, rage, a legendary action.
+message Resource {
+  // Stable key, e.g. "spell_slot_3", "rage".
+  string key = 1;
+  string label = 2;
+  int32 current = 3;
+  int32 max = 4;
+}
+
+enum ActionCost {
+  ACTION_COST_UNSPECIFIED = 0;
+  ACTION_COST_ACTION = 1;
+  ACTION_COST_BONUS_ACTION = 2;
+  ACTION_COST_REACTION = 3;
+  ACTION_COST_FREE = 4;
+  ACTION_COST_LEGENDARY = 5;
+}
+
+enum TargetShape {
+  TARGET_SHAPE_UNSPECIFIED = 0;
+  TARGET_SHAPE_SELF = 1;
+  // One or more creatures picked by clicking tokens.
+  TARGET_SHAPE_CREATURES = 2;
+  TARGET_SHAPE_SPHERE = 3;
+  TARGET_SHAPE_CONE = 4;
+  TARGET_SHAPE_LINE = 5;
+  TARGET_SHAPE_CUBE = 6;
+}
+
+message Targeting {
+  TargetShape shape = 1;
+  // Maximum distance to the target or the template's origin. 0 means touch
+  // or self.
+  float range_feet = 2;
+  // Long range for ranged weapons; 0 if none.
+  float long_range_feet = 3;
+  // Number of creatures for TARGET_SHAPE_CREATURES.
+  uint32 max_targets = 4;
+  // Radius, cone length, line length or cube edge.
+  float size_feet = 5;
+  // Line width; 0 otherwise.
+  float width_feet = 6;
+}
+
+// A dice expression plus a damage type, e.g. "2d6+3" slashing.
+message DamagePart {
+  // Dice notation understood by the server's dice parser.
+  string dice = 1;
+  DamageType type = 2;
+}
+
+// Roll to hit against the target's AC.
+message AttackStep {
+  // Total attack bonus, already including proficiency and ability modifier.
+  int32 to_hit_bonus = 1;
+  repeated DamagePart damage = 2;
+}
+
+// The target rolls a saving throw; the server rolls it automatically.
+message SaveStep {
+  AbilityScore ability = 1;
+  int32 dc = 2;
+  repeated DamagePart damage = 3;
+  // True: half damage on a successful save. False: none.
+  bool half_on_success = 4;
+}
+
+// Damage or healing with no roll to hit and no save.
+message FlatStep {
+  repeated DamagePart damage = 1;
+  // Healing dice, e.g. "1d8+3". Empty if this step does not heal.
+  string healing_dice = 2;
+}
+
+enum DurationUnit {
+  DURATION_UNIT_UNSPECIFIED = 0;
+  DURATION_UNIT_INSTANT = 1;
+  DURATION_UNIT_ROUNDS = 2;
+  DURATION_UNIT_MINUTES = 3;
+  DURATION_UNIT_HOURS = 4;
+  DURATION_UNIT_UNTIL_END_OF_SOURCE_NEXT_TURN = 5;
+  DURATION_UNIT_UNTIL_START_OF_SOURCE_NEXT_TURN = 6;
+  DURATION_UNIT_UNTIL_DISPELLED = 7;
+}
+
+message Duration {
+  DurationUnit unit = 1;
+  uint32 amount = 2;
+  bool concentration = 3;
+}
+
+// Apply a condition or named effect to the target.
+message ApplyEffectStep {
+  // Condition or effect id, e.g. "prone", "bless".
+  string effect_id = 1;
+  Duration duration = 2;
+  // Apply only if the preceding attack hit or the save failed.
+  bool only_on_failure = 3;
+}
+
+// Hand the step to a plugin (ADR 0009). The escape hatch for anything the
+// declarative steps cannot express.
+message PluginStep {
+  string plugin_id = 1;
+  string entry_point = 2;
+  // Opaque arguments for the plugin, as JSON text.
+  string args_json = 3;
+}
+
+// One step of an ability. Steps run in order (ADR 0005).
+message EffectStep {
+  oneof step {
+    AttackStep attack = 1;
+    SaveStep save = 2;
+    FlatStep flat = 3;
+    ApplyEffectStep apply_effect = 4;
+    PluginStep plugin = 5;
+  }
+}
+
+// Anything clickable on a sheet: a weapon attack, a spell, a feature.
+message Ability {
+  string ability_id = 1;
+  string name = 2;
+  // Shown on the roll card. SRD text or the user's own.
+  string description = 3;
+  ActionCost cost = 4;
+  // Resource spent on use, e.g. "spell_slot_3". Empty if none.
+  string resource_key = 5;
+  int32 resource_amount = 6;
+  Targeting targeting = 7;
+  repeated EffectStep steps = 8;
+  Provenance provenance = 9;
+}
+
+// A character, monster or NPC. Full form: sent only to viewers allowed to
+// see the sheet. Everyone else gets the `Token` view.
+message Creature {
+  string creature_id = 1;
+  CreatureKind kind = 2;
+  string name = 3;
+  RulesEdition edition = 4;
+  CreatureSize size = 5;
+  AbilityScores scores = 6;
+  int32 proficiency_bonus = 7;
+  int32 armor_class = 8;
+  int32 hp_current = 9;
+  int32 hp_max = 10;
+  int32 hp_temp = 11;
+  float speed_feet = 12;
+  // Added to the d20 when the server rolls initiative.
+  int32 initiative_bonus = 13;
+  // Saving throws the creature is proficient in.
+  repeated AbilityScore save_proficiencies = 14;
+  repeated DamageType resistances = 15;
+  repeated DamageType immunities = 16;
+  repeated DamageType vulnerabilities = 17;
+  repeated Resource resources = 18;
+  repeated Ability abilities = 19;
+  // Active condition and effect ids.
+  repeated string conditions = 20;
+  // Class and level, or creature type and CR; display only.
+  string summary = 21;
+  AssetRef portrait = 22;
+  Provenance provenance = 23;
+  // Owning user for player characters. Empty for GM-owned creatures.
+  string owner_user_id = 24;
+}

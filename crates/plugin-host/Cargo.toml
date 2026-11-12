@@ -1,0 +1,9 @@
+[package]
+name = "tt-plugin-host"
+description = "Sandboxed WASM plugin host with an explicit capability API."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

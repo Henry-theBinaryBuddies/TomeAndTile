@@ -1,0 +1,247 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+import "tomeandtile/v1/combat.proto";
+import "tomeandtile/v1/common.proto";
+import "tomeandtile/v1/creature.proto";
+import "tomeandtile/v1/dice.proto";
+import "tomeandtile/v1/media.proto";
+import "tomeandtile/v1/scene.proto";
+
+// The game socket. One WebSocket per browser tab carries binary frames, each
+// a `ClientMessage` (up) or a `ServerMessage` (down).
+//
+// Clients send intents. The server validates, runs the rules and emits events
+// (ADR 0004). An intent is a request, never a state change.
+
+// ---------------------------------------------------------------- Intents
+
+// Move a token the sender controls.
+message MoveTokenIntent {
+  string token_id = 1;
+  // Waypoints in order; the last is the destination.
+  repeated Vec2 path = 2;
+  string level_id = 3;
+}
+
+// Freeform dice roll from chat or the dice tray.
+message RollDiceIntent {
+  string notation = 1;
+  RollMode mode = 2;
+  // Ignored unless the sender is a GM (ADR 0006).
+  RollVisibility visibility = 3;
+  string label = 4;
+}
+
+message ChatIntent {
+  string text = 1;
+}
+
+// Click an ability, then click targets. One message carries both.
+message UseAbilityIntent {
+  string source_token_id = 1;
+  string ability_id = 2;
+  // For TARGET_SHAPE_CREATURES.
+  repeated string target_token_ids = 3;
+  // For area shapes: where the template is placed and which way it points.
+  Vec2 template_origin = 4;
+  float template_direction_degrees = 5;
+  RollMode mode = 6;
+}
+
+// GM only: start combat. The server rolls initiative for every token listed.
+message StartEncounterIntent {
+  string scene_id = 1;
+  repeated string token_ids = 2;
+}
+
+message EndTurnIntent {
+  string encounter_id = 1;
+}
+
+// GM only: overwrite a combatant's initiative or position in the order.
+message SetInitiativeIntent {
+  string encounter_id = 1;
+  string token_id = 2;
+  int32 initiative = 3;
+  uint32 order = 4;
+}
+
+// GM only: reverse an earlier event by appending a compensating one.
+message UndoIntent {
+  uint64 event_seq = 1;
+}
+
+// GM only, or the controller for their own creature: set HP directly.
+message SetHitPointsIntent {
+  string token_id = 1;
+  int32 hp_current = 2;
+  int32 hp_temp = 3;
+}
+
+// GM only: give or take control of a token.
+message SetControllersIntent {
+  string token_id = 1;
+  repeated string controller_user_ids = 2;
+}
+
+message Intent {
+  // Chosen by the client; echoed in the events it causes and in rejections.
+  string client_intent_id = 1;
+  oneof kind {
+    MoveTokenIntent move_token = 10;
+    RollDiceIntent roll_dice = 11;
+    ChatIntent chat = 12;
+    UseAbilityIntent use_ability = 13;
+    StartEncounterIntent start_encounter = 14;
+    EndTurnIntent end_turn = 15;
+    SetInitiativeIntent set_initiative = 16;
+    UndoIntent undo = 17;
+    SetHitPointsIntent set_hit_points = 18;
+    SetControllersIntent set_controllers = 19;
+  }
+}
+
+// ----------------------------------------------------------------- Events
+
+message TokenUpserted {
+  Token token = 1;
+}
+
+message TokenRemoved {
+  string token_id = 1;
+}
+
+message TokenMoved {
+  string token_id = 1;
+  repeated Vec2 path = 2;
+  string level_id = 3;
+  float distance_feet = 4;
+}
+
+message ChatPosted {
+  string user_id = 1;
+  string text = 2;
+}
+
+message DiceRolled {
+  RollResult roll = 1;
+}
+
+message EncounterUpdated {
+  Encounter encounter = 1;
+}
+
+message EncounterEnded {
+  string encounter_id = 1;
+}
+
+// Sent each time a resolution changes state, so clients can animate it.
+message ResolutionUpdated {
+  Resolution resolution = 1;
+}
+
+// Full sheet, sent only to viewers allowed to see it.
+message CreatureUpserted {
+  Creature creature = 1;
+}
+
+message SceneUpserted {
+  Scene scene = 1;
+}
+
+// Marks an earlier event as undone.
+message EventUndone {
+  uint64 undone_seq = 1;
+}
+
+message Event {
+  // Position in the campaign's event log. Strictly increasing.
+  uint64 seq = 1;
+  // Unix milliseconds, server clock.
+  int64 at_ms = 2;
+  string scene_id = 3;
+  // User whose intent caused this event; empty for server-originated events.
+  string actor_user_id = 4;
+  // The intent that caused it, if any.
+  string client_intent_id = 5;
+  repeated Warning warnings = 6;
+  oneof kind {
+    TokenUpserted token_upserted = 10;
+    TokenRemoved token_removed = 11;
+    TokenMoved token_moved = 12;
+    ChatPosted chat_posted = 13;
+    DiceRolled dice_rolled = 14;
+    EncounterUpdated encounter_updated = 15;
+    EncounterEnded encounter_ended = 16;
+    ResolutionUpdated resolution_updated = 17;
+    CreatureUpserted creature_upserted = 18;
+    SceneUpserted scene_upserted = 19;
+    EventUndone event_undone = 20;
+  }
+}
+
+// --------------------------------------------------------------- Envelope
+
+// First message on a new socket.
+message Hello {
+  string campaign_id = 1;
+  // Session token from the HTTP login. Never a password.
+  string session_token = 2;
+  // Last event the client has applied; 0 for a fresh join.
+  uint64 last_seq = 3;
+}
+
+message Member {
+  string user_id = 1;
+  string display_name = 2;
+  Role role = 3;
+  bool online = 4;
+}
+
+// Reply to Hello: everything this viewer may see, as of `seq`.
+message Snapshot {
+  uint64 seq = 1;
+  string user_id = 2;
+  Role role = 3;
+  repeated Member members = 4;
+  repeated Scene scenes = 5;
+  repeated Token tokens = 6;
+  repeated Creature creatures = 7;
+  repeated Encounter encounters = 8;
+  // The scene this viewer is currently on.
+  string active_scene_id = 9;
+}
+
+// The server refused an intent outright (not permitted, malformed). Rule
+// violations are warnings on events, not rejections.
+message IntentRejected {
+  string client_intent_id = 1;
+  // Stable machine code, e.g. "not_permitted".
+  string code = 2;
+  string message = 3;
+}
+
+message ClientMessage {
+  oneof kind {
+    Hello hello = 1;
+    Intent intent = 2;
+    MediaJoin media_join = 10;
+    MediaLeave media_leave = 11;
+    MediaSignal media_signal = 12;
+    MediaStatus media_status = 13;
+  }
+}
+
+message ServerMessage {
+  oneof kind {
+    Snapshot snapshot = 1;
+    Event event = 2;
+    IntentRejected intent_rejected = 3;
+    MediaJoined media_joined = 10;
+    MediaPeerChanged media_peer_changed = 11;
+    MediaSignal media_signal = 12;
+    MediaStatus media_status = 13;
+  }
+}

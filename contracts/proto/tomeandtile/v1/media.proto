@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+// Video and voice signalling (ADR 0007). The server relays these between
+// members of one campaign and never inspects media. Nothing here assumes
+// mesh: an SFU later is one more "peer".
+
+// A STUN or TURN server the browser may use.
+message IceServer {
+  repeated string urls = 1;
+  // Short-lived TURN credentials minted by the server for this user.
+  string username = 2;
+  string credential = 3;
+}
+
+// Client -> server: join the campaign's call.
+message MediaJoin {}
+
+// Client -> server: leave the call.
+message MediaLeave {}
+
+// Server -> client: reply to MediaJoin.
+message MediaJoined {
+  repeated IceServer ice_servers = 1;
+  // Users already in the call. The joiner sends each one an offer.
+  repeated string peer_user_ids = 2;
+}
+
+// Server -> clients: someone joined or left.
+message MediaPeerChanged {
+  string user_id = 1;
+  bool present = 2;
+}
+
+enum SdpKind {
+  SDP_KIND_UNSPECIFIED = 0;
+  SDP_KIND_OFFER = 1;
+  SDP_KIND_ANSWER = 2;
+}
+
+// Relayed between two peers. On the way up, `peer_user_id` is the recipient;
+// on the way down, the server rewrites it to the sender.
+message MediaSignal {
+  string peer_user_id = 1;
+  oneof payload {
+    SessionDescription description = 2;
+    IceCandidate candidate = 3;
+  }
+}
+
+message SessionDescription {
+  SdpKind kind = 1;
+  string sdp = 2;
+}
+
+message IceCandidate {
+  string candidate = 1;
+  string sdp_mid = 2;
+  uint32 sdp_m_line_index = 3;
+}
+
+// Client -> server -> clients: mute and camera state, for the panel's icons.
+message MediaStatus {
+  string user_id = 1;
+  bool audio_muted = 2;
+  bool video_off = 3;
+}

@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+// The server rolls every die (ADR 0006). There is no message by which a
+// client can supply a result.
+
+enum RollMode {
+  ROLL_MODE_UNSPECIFIED = 0;
+  ROLL_MODE_NORMAL = 1;
+  ROLL_MODE_ADVANTAGE = 2;
+  ROLL_MODE_DISADVANTAGE = 3;
+}
+
+enum RollVisibility {
+  ROLL_VISIBILITY_UNSPECIFIED = 0;
+  ROLL_VISIBILITY_PUBLIC = 1;
+  // Honoured only when the sender is a GM. The server forces every other
+  // roll to PUBLIC.
+  ROLL_VISIBILITY_GM_ONLY = 2;
+}
+
+// Why a roll was made; drives the roll card's title and buttons.
+enum RollPurpose {
+  ROLL_PURPOSE_UNSPECIFIED = 0;
+  ROLL_PURPOSE_FREEFORM = 1;
+  ROLL_PURPOSE_ATTACK = 2;
+  ROLL_PURPOSE_DAMAGE = 3;
+  ROLL_PURPOSE_SAVE = 4;
+  ROLL_PURPOSE_CHECK = 5;
+  ROLL_PURPOSE_INITIATIVE = 6;
+  ROLL_PURPOSE_HEALING = 7;
+}
+
+// One physical die, for the roll card and the 3D animation.
+message Die {
+  // Number of sides.
+  uint32 sides = 1;
+  uint32 value = 2;
+  // True if dropped by a keep/drop rule (the lower d20 under advantage).
+  bool dropped = 3;
+}
+
+// A named number added to a roll: "+3 Strength", "+2 Bless".
+message Modifier {
+  string source = 1;
+  int32 value = 2;
+}
+
+message RollResult {
+  string roll_id = 1;
+  // The notation that was rolled, e.g. "2d20kh1+5".
+  string notation = 2;
+  RollPurpose purpose = 3;
+  RollMode mode = 4;
+  repeated Die dice = 5;
+  repeated Modifier modifiers = 6;
+  int32 total = 7;
+  // A natural 20 or natural 1 on the kept d20.
+  bool critical = 8;
+  bool fumble = 9;
+  RollVisibility visibility = 10;
+  // Who rolled: a user for freeform rolls, a creature for sheet rolls.
+  string roller_user_id = 11;
+  string roller_creature_id = 12;
+  // Label on the card: "Longsword attack", "Dexterity save".
+  string label = 13;
+}

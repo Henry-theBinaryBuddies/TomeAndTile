@@ -1,0 +1,10 @@
+[package]
+name = "tt-cauldron-import"
+description = "Importer: Creature Cauldron export file to Tome & Tile creatures."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+

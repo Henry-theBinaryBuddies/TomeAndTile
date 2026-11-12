@@ -1,0 +1,13 @@
+[package]
+name = "tt-server"
+description = "Authoritative game server: sessions, permissions, event log, filtering."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tt-rules = { path = "../rules" }
+tt-plugin-host = { path = "../plugin-host" }
+
+[lints]
+workspace = true

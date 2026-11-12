@@ -1,0 +1,14 @@
+target/
+node_modules/
+dist/
+build/
+.svelte-kit/
+pkg/
+.env
+.env.*
+!.env.example
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package tomeandtile.v1;
+
+// Identifiers are opaque strings minted by the server (UUIDv7 text form).
+// Clients never invent an id for a server-owned object.
+
+// A point or offset in scene units. One grid cell is `Grid.cell_size` units.
+message Vec2 {
+  float x = 1;
+  float y = 2;
+}
+
+// Campaign role. Open enum: new roles may be appended.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_GM = 1;
+  ROLE_PLAYER = 2;
+  ROLE_SPECTATOR = 3;
+}
+
+// The six ability scores.
+enum AbilityScore {
+  ABILITY_SCORE_UNSPECIFIED = 0;
+  ABILITY_SCORE_STRENGTH = 1;
+  ABILITY_SCORE_DEXTERITY = 2;
+  ABILITY_SCORE_CONSTITUTION = 3;
+  ABILITY_SCORE_INTELLIGENCE = 4;
+  ABILITY_SCORE_WISDOM = 5;
+  ABILITY_SCORE_CHARISMA = 6;
+}
+
+// Which edition's rules a piece of content was written for.
+enum RulesEdition {
+  RULES_EDITION_UNSPECIFIED = 0;
+  RULES_EDITION_2014 = 1;
+  RULES_EDITION_2024 = 2;
+}
+
+// Where a piece of content came from. Required on all game content so the
+// SRD-only rule (ADR 0009) can be checked.
+message Provenance {
+  // "srd-5.1", "srd-5.2", "creature-cauldron", "adventurers-anvil", "user".
+  string source = 1;
+  // Free text shown in the UI, e.g. the attribution line for SRD content.
+  string attribution = 2;
+}
+
+// A non-fatal note attached to an event: "out of range", "no spell slot".
+// The engine warns and never blocks (ADR 0005).
+message Warning {
+  // Stable machine code, e.g. "out_of_range".
+  string code = 1;
+  // Human-readable text.
+  string message = 2;
+}
