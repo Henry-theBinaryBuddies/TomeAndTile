@@ -25,5 +25,5 @@ axum = { version = "0.8.9", default-features = false, features = ["http1", "toki
 
 [dev-dependencies]
 tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
-tokio-tungstenite = "0.30.0"
+tokio-tungstenite = "0.29"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
