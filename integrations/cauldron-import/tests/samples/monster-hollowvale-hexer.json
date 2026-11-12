@@ -1,0 +1,158 @@
+{
+  "app": "Creature Cauldron",
+  "kind": "monster",
+  "format_version": 1,
+  "exported_at": "2026-11-12T21:26:57.711Z",
+  "monster": {
+    "id": "hollowvale-hexer-2a3b",
+    "schema_version": 1,
+    "name": "Hollowvale Hexer",
+    "source": "curated",
+    "validated": false,
+    "parent_id": null,
+    "generator": null,
+    "attribution": null,
+    "size": "medium",
+    "type": "humanoid",
+    "subtypes": [
+      "any race"
+    ],
+    "alignment": "neutral evil",
+    "armor_class": {
+      "value": 12,
+      "note": "15 with mage armor"
+    },
+    "hit_points": {
+      "average": 38,
+      "dice": "7d8+7"
+    },
+    "speeds": {
+      "walk": 30
+    },
+    "abilities": {
+      "str": 9,
+      "dex": 12,
+      "con": 12,
+      "int": 14,
+      "wis": 12,
+      "cha": 16
+    },
+    "saves": {},
+    "skills": {},
+    "vulnerabilities": [],
+    "resistances": [],
+    "immunities": [],
+    "condition_immunities": [],
+    "senses": {
+      "passive_perception": 11
+    },
+    "languages": "Common, Sylvan",
+    "challenge": {
+      "cr": "2",
+      "cr_value": 2,
+      "xp": 450,
+      "proficiency_bonus": 2
+    },
+    "traits": [],
+    "actions": [
+      {
+        "kind": "attack",
+        "name": "Dagger",
+        "attack": {
+          "mode": "melee_weapon",
+          "ability": "dex",
+          "to_hit": 3,
+          "reach": 5,
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "1d4",
+            "bonus": 1,
+            "type": "piercing"
+          }
+        ]
+      },
+      {
+        "kind": "attack",
+        "name": "Hex Bolt",
+        "attack": {
+          "mode": "ranged_spell",
+          "ability": "cha",
+          "to_hit": 5,
+          "range": {
+            "normal": 120,
+            "long": 120
+          },
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "2d8",
+            "bonus": 0,
+            "type": "force"
+          }
+        ]
+      }
+    ],
+    "bonus_actions": [],
+    "reactions": [],
+    "legendary_actions": null,
+    "spellcasting": {
+      "ability": "cha",
+      "dc": 13,
+      "attack_bonus": 5,
+      "innate": false,
+      "intro": "The hexer is a 4th-level spellcaster. Its spellcasting ability is Charisma (spell save DC 13, +5 to hit with spell attacks).",
+      "cantrips": [
+        {
+          "name": "minor illusion"
+        },
+        {
+          "name": "poison spray"
+        }
+      ],
+      "slots": [
+        {
+          "level": 1,
+          "slots": 4,
+          "spells": [
+            {
+              "name": "charm person"
+            },
+            {
+              "name": "ray of sickness"
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "slots": 3,
+          "spells": [
+            {
+              "name": "hold person"
+            },
+            {
+              "name": "misty step"
+            }
+          ]
+        }
+      ],
+      "at_will": [],
+      "per_day": [],
+      "footer": ""
+    },
+    "environments": [
+      "swamp",
+      "forest"
+    ],
+    "role": "controller",
+    "damage_themes": [
+      "force"
+    ],
+    "features": [
+      "spellcasting"
+    ],
+    "description": "A hermit in a coat of knotted charms who trades curses for favors and favors for worse curses."
+  }
+}
