@@ -1,0 +1,8 @@
+version: v2
+clean: true
+plugins:
+  # Local plugin from contracts/ts/node_modules/.bin (npm scripts put it on PATH).
+  - local: protoc-gen-es
+    out: ts/src/gen
+    opt:
+      - target=ts

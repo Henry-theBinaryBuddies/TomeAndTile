@@ -64,6 +64,28 @@ bash tools/check-deps.sh
 
 `bash` comes with Git for Windows. If PowerShell cannot find it, run the command from the "Git Bash" program instead.
 
+## Generating the TypeScript contract types
+
+The generated files in `contracts/ts/src/gen` are committed, so you only need this after a `.proto` file changes (or to confirm they are up to date). Run from the repository folder:
+
+```bash
+cd contracts/ts
+```
+
+```bash
+npm.cmd ci
+```
+
+```bash
+npm.cmd run generate
+```
+
+```bash
+npm.cmd run check
+```
+
+`git status` should show no change under `contracts/ts/src/gen` unless a `.proto` file changed. Rust types need no extra step: `cargo build` generates them.
+
 ## Only the project owner, for now
 
 Docker Desktop, for PostgreSQL and MinIO locally:

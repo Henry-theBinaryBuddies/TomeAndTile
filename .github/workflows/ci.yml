@@ -32,6 +32,32 @@ jobs:
           breaking: ${{ github.event_name == 'pull_request' }}
           breaking_against: "${{ github.event.repository.clone_url }}#branch=main,subdir=contracts"
           push: false
+          # The job has read-only permissions, so it cannot post PR comments.
+          pr_comment: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: contracts/ts/package-lock.json
+      - name: Install TypeScript contract dependencies
+        run: npm ci
+        working-directory: contracts/ts
+      - name: Generate TypeScript contract types
+        run: npm run generate
+        working-directory: contracts/ts
+      - name: Fail if generated code is stale
+        # `git status` also catches new, uncommitted generated files, which
+        # `git diff` alone would miss.
+        run: |
+          changes="$(git status --porcelain -- contracts/ts/src/gen)"
+          if [ -n "$changes" ]; then
+            echo "Generated TypeScript is stale. Run 'npm run generate' in contracts/ts and commit:"
+            echo "$changes"
+            exit 1
+          fi
+      - name: Type-check TypeScript contract types
+        run: npm run check
+        working-directory: contracts/ts
 
   rust:
     name: Rust build and test
