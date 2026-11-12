@@ -8,6 +8,7 @@ pkg/
 .env.*
 !.env.example
 *.log
+.claude/worktrees/
 .idea/
 .vscode/
 .DS_Store
