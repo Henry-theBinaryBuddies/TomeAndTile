@@ -46,7 +46,15 @@ jobs:
         run: npm run generate
         working-directory: contracts/ts
       - name: Fail if generated code is stale
-        run: git diff --exit-code -- contracts/ts/src/gen
+        # `git status` also catches new, uncommitted generated files, which
+        # `git diff` alone would miss.
+        run: |
+          changes="$(git status --porcelain -- contracts/ts/src/gen)"
+          if [ -n "$changes" ]; then
+            echo "Generated TypeScript is stale. Run 'npm run generate' in contracts/ts and commit:"
+            echo "$changes"
+            exit 1
+          fi
       - name: Type-check TypeScript contract types
         run: npm run check
         working-directory: contracts/ts
