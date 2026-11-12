@@ -32,6 +32,8 @@ jobs:
           breaking: ${{ github.event_name == 'pull_request' }}
           breaking_against: "${{ github.event.repository.clone_url }}#branch=main,subdir=contracts"
           push: false
+          # The job has read-only permissions, so it cannot post PR comments.
+          pr_comment: false
 
   rust:
     name: Rust build and test
