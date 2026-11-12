@@ -5,7 +5,8 @@ Drafts of the first GitHub issues. Once the remote exists, file each as an issue
 ## Done in the initial commit
 
 - Repository skeleton, `ARCHITECTURE.md`, ADRs 0001 to 0013
-- Contracts v0 (written, **not yet linted or compiled**)
+- Contracts v0 (`buf lint` and `buf build` pass)
+- Workspace builds: `cargo fmt`, `clippy`, `test` and the WASM build of the renderer pass
 - CODEOWNERS, per-directory `CLAUDE.md`, issue and PR templates
 - CI workflow and `tools/check-deps.sh`
 - Onboarding and Windows setup documents
@@ -18,10 +19,6 @@ Drafts of the first GitHub issues. Once the remote exists, file each as an issue
 - Invite @aalemany00 and @Danny-Defeato with Write access.
 - Branch protection on `main`: require a pull request, require review from Code Owners, require the three CI jobs, block force pushes.
 - Acceptance: a direct push to `main` is refused; a PR touching `web/` requests @Danny-Defeato automatically.
-
-### [contracts] Lint and fix contracts v0
-- Install Buf, run `buf lint contracts`, fix what it reports.
-- Acceptance: `buf lint contracts` exits 0 locally and in CI.
 
 ### [contracts] Code generation for Rust and TypeScript
 - Add a `tt-contracts` crate generating Rust types (prost), and a TypeScript package generated with Buf for `web/`.

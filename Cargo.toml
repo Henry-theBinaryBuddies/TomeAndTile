@@ -12,7 +12,6 @@ members = [
 version = "0.0.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-repository = "https://github.com/Henry-theBinaryBuddies/TomeAndTile"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

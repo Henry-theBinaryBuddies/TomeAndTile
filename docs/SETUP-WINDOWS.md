@@ -31,8 +31,14 @@ winget install --id OpenJS.NodeJS.LTS -e
 Buf, the Protobuf tool used to check and generate the contracts:
 
 ```bash
-npm install -g @bufbuild/buf
+npm.cmd install -g @bufbuild/buf
 ```
+
+## If something is "not recognized"
+
+- **`cargo`, `rustc` or `buf` not recognized right after installing:** the window was opened before the install and has an old PATH. Close every PowerShell window, and restart any app that has a built-in terminal (the Claude desktop app, your editor), then try again.
+- **`npm` says "running scripts is disabled on this system":** type `npm.cmd` instead of `npm`. The same goes for `buf.cmd` if `buf` gives that error.
+- **`winget` not recognized:** install Rust from https://rustup.rs and the build tools from https://visualstudio.microsoft.com/visual-cpp-build-tools/ (tick "Desktop development with C++").
 
 Clone the repository (the URL will be confirmed once the remote exists):
 

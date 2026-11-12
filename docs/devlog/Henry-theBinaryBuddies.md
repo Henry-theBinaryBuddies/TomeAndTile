@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-12 — Toolchain installed, skeleton verified
+
+**Did:** Installed Rust, the C++ build tools and Buf. The workspace passes `cargo fmt`, `clippy`, `test` and the WASM build; the contracts pass `buf lint` and `buf build`. Removed two unused manifest entries that Cargo warned about.
+**Directed Claude to:** diagnose a wall of "not recognized" errors. The installs had worked; the terminal had a stale PATH and PowerShell blocked `npm.ps1`.
+**Learned:** On Windows, use `npm.cmd` when script execution is disabled, and restart the app hosting the terminal after an install. Both are now in `docs/SETUP-WINDOWS.md` for the other two.
+**Blocked on / next:** Create the GitHub remote and protect `main`.
+
 ## 2026-11-12 — Video decision: SFU
 
 **Did:** Accepted ADR 0007 with LiveKit as the SFU (LiveKit Cloud for the class). Cut `media.proto` down to a join-token request and reply and removed the signalling messages.
