@@ -34,6 +34,22 @@ jobs:
           push: false
           # The job has read-only permissions, so it cannot post PR comments.
           pr_comment: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: contracts/ts/package-lock.json
+      - name: Install TypeScript contract dependencies
+        run: npm ci
+        working-directory: contracts/ts
+      - name: Generate TypeScript contract types
+        run: npm run generate
+        working-directory: contracts/ts
+      - name: Fail if generated code is stale
+        run: git diff --exit-code -- contracts/ts/src/gen
+      - name: Type-check TypeScript contract types
+        run: npm run check
+        working-directory: contracts/ts
 
   rust:
     name: Rust build and test
