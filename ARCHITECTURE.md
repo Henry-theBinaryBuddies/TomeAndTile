@@ -23,12 +23,12 @@ crates/rules  crates/plugin-host
 |---|---|---|
 | `contracts/` | Message and file-format definitions. Versioned; breaking changes are rejected by CI. | nothing |
 | `crates/rules` | Pure 5e rules engine: takes state plus an intent, returns events. No I/O, no clock, no network. Dice come from an injected roller. | contracts |
-| `crates/server` | WebSocket sessions, accounts, permissions, the event log, per-viewer filtering, persistence, WebRTC signalling. | contracts, rules, plugin-host |
+| `crates/server` | WebSocket sessions, accounts, permissions, the event log, per-viewer filtering, persistence, video join tokens. | contracts, rules, plugin-host |
 | `crates/renderer` | Draws scenes: map, grid, tokens, templates, later walls, lighting and fog. Compiled to WASM. Takes events in, emits pointer-level intents out. | contracts |
 | `crates/plugin-host` | Runs third-party WASM plugins in a sandbox with an explicit capability list. | contracts |
 | `integrations/` | Pure functions from a foreign file (Creature Cauldron export, Universal VTT map, image) to contract messages. Plus the asset upload pipeline. | contracts only |
 | `web/` | Dockable panels, character sheet, chat and dice log, initiative bar, GM tools, PWA and touch layouts. Hosts the renderer canvas. | contracts, the renderer's published WASM interface |
-| `web/media/` | Camera, microphone and peer connections. Uses the server only for signalling messages defined in `media.proto`. | contracts |
+| `web/media/` | Camera, microphone and the SFU connection, wrapping LiveKit's client library. Uses the server only to fetch a join token (`media.proto`). | contracts |
 
 ## The dependency rule
 
@@ -57,7 +57,7 @@ If two components need to share something, it goes into `contracts/` through a r
 
 ## Video and voice
 
-WebRTC, with signalling over the game server's WebSocket and Cloudflare TURN for relay. See [ADR 0007](docs/adr/0007-video-and-voice.md) for the mesh-first decision and the SFU upgrade path.
+An SFU (LiveKit) carries the media: LiveKit Cloud for the class, self-hostable later. The game server only mints short-lived join tokens for campaign members; browsers then talk to the SFU directly. See [ADR 0007](docs/adr/0007-video-and-voice.md).
 
 ## Extensions
 
@@ -65,7 +65,7 @@ Third-party code runs as sandboxed WASM with an explicit capability list (wasmti
 
 ## Deployment
 
-Docker Compose on a home Ubuntu server behind a Cloudflare Tunnel, static front end on Cloudflare Pages. Media does not travel through the tunnel; it goes peer to peer or through TURN.
+Docker Compose on a home Ubuntu server behind a Cloudflare Tunnel, static front end on Cloudflare Pages. Media does not travel through the tunnel; it goes between browsers and the SFU.
 
 ## Scope for the class final (2026-12-13)
 

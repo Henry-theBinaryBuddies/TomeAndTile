@@ -23,8 +23,8 @@ Fog and dynamic lighting, multi-level maps, Universal VTT and animated maps, plu
 
 | Due (Sunday) | Milestone | Video and voice |
 |---|---|---|
-| 2026-11-15 | M0: repository, contracts v0, CI, ownership, CLAUDE.md files, ADRs, onboarding, mock server | Signalling messages defined in the contracts |
-| 2026-11-22 | M1: map image upload, grid, tokens, synced movement, chat and dice in two browsers | Signalling relay and TURN credentials; a bare call works in two browsers |
+| 2026-11-15 | M0: repository, contracts v0, CI, ownership, CLAUDE.md files, ADRs, onboarding, mock server | Join-token messages defined in the contracts; LiveKit Cloud project created |
+| 2026-11-22 | M1: map image upload, grid, tokens, synced movement, chat and dice in two browsers | Server mints LiveKit join tokens; a bare call works in two browsers |
 | 2026-11-29 | M2: pregenerated characters, sheet screen, clickable abilities, targeting, attack rolls | Docked video panel with mute, camera toggle and device picker |
 | 2026-12-06 | M3: saves, damage, conditions, GM undo and override, Creature Cauldron import | Phone layout, reconnect handling |
 | 2026-12-13 | M4: 3D dice, health states, deployment, demo rehearsal | Tested over the real deployment |
@@ -34,7 +34,7 @@ Fog and dynamic lighting, multi-level maps, Universal VTT and animated maps, plu
 | Milestone | @Henry-theBinaryBuddies | @aalemany00 | @Danny-Defeato |
 |---|---|---|---|
 | M0 | Skeleton, contracts, CI, mock server | Machine setup, onboarding, first importer test against a sample file | Machine setup, onboarding, empty UI shell with dockable panels |
-| M1 | Server sync, canvas with map, grid and tokens, signalling relay | Map and token upload pipeline, peer connection module | Chat and dice log panel, initiative bar |
+| M1 | Server sync, canvas with map, grid and tokens, join-token endpoint | Map and token upload pipeline, LiveKit client module | Chat and dice log panel, initiative bar |
 | M2 | Rules engine: targeting, attack rolls, event log | Device handling and track management | Character sheet screen, video panel |
 | M3 | Saves, damage, conditions, undo and override | Creature Cauldron import | GM override cards, health states, phone layout |
 | M4 | 3D dice, deployment | Reconnect handling, demo data | Polish, demo rehearsal |

@@ -14,7 +14,7 @@ One file per group of related decisions. Each records what was chosen, why, and 
 | [0004](0004-state-model.md) | Server-authoritative, event-sourced state | Accepted |
 | [0005](0005-rules-engine.md) | 5e rules engine and automation | Accepted |
 | [0006](0006-dice-and-visibility.md) | Dice, chat and hidden information | Accepted |
-| [0007](0007-video-and-voice.md) | Video and voice | Proposed |
+| [0007](0007-video-and-voice.md) | Video and voice | Accepted |
 | [0008](0008-data-assets-accounts.md) | Persistence, assets, accounts and campaigns | Accepted |
 | [0009](0009-extensions-and-license.md) | Extensions, content and license | Accepted |
 | [0010](0010-integrations.md) | Integration with the other artifacts | Accepted |

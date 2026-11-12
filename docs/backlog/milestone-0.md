@@ -33,8 +33,10 @@ Drafts of the first GitHub issues. Once the remote exists, file each as an issue
 - Recorded fixtures live in `contracts/fixtures/` as Protobuf JSON.
 - Acceptance: `web/` can connect and render a scene with two tokens with no real server.
 
-### [adr] Confirm or change ADR 0007 (video and voice)
-- Decide between mesh-first with Cloudflare TURN (proposed) and an SFU from the start.
+### [media] Create the LiveKit Cloud project
+- Sign up, create a project, and note its usage limits against a 6-person, 3-hour session.
+- Put the URL, API key and secret in the server's local `.env` only. Never in the repository, an issue or a chat.
+- Acceptance: the three values are in `.env`; `.env.example` lists the variable names with empty values.
 
 ### [content] Pregenerated SRD characters
 - Four or five level-3 characters as `Creature` JSON in `contracts/fixtures/characters/`, SRD 5.2 content only, with attribution.

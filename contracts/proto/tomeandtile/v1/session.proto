@@ -227,10 +227,7 @@ message ClientMessage {
   oneof kind {
     Hello hello = 1;
     Intent intent = 2;
-    MediaJoin media_join = 10;
-    MediaLeave media_leave = 11;
-    MediaSignal media_signal = 12;
-    MediaStatus media_status = 13;
+    MediaTokenRequest media_token_request = 10;
   }
 }
 
@@ -239,9 +236,6 @@ message ServerMessage {
     Snapshot snapshot = 1;
     Event event = 2;
     IntentRejected intent_rejected = 3;
-    MediaJoined media_joined = 10;
-    MediaPeerChanged media_peer_changed = 11;
-    MediaSignal media_signal = 12;
-    MediaStatus media_status = 13;
+    MediaToken media_token = 10;
   }
 }

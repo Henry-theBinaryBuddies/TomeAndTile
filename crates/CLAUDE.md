@@ -5,7 +5,7 @@ Owner: @Henry-theBinaryBuddies. Only the owner's Claude edits this directory. If
 | Crate | Job | May depend on |
 |---|---|---|
 | `rules` | Pure 5e rules engine | contracts |
-| `server` | Sessions, permissions, event log, filtering, signalling | contracts, `rules`, `plugin-host` |
+| `server` | Sessions, permissions, event log, filtering, video join tokens | contracts, `rules`, `plugin-host` |
 | `renderer` | WASM/WebGPU map canvas | contracts |
 | `plugin-host` | Sandboxed plugin runtime | contracts |
 
