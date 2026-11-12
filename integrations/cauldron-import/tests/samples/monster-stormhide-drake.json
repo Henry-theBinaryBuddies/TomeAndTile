@@ -1,0 +1,168 @@
+{
+  "app": "Creature Cauldron",
+  "kind": "monster",
+  "format_version": 1,
+  "exported_at": "2026-11-12T21:26:57.711Z",
+  "monster": {
+    "id": "stormhide-drake-2f77",
+    "schema_version": 1,
+    "name": "Stormhide Drake",
+    "source": "curated",
+    "validated": false,
+    "parent_id": null,
+    "generator": null,
+    "attribution": null,
+    "size": "large",
+    "type": "dragon",
+    "subtypes": [],
+    "alignment": "neutral",
+    "armor_class": {
+      "value": 15,
+      "note": "natural armor"
+    },
+    "hit_points": {
+      "average": 85,
+      "dice": "10d10+30"
+    },
+    "speeds": {
+      "walk": 40,
+      "fly": 60
+    },
+    "abilities": {
+      "str": 19,
+      "dex": 12,
+      "con": 17,
+      "int": 6,
+      "wis": 12,
+      "cha": 8
+    },
+    "saves": {
+      "dex": 3,
+      "con": 5
+    },
+    "skills": {
+      "Perception": 3,
+      "Stealth": 3
+    },
+    "vulnerabilities": [],
+    "resistances": [],
+    "immunities": [
+      "lightning"
+    ],
+    "condition_immunities": [],
+    "senses": {
+      "blindsight": 10,
+      "darkvision": 60,
+      "passive_perception": 13
+    },
+    "languages": "Draconic",
+    "challenge": {
+      "cr": "4",
+      "cr_value": 4,
+      "xp": 1100,
+      "proficiency_bonus": 2
+    },
+    "traits": [
+      {
+        "kind": "text",
+        "name": "Static Hide",
+        "text": "A creature that touches the drake or hits it with a melee attack while within 5 feet of it takes 2 (1d4) lightning damage."
+      }
+    ],
+    "actions": [
+      {
+        "kind": "multiattack",
+        "name": "Multiattack",
+        "sequence": [
+          {
+            "action": "Bite",
+            "count": 1
+          },
+          {
+            "action": "Claw",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "kind": "attack",
+        "name": "Bite",
+        "attack": {
+          "mode": "melee_weapon",
+          "ability": "str",
+          "to_hit": 6,
+          "reach": 10,
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "2d8",
+            "bonus": 4,
+            "type": "piercing"
+          }
+        ]
+      },
+      {
+        "kind": "attack",
+        "name": "Claw",
+        "attack": {
+          "mode": "melee_weapon",
+          "ability": "str",
+          "to_hit": 6,
+          "reach": 5,
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "1d8",
+            "bonus": 4,
+            "type": "slashing"
+          }
+        ]
+      },
+      {
+        "kind": "save",
+        "name": "Stormbreath",
+        "recharge": {
+          "min": 5
+        },
+        "save": {
+          "ability": "con",
+          "dc": 13
+        },
+        "area": {
+          "shape": "line",
+          "size": 30,
+          "width": 5
+        },
+        "on_fail": [
+          {
+            "dice": "6d6",
+            "bonus": 0,
+            "type": "lightning"
+          }
+        ],
+        "on_success": "half"
+      }
+    ],
+    "bonus_actions": [],
+    "reactions": [],
+    "legendary_actions": null,
+    "spellcasting": null,
+    "environments": [
+      "mountain",
+      "hill",
+      "coast"
+    ],
+    "role": "brute",
+    "damage_themes": [
+      "lightning"
+    ],
+    "features": [
+      "flying",
+      "multiattack",
+      "breath-weapon"
+    ],
+    "description": "A lean, long-winged drake whose slate scales crackle with static whenever a storm gathers over the peaks."
+  }
+}
