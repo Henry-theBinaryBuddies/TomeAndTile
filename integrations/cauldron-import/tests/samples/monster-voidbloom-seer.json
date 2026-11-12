@@ -1,0 +1,187 @@
+{
+  "app": "Creature Cauldron",
+  "kind": "monster",
+  "format_version": 1,
+  "exported_at": "2026-11-12T21:26:57.711Z",
+  "monster": {
+    "id": "voidbloom-seer-4b5c",
+    "schema_version": 1,
+    "name": "Voidbloom Seer",
+    "source": "curated",
+    "validated": false,
+    "parent_id": null,
+    "generator": null,
+    "attribution": null,
+    "size": "large",
+    "type": "aberration",
+    "subtypes": [],
+    "alignment": "lawful evil",
+    "armor_class": {
+      "value": 15,
+      "note": "natural armor"
+    },
+    "hit_points": {
+      "average": 114,
+      "dice": "12d10+48"
+    },
+    "speeds": {
+      "fly": 20,
+      "hover": true
+    },
+    "abilities": {
+      "str": 10,
+      "dex": 12,
+      "con": 18,
+      "int": 20,
+      "wis": 16,
+      "cha": 18
+    },
+    "saves": {
+      "int": 8,
+      "wis": 6
+    },
+    "skills": {},
+    "vulnerabilities": [],
+    "resistances": [
+      "psychic"
+    ],
+    "immunities": [],
+    "condition_immunities": [
+      "prone"
+    ],
+    "senses": {
+      "darkvision": 120,
+      "passive_perception": 13
+    },
+    "languages": "Deep Speech, telepathy 120 ft.",
+    "challenge": {
+      "cr": "7",
+      "cr_value": 7,
+      "xp": 2900,
+      "proficiency_bonus": 3
+    },
+    "traits": [],
+    "actions": [
+      {
+        "kind": "multiattack",
+        "name": "Multiattack",
+        "sequence": [
+          {
+            "action": "Mind Lash",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "kind": "attack",
+        "name": "Mind Lash",
+        "attack": {
+          "mode": "ranged_spell",
+          "ability": "int",
+          "to_hit": 8,
+          "range": {
+            "normal": 60,
+            "long": 60
+          },
+          "targets": "one creature"
+        },
+        "damage": [
+          {
+            "dice": "3d8",
+            "bonus": 5,
+            "type": "psychic"
+          }
+        ]
+      },
+      {
+        "kind": "save",
+        "name": "Dread Pulse",
+        "recharge": {
+          "min": 5
+        },
+        "save": {
+          "ability": "wis",
+          "dc": 16
+        },
+        "area": {
+          "shape": "cone",
+          "size": 30
+        },
+        "on_fail": [
+          {
+            "dice": "8d6",
+            "bonus": 0,
+            "type": "psychic"
+          }
+        ],
+        "on_success": "half"
+      }
+    ],
+    "bonus_actions": [],
+    "reactions": [],
+    "legendary_actions": {
+      "per_round": 3,
+      "options": [
+        {
+          "name": "Mind Lash",
+          "cost": 1,
+          "text": "The seer makes one Mind Lash attack."
+        },
+        {
+          "name": "Drift",
+          "cost": 1,
+          "text": "The seer moves up to its flying speed without provoking opportunity attacks."
+        },
+        {
+          "name": "Unsettling Gaze",
+          "cost": 2,
+          "text": "One creature the seer can see within 60 feet must succeed on a DC 16 Wisdom saving throw or be frightened until the end of its next turn."
+        }
+      ]
+    },
+    "spellcasting": {
+      "ability": "int",
+      "dc": 16,
+      "attack_bonus": 8,
+      "innate": true,
+      "intro": "The seer's innate spellcasting ability is Intelligence (spell save DC 16). It can innately cast the following spells, requiring no components.",
+      "cantrips": [],
+      "slots": [],
+      "at_will": [
+        {
+          "name": "detect thoughts"
+        },
+        {
+          "name": "mage hand"
+        }
+      ],
+      "per_day": [
+        {
+          "uses": 1,
+          "each": false,
+          "spells": [
+            {
+              "name": "confusion"
+            }
+          ]
+        }
+      ],
+      "footer": ""
+    },
+    "environments": [
+      "underdark",
+      "planar"
+    ],
+    "role": "solo",
+    "damage_themes": [
+      "psychic"
+    ],
+    "features": [
+      "flying",
+      "multiattack",
+      "legendary",
+      "spellcasting"
+    ],
+    "description": "A drifting mass of petal-like flesh around a single unblinking eye, humming a tune only the dying can hear."
+  }
+}

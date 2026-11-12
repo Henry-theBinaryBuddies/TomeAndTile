@@ -1,0 +1,157 @@
+{
+  "app": "Creature Cauldron",
+  "kind": "monster",
+  "format_version": 1,
+  "exported_at": "2026-11-12T21:26:57.711Z",
+  "monster": {
+    "id": "dune-leviathan-6d7e",
+    "schema_version": 1,
+    "name": "Dune Leviathan",
+    "source": "curated",
+    "validated": false,
+    "parent_id": null,
+    "generator": null,
+    "attribution": null,
+    "size": "gargantuan",
+    "type": "monstrosity",
+    "subtypes": [],
+    "alignment": "unaligned",
+    "armor_class": {
+      "value": 18,
+      "note": "natural armor"
+    },
+    "hit_points": {
+      "average": 350,
+      "dice": "20d20+140"
+    },
+    "speeds": {
+      "walk": 40,
+      "burrow": 40
+    },
+    "abilities": {
+      "str": 26,
+      "dex": 8,
+      "con": 24,
+      "int": 3,
+      "wis": 12,
+      "cha": 5
+    },
+    "saves": {
+      "con": 12
+    },
+    "skills": {},
+    "vulnerabilities": [],
+    "resistances": [],
+    "immunities": [],
+    "condition_immunities": [
+      "blinded"
+    ],
+    "senses": {
+      "tremorsense": 120,
+      "passive_perception": 11
+    },
+    "languages": "—",
+    "challenge": {
+      "cr": "16",
+      "cr_value": 16,
+      "xp": 15000,
+      "proficiency_bonus": 5
+    },
+    "traits": [
+      {
+        "kind": "text",
+        "name": "Earth Glide",
+        "text": "The leviathan can burrow through sand and loose earth without disturbing the ground, leaving no tunnel behind."
+      }
+    ],
+    "actions": [
+      {
+        "kind": "multiattack",
+        "name": "Multiattack",
+        "sequence": [
+          {
+            "action": "Bite",
+            "count": 1
+          },
+          {
+            "action": "Tail",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "kind": "attack",
+        "name": "Bite",
+        "attack": {
+          "mode": "melee_weapon",
+          "ability": "str",
+          "to_hit": 13,
+          "reach": 15,
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "3d10",
+            "bonus": 8,
+            "type": "piercing"
+          }
+        ]
+      },
+      {
+        "kind": "attack",
+        "name": "Tail",
+        "attack": {
+          "mode": "melee_weapon",
+          "ability": "str",
+          "to_hit": 13,
+          "reach": 20,
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "2d8",
+            "bonus": 8,
+            "type": "bludgeoning"
+          }
+        ]
+      },
+      {
+        "kind": "save",
+        "name": "Sand Geyser",
+        "recharge": {
+          "min": 5
+        },
+        "save": {
+          "ability": "dex",
+          "dc": 20
+        },
+        "area": {
+          "shape": "line",
+          "size": 60,
+          "width": 10
+        },
+        "on_fail": [
+          {
+            "dice": "10d10",
+            "bonus": 0,
+            "type": "bludgeoning"
+          }
+        ],
+        "on_success": "half"
+      }
+    ],
+    "bonus_actions": [],
+    "reactions": [],
+    "legendary_actions": null,
+    "spellcasting": null,
+    "environments": [
+      "desert"
+    ],
+    "role": "solo",
+    "damage_themes": [],
+    "features": [
+      "multiattack"
+    ],
+    "description": "A vast, armored worm that surfaces without warning, swallowing caravans in a rolling wave of sand."
+  }
+}

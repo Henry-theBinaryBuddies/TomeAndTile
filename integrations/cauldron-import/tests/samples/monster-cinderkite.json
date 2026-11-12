@@ -1,0 +1,100 @@
+{
+  "app": "Creature Cauldron",
+  "kind": "monster",
+  "format_version": 1,
+  "exported_at": "2026-11-12T21:26:57.711Z",
+  "monster": {
+    "id": "cinderkite-3a1f",
+    "schema_version": 1,
+    "name": "Cinderkite",
+    "source": "curated",
+    "validated": false,
+    "parent_id": null,
+    "generator": null,
+    "attribution": null,
+    "size": "small",
+    "type": "beast",
+    "subtypes": [],
+    "alignment": "unaligned",
+    "armor_class": {
+      "value": 13,
+      "note": "natural armor"
+    },
+    "hit_points": {
+      "average": 7,
+      "dice": "2d6"
+    },
+    "speeds": {
+      "walk": 10,
+      "fly": 50
+    },
+    "abilities": {
+      "str": 6,
+      "dex": 16,
+      "con": 10,
+      "int": 2,
+      "wis": 14,
+      "cha": 6
+    },
+    "saves": {},
+    "skills": {
+      "Perception": 4
+    },
+    "vulnerabilities": [],
+    "resistances": [],
+    "immunities": [],
+    "condition_immunities": [],
+    "senses": {
+      "passive_perception": 14
+    },
+    "languages": "—",
+    "challenge": {
+      "cr": "1/8",
+      "cr_value": 0.125,
+      "xp": 25,
+      "proficiency_bonus": 2
+    },
+    "traits": [
+      {
+        "kind": "text",
+        "name": "Keen Sight",
+        "text": "The cinderkite has advantage on Wisdom (Perception) checks that rely on sight."
+      }
+    ],
+    "actions": [
+      {
+        "kind": "attack",
+        "name": "Talons",
+        "attack": {
+          "mode": "melee_weapon",
+          "ability": "dex",
+          "to_hit": 5,
+          "reach": 5,
+          "targets": "one target"
+        },
+        "damage": [
+          {
+            "dice": "1d4",
+            "bonus": 3,
+            "type": "piercing"
+          }
+        ]
+      }
+    ],
+    "bonus_actions": [],
+    "reactions": [],
+    "legendary_actions": null,
+    "spellcasting": null,
+    "environments": [
+      "grassland",
+      "hill",
+      "desert"
+    ],
+    "role": "skirmisher",
+    "damage_themes": [],
+    "features": [
+      "flying"
+    ],
+    "description": "A small raptor whose rust-red feathers glow faintly at the tips, as though dipped in embers. It hunts above burnt fields and tends to nest in old campfire rings."
+  }
+}
