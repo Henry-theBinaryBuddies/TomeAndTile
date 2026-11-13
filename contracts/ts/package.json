@@ -1,0 +1,22 @@
+{
+  "name": "@tomeandtile/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript types generated from the Protobuf contracts (see ADR 0003).",
+  "license": "AGPL-3.0-only",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "cd .. && buf generate",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.50.0",
+    "@bufbuild/protoc-gen-es": "^2.2.0",
+    "typescript": "^5.7.0"
+  }
+}

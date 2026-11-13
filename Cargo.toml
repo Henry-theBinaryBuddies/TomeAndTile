@@ -5,6 +5,8 @@ members = [
     "crates/server",
     "crates/renderer",
     "crates/plugin-host",
+    "crates/mock-server",
+    "contracts/rust",
     "integrations/cauldron-import",
 ]
 

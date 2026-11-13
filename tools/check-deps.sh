@@ -56,6 +56,13 @@ for crate in rules renderer plugin-host; do
   fi
 done
 
+# 6. The mock server is a recorded-data stand-in: it must not depend on the
+#    real server, the rules engine or the plugin host.
+manifest="crates/mock-server/Cargo.toml"
+if [ -f "$manifest" ] && grep -nE '^\s*(tt-server|tt-rules|tt-plugin-host)\s*=' "$manifest" >/dev/null; then
+  report "$manifest depends on the server, the rules engine or the plugin host"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo
   echo "See ARCHITECTURE.md, 'The dependency rule'."

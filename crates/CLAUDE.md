@@ -8,6 +8,7 @@ Owner: @Henry-theBinaryBuddies. Only the owner's Claude edits this directory. If
 | `server` | Sessions, permissions, event log, filtering, video join tokens | contracts, `rules`, `plugin-host` |
 | `renderer` | WASM/WebGPU map canvas | contracts |
 | `plugin-host` | Sandboxed plugin runtime | contracts |
+| `mock-server` | Recorded-data stand-in for the server | contracts |
 
 ## Rules
 
@@ -16,6 +17,7 @@ Owner: @Henry-theBinaryBuddies. Only the owner's Claude edits this directory. If
 - The server is the only place a die is rolled and the only place state changes.
 - Every outgoing event passes through per-viewer filtering. Adding a field that players must not see means adding its filter and a test in the same PR.
 - The renderer's WASM interface is a public API used by `web/`. Changing it needs a note in the PR and a heads-up issue for @Danny-Defeato.
+- The mock server must never gain rules or permissions logic. It is a recorded-data stand-in, and must not depend on `rules`, `server` or `plugin-host`.
 - `unsafe` is forbidden workspace-wide.
 
 ## Checks
