@@ -1,0 +1,250 @@
+{
+  "kind": "CREATURE_KIND_PLAYER_CHARACTER",
+  "name": "Sister Maribel Ashdown",
+  "edition": "RULES_EDITION_2024",
+  "size": "CREATURE_SIZE_MEDIUM",
+  "scores": {
+    "strength": 13,
+    "dexterity": 12,
+    "constitution": 14,
+    "intelligence": 8,
+    "wisdom": 17,
+    "charisma": 11
+  },
+  "proficiencyBonus": 2,
+  "armorClass": 18,
+  "hpCurrent": 27,
+  "hpMax": 27,
+  "speedFeet": 30,
+  "initiativeBonus": 1,
+  "saveProficiencies": [
+    "ABILITY_SCORE_WISDOM",
+    "ABILITY_SCORE_CHARISMA"
+  ],
+  "resistances": [
+    "DAMAGE_TYPE_POISON"
+  ],
+  "resources": [
+    {
+      "key": "spell_slot_1",
+      "label": "1st-level spell slots",
+      "current": 4,
+      "max": 4
+    },
+    {
+      "key": "spell_slot_2",
+      "label": "2nd-level spell slots",
+      "current": 2,
+      "max": 2
+    }
+  ],
+  "abilities": [
+    {
+      "abilityId": "mace",
+      "name": "Mace",
+      "description": "A heavy swing with a mace.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 5,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 3,
+            "damage": [
+              {
+                "dice": "1d6+1",
+                "type": "DAMAGE_TYPE_BLUDGEONING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "cantrip-sacred-flame",
+      "name": "Sacred Flame",
+      "description": "Cantrip. Radiant light falls on a creature you can see; it must make a Dexterity save or take radiant damage. Cover does not help it.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 60,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "save": {
+            "ability": "ABILITY_SCORE_DEXTERITY",
+            "dc": 13,
+            "damage": [
+              {
+                "dice": "1d8",
+                "type": "DAMAGE_TYPE_RADIANT"
+              }
+            ],
+            "halfOnSuccess": false
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "cure-wounds",
+      "name": "Cure Wounds",
+      "description": "Touch a creature to heal it: 2d8 plus Wisdom modifier (3), plus 3 from Disciple of Life at 1st level. Cast with a higher slot to add 2d8 and 1 more from Disciple of Life per level.",
+      "cost": "ACTION_COST_ACTION",
+      "resourceKey": "spell_slot_1",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "flat": {
+            "healingDice": "2d8+6"
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "cure-wounds-2",
+      "name": "Cure Wounds (2nd level)",
+      "description": "Cure Wounds cast with a 2nd-level slot: 4d8 plus Wisdom modifier (3), plus 4 from Disciple of Life.",
+      "cost": "ACTION_COST_ACTION",
+      "resourceKey": "spell_slot_2",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "flat": {
+            "healingDice": "4d8+7"
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "healing-word",
+      "name": "Healing Word",
+      "description": "A short word of power heals a creature within 60 feet: 2d4 plus Wisdom modifier (3), plus 3 from Disciple of Life at 1st level.",
+      "cost": "ACTION_COST_BONUS_ACTION",
+      "resourceKey": "spell_slot_1",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 60,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "flat": {
+            "healingDice": "2d4+6"
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "bless",
+      "name": "Bless",
+      "description": "Up to three creatures you choose gain a d4 on attack rolls and saving throws for up to a minute while you concentrate.",
+      "cost": "ACTION_COST_ACTION",
+      "resourceKey": "spell_slot_1",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 30,
+        "maxTargets": 3
+      },
+      "steps": [
+        {
+          "applyEffect": {
+            "effectId": "bless",
+            "duration": {
+              "unit": "DURATION_UNIT_MINUTES",
+              "amount": 1,
+              "concentration": true
+            }
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "disciple-of-life",
+      "name": "Disciple of Life",
+      "description": "Life Domain feature: when a spell of yours restores hit points, the target regains an extra 2 plus the slot level. Already included in the spell healing dice.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "divine-order-protector",
+      "name": "Divine Order: Protector",
+      "description": "Cleric feature: training with heavy armour and martial weapons, which is what lets you wear chain mail.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "dwarven-toughness",
+      "name": "Dwarven Toughness",
+      "description": "Dwarf trait: your hit point maximum is 1 higher per level (already included). Dwarves also resist poison damage and have darkvision.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    }
+  ],
+  "summary": "Dwarf Cleric 3 (Life Domain)",
+  "provenance": {
+    "source": "srd-5.2",
+    "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+  },
+  "skills": [
+    {
+      "skill": "insight",
+      "bonus": 5
+    },
+    {
+      "skill": "medicine",
+      "bonus": 5
+    },
+    {
+      "skill": "religion",
+      "bonus": 1
+    }
+  ],
+  "passivePerception": 13
+}

@@ -1,0 +1,212 @@
+{
+  "kind": "CREATURE_KIND_PLAYER_CHARACTER",
+  "name": "Korvath Greywind",
+  "edition": "RULES_EDITION_2024",
+  "size": "CREATURE_SIZE_MEDIUM",
+  "scores": {
+    "strength": 12,
+    "dexterity": 17,
+    "constitution": 14,
+    "intelligence": 10,
+    "wisdom": 14,
+    "charisma": 8
+  },
+  "proficiencyBonus": 2,
+  "armorClass": 15,
+  "hpCurrent": 28,
+  "hpMax": 28,
+  "speedFeet": 30,
+  "initiativeBonus": 3,
+  "saveProficiencies": [
+    "ABILITY_SCORE_STRENGTH",
+    "ABILITY_SCORE_DEXTERITY"
+  ],
+  "resources": [
+    {
+      "key": "spell_slot_1",
+      "label": "1st-level spell slots",
+      "current": 3,
+      "max": 3
+    },
+    {
+      "key": "adrenaline_rush",
+      "label": "Adrenaline Rush",
+      "current": 2,
+      "max": 2
+    }
+  ],
+  "abilities": [
+    {
+      "abilityId": "shortsword",
+      "name": "Shortsword",
+      "description": "A quick finesse cut with a shortsword.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 5,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 5,
+            "damage": [
+              {
+                "dice": "1d6+3",
+                "type": "DAMAGE_TYPE_PIERCING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "longbow",
+      "name": "Longbow",
+      "description": "A drawn shot from a longbow, effective to 150 feet and possible to 600. Includes +2 from the Archery fighting style.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 150,
+        "longRangeFeet": 600,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 7,
+            "damage": [
+              {
+                "dice": "1d8+3",
+                "type": "DAMAGE_TYPE_PIERCING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "cure-wounds",
+      "name": "Cure Wounds",
+      "description": "Touch a creature to heal it: 2d8 plus Wisdom modifier (2).",
+      "cost": "ACTION_COST_ACTION",
+      "resourceKey": "spell_slot_1",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "flat": {
+            "healingDice": "2d8+2"
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "hunters-mark",
+      "name": "Hunter's Mark",
+      "description": "Mark a creature within 90 feet while concentrating, up to an hour. Your weapon hits against it deal extra force damage, and you can find it easily. Apply the extra damage in play.",
+      "cost": "ACTION_COST_BONUS_ACTION",
+      "resourceKey": "spell_slot_1",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 90,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "applyEffect": {
+            "effectId": "hunters_mark",
+            "duration": {
+              "unit": "DURATION_UNIT_HOURS",
+              "amount": 1,
+              "concentration": true
+            }
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "adrenaline-rush",
+      "name": "Adrenaline Rush",
+      "description": "Orc trait: Dash as a bonus action and gain temporary hit points equal to your proficiency bonus (2). Apply the temporary hit points in play.",
+      "cost": "ACTION_COST_BONUS_ACTION",
+      "resourceKey": "adrenaline_rush",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_SELF"
+      },
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "hunters-prey",
+      "name": "Hunter's Prey",
+      "description": "Hunter feature (Colossus Slayer): once per turn, a weapon hit on a creature below its hit point maximum deals an extra 1d8 damage. Applied by the player in play.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "fighting-style-archery",
+      "name": "Fighting Style: Archery",
+      "description": "You gain a +2 bonus to attack rolls with ranged weapons (already included in the longbow bonus).",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    }
+  ],
+  "summary": "Orc Ranger 3 (Hunter)",
+  "provenance": {
+    "source": "srd-5.2",
+    "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+  },
+  "skills": [
+    {
+      "skill": "perception",
+      "bonus": 6
+    },
+    {
+      "skill": "stealth",
+      "bonus": 5
+    },
+    {
+      "skill": "survival",
+      "bonus": 4
+    },
+    {
+      "skill": "athletics",
+      "bonus": 3
+    },
+    {
+      "skill": "intimidation",
+      "bonus": 1
+    }
+  ],
+  "passivePerception": 16
+}
