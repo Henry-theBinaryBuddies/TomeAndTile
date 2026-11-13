@@ -25,4 +25,4 @@ web-sys = { version = "0.3.107", features = [
     "DomRect", "Element", "console",
 ] }
 js-sys = "0.3.107"
-bytemuck = { version = "1.25.2", features = ["derive"] }
+bytemuck = "1.25.2"

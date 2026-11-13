@@ -219,6 +219,9 @@ impl Gpu {
         } else {
             1.0
         };
+        // A NaN or infinite size from the host must not reach the surface.
+        let sane = |v: f64| if v.is_finite() { v.max(1.0) } else { 1.0 };
+        let (css_w, css_h) = (sane(css_w), sane(css_h));
         let max = f64::from(self.max_texture);
         let w = (css_w * dpr).round().clamp(1.0, max) as u32;
         let h = (css_h * dpr).round().clamp(1.0, max) as u32;
