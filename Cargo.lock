@@ -984,6 +984,15 @@ dependencies = [
 [[package]]
 name = "tt-server"
 version = "0.0.0"
+dependencies = [
+ "axum",
+ "getrandom",
+ "prost",
+ "serde_json",
+ "tokio",
+ "tt-contracts",
+ "tt-rules",
+]
 
 [[package]]
 name = "tungstenite"
