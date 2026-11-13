@@ -1,0 +1,178 @@
+{
+  "kind": "CREATURE_KIND_PLAYER_CHARACTER",
+  "name": "Brannoch Vale",
+  "edition": "RULES_EDITION_2024",
+  "size": "CREATURE_SIZE_MEDIUM",
+  "scores": {
+    "strength": 17,
+    "dexterity": 14,
+    "constitution": 14,
+    "intelligence": 10,
+    "wisdom": 12,
+    "charisma": 8
+  },
+  "proficiencyBonus": 2,
+  "armorClass": 19,
+  "hpCurrent": 28,
+  "hpMax": 28,
+  "speedFeet": 30,
+  "initiativeBonus": 2,
+  "saveProficiencies": [
+    "ABILITY_SCORE_STRENGTH",
+    "ABILITY_SCORE_CONSTITUTION"
+  ],
+  "resources": [
+    {
+      "key": "second_wind",
+      "label": "Second Wind",
+      "current": 2,
+      "max": 2
+    },
+    {
+      "key": "action_surge",
+      "label": "Action Surge",
+      "current": 1,
+      "max": 1
+    }
+  ],
+  "abilities": [
+    {
+      "abilityId": "longsword",
+      "name": "Longsword",
+      "description": "A one-handed swing with a longsword; the shield stays up.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 5,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 5,
+            "damage": [
+              {
+                "dice": "1d8+3",
+                "type": "DAMAGE_TYPE_SLASHING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "longbow",
+      "name": "Longbow",
+      "description": "A drawn shot from a longbow, effective out to 150 feet and possible to 600.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 150,
+        "longRangeFeet": 600,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 4,
+            "damage": [
+              {
+                "dice": "1d8+2",
+                "type": "DAMAGE_TYPE_PIERCING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "second-wind",
+      "name": "Second Wind",
+      "description": "Catch your breath and recover hit points. Two uses, regained on a rest.",
+      "cost": "ACTION_COST_BONUS_ACTION",
+      "resourceKey": "second_wind",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_SELF"
+      },
+      "steps": [
+        {
+          "flat": {
+            "healingDice": "1d10+3"
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "action-surge",
+      "name": "Action Surge",
+      "description": "Push past your limits to take one extra action this turn. One use, regained on a short or long rest.",
+      "cost": "ACTION_COST_FREE",
+      "resourceKey": "action_surge",
+      "resourceAmount": 1,
+      "targeting": {
+        "shape": "TARGET_SHAPE_SELF"
+      },
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "improved-critical",
+      "name": "Improved Critical",
+      "description": "Champion feature: weapon attacks score a critical hit on a roll of 19 or 20.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "fighting-style-defense",
+      "name": "Fighting Style: Defense",
+      "description": "While wearing armour you gain a +1 bonus to Armor Class (already included in AC 19: chain mail 16, shield 2, Defense 1).",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    }
+  ],
+  "summary": "Human Fighter 3 (Champion)",
+  "provenance": {
+    "source": "srd-5.2",
+    "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+  },
+  "skills": [
+    {
+      "skill": "athletics",
+      "bonus": 5
+    },
+    {
+      "skill": "acrobatics",
+      "bonus": 4
+    },
+    {
+      "skill": "perception",
+      "bonus": 3
+    },
+    {
+      "skill": "intimidation",
+      "bonus": 1
+    }
+  ],
+  "passivePerception": 13
+}

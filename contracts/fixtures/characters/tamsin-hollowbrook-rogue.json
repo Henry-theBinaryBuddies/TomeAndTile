@@ -1,0 +1,155 @@
+{
+  "kind": "CREATURE_KIND_PLAYER_CHARACTER",
+  "name": "Tamsin Hollowbrook",
+  "edition": "RULES_EDITION_2024",
+  "size": "CREATURE_SIZE_SMALL",
+  "scores": {
+    "strength": 8,
+    "dexterity": 17,
+    "constitution": 15,
+    "intelligence": 13,
+    "wisdom": 10,
+    "charisma": 12
+  },
+  "proficiencyBonus": 2,
+  "armorClass": 14,
+  "hpCurrent": 24,
+  "hpMax": 24,
+  "speedFeet": 30,
+  "initiativeBonus": 5,
+  "saveProficiencies": [
+    "ABILITY_SCORE_DEXTERITY",
+    "ABILITY_SCORE_INTELLIGENCE"
+  ],
+  "abilities": [
+    {
+      "abilityId": "rapier",
+      "name": "Rapier",
+      "description": "A quick finesse thrust with a rapier.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 5,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 5,
+            "damage": [
+              {
+                "dice": "1d8+3",
+                "type": "DAMAGE_TYPE_PIERCING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "shortbow",
+      "name": "Shortbow",
+      "description": "A shot from a shortbow, effective to 80 feet and possible to 320.",
+      "cost": "ACTION_COST_ACTION",
+      "targeting": {
+        "shape": "TARGET_SHAPE_CREATURES",
+        "rangeFeet": 80,
+        "longRangeFeet": 320,
+        "maxTargets": 1
+      },
+      "steps": [
+        {
+          "attack": {
+            "toHitBonus": 5,
+            "damage": [
+              {
+                "dice": "1d6+3",
+                "type": "DAMAGE_TYPE_PIERCING"
+              }
+            ]
+          }
+        }
+      ],
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "sneak-attack",
+      "name": "Sneak Attack",
+      "description": "Once per turn, add 2d6 damage to a finesse or ranged weapon hit if you have advantage, or if another enemy of the target is within 5 feet of it and you do not have disadvantage. Applied by the player in play.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "cunning-action",
+      "name": "Cunning Action",
+      "description": "On your turn you can use a bonus action to Dash, Disengage or Hide.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "halfling-luck",
+      "name": "Halfling Luck",
+      "description": "When you roll a 1 on the d20 of a D20 Test, you can reroll and must use the new roll. Halflings are also Brave and Naturally Stealthy.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
+      "abilityId": "alert",
+      "name": "Alert",
+      "description": "Origin feat from the Criminal background: add your proficiency bonus to initiative (already included).",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    }
+  ],
+  "summary": "Halfling Rogue 3 (Thief)",
+  "provenance": {
+    "source": "srd-5.2",
+    "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+  },
+  "skills": [
+    {
+      "skill": "stealth",
+      "bonus": 7
+    },
+    {
+      "skill": "sleight_of_hand",
+      "bonus": 7
+    },
+    {
+      "skill": "acrobatics",
+      "bonus": 5
+    },
+    {
+      "skill": "deception",
+      "bonus": 3
+    },
+    {
+      "skill": "investigation",
+      "bonus": 3
+    },
+    {
+      "skill": "perception",
+      "bonus": 2
+    }
+  ],
+  "passivePerception": 12
+}
