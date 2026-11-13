@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tomeandtile/v1/common.proto.
  */
 export const file_tomeandtile_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("Cht0b21lYW5kdGlsZS92MS9jb21tb24ucHJvdG8SDnRvbWVhbmR0aWxlLnYxIhwKBFZlYzISCQoBeBgBIAEoAhIJCgF5GAIgASgCIjEKClByb3ZlbmFuY2USDgoGc291cmNlGAEgASgJEhMKC2F0dHJpYnV0aW9uGAIgASgJIigKB1dhcm5pbmcSDAoEY29kZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJKk4KBFJvbGUSFAoQUk9MRV9VTlNQRUNJRklFRBAAEgsKB1JPTEVfR00QARIPCgtST0xFX1BMQVlFUhACEhIKDlJPTEVfU1BFQ1RBVE9SEAMq3AEKDEFiaWxpdHlTY29yZRIdChlBQklMSVRZX1NDT1JFX1VOU1BFQ0lGSUVEEAASGgoWQUJJTElUWV9TQ09SRV9TVFJFTkdUSBABEhsKF0FCSUxJVFlfU0NPUkVfREVYVEVSSVRZEAISHgoaQUJJTElUWV9TQ09SRV9DT05TVElUVVRJT04QAxIeChpBQklMSVRZX1NDT1JFX0lOVEVMTElHRU5DRRAEEhgKFEFCSUxJVFlfU0NPUkVfV0lTRE9NEAUSGgoWQUJJTElUWV9TQ09SRV9DSEFSSVNNQRAGKl0KDFJ1bGVzRWRpdGlvbhIdChlSVUxFU19FRElUSU9OX1VOU1BFQ0lGSUVEEAASFgoSUlVMRVNfRURJVElPTl8yMDE0EAESFgoSUlVMRVNfRURJVElPTl8yMDI0EAJiBnByb3RvMw");
+  fileDesc("Cht0b21lYW5kdGlsZS92MS9jb21tb24ucHJvdG8SDnRvbWVhbmR0aWxlLnYxIhwKBFZlYzISCQoBeBgBIAEoAhIJCgF5GAIgASgCIlwKClByb3ZlbmFuY2USDgoGc291cmNlGAEgASgJEhMKC2F0dHJpYnV0aW9uGAIgASgJEhMKC2V4dGVybmFsX2lkGAMgASgJEhQKDG9yaWdpbl9ub3RlcxgEIAEoCSIoCgdXYXJuaW5nEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCSpOCgRSb2xlEhQKEFJPTEVfVU5TUEVDSUZJRUQQABILCgdST0xFX0dNEAESDwoLUk9MRV9QTEFZRVIQAhISCg5ST0xFX1NQRUNUQVRPUhADKtwBCgxBYmlsaXR5U2NvcmUSHQoZQUJJTElUWV9TQ09SRV9VTlNQRUNJRklFRBAAEhoKFkFCSUxJVFlfU0NPUkVfU1RSRU5HVEgQARIbChdBQklMSVRZX1NDT1JFX0RFWFRFUklUWRACEh4KGkFCSUxJVFlfU0NPUkVfQ09OU1RJVFVUSU9OEAMSHgoaQUJJTElUWV9TQ09SRV9JTlRFTExJR0VOQ0UQBBIYChRBQklMSVRZX1NDT1JFX1dJU0RPTRAFEhoKFkFCSUxJVFlfU0NPUkVfQ0hBUklTTUEQBipdCgxSdWxlc0VkaXRpb24SHQoZUlVMRVNfRURJVElPTl9VTlNQRUNJRklFRBAAEhYKElJVTEVTX0VESVRJT05fMjAxNBABEhYKElJVTEVTX0VESVRJT05fMjAyNBACYgZwcm90bzM");
 
 /**
  * A point or offset in scene units. One grid cell is `Grid.cell_size` units.
@@ -56,6 +56,24 @@ export type Provenance = Message<"tomeandtile.v1.Provenance"> & {
    * @generated from field: string attribution = 2;
    */
   attribution: string;
+
+  /**
+   * The id this content has in the system it came from (for example a
+   * Creature Cauldron monster id), so a re-import can be matched to the
+   * earlier one. Never used as a Tome & Tile id.
+   *
+   * @generated from field: string external_id = 3;
+   */
+  externalId: string;
+
+  /**
+   * The source system's own notes on where the content came from: its
+   * category ("srd", "ai", "reskin"), parent, generator, list of changes.
+   * Free text for display. Licence text goes in `attribution`, verbatim.
+   *
+   * @generated from field: string origin_notes = 4;
+   */
+  originNotes: string;
 };
 
 /**
