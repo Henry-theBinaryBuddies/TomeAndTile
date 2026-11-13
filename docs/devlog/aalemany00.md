@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-12 — #8 Field map corrections from Henry's review
+
+**Did:** Updated `integrations/8-cauldron-field-map` branch onto current `main` (clean, only `MAPPING.md` left in the diff) and fixed every correction from Henry's PR #11 review: recount of skills (2/5, not 5/5) and non-walk speeds (4/5, not 3/5); a rule for `speeds.walk` being absent (Voidbloom Seer — default to 0, never borrow another mode); an explicit dice+bonus combining rule for a zero and a negative bonus; moved `monster.id` off `attribution` onto a new pending `Provenance.external_id` field; moved traits off `ACTION_COST_FREE` onto a pending passive `ActionCost` value; set `resource_key = "legendary_actions"` on legendary options so the cost is actually spent from the pool; restricted `Provenance.attribution` to the raw SRD text only (parent_id/generator/changes now point at a separate pending contracts field); defined the `per_day` resource-key slug rule; and folded in Henry's gap decisions (save bonuses computed+compared instead of a contract change, multiattack as an interim description-only `Ability` pending Milestone 2 rules-engine work, `radius`→`TARGET_SHAPE_SPHERE` and `CreatureSize` both confirmed).
+**Directed Claude to:** Pull up PR #11 on GitHub, read Henry's review in full, update the branch, and apply each correction and gap decision to `MAPPING.md` without touching anything outside `integrations/`.
+**Learned:** Henry is filing the five contract-change issues himself as one `contracts/` PR rather than me opening them — the mapping now says "pending contracts change" on the affected rows instead of promising to file issues.
+**Blocked on / next:** Waiting on Henry's `contracts/` PR (external_id, passive ActionCost, per-mode speeds, skills/passive scores, condition immunities, ability recharge) before the importer itself can be written.
+
 ## 2026-11-12 — #7 Machine setup and onboarding
 
 **Did:** Accepted the GitHub invite and cloned the repo. Installed the Windows toolchain from `docs/SETUP-WINDOWS.md`: Rustup/cargo, `buf` via npm, and the MSVC C++ build tools. `cargo test --workspace` and `bash tools/check-deps.sh` both pass on this machine.
