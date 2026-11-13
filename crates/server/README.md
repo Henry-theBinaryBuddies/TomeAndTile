@@ -65,6 +65,16 @@ See ADR 0006 and `view.rs`. Where the contract is silent the more restrictive be
 - All scenes and members go to every viewer; chat and public rolls go to everyone including spectators.
 - Also stricter than the mock: unknown `level_id` is rejected; a non-GM gets `not_permitted` for a missing token; coordinates are bounded.
 
-## Not tested
+## Tests
 
-The WebSocket loop (no WebSocket client is an approved dependency). Only `/healthz` and `/` are exercised end to end. Everything else is tested through the core.
+The core is tested in `src/tests.rs`. `tests/serve.rs` checks `/healthz` and `/` over raw TCP. `tests/socket.rs` connects real WebSocket clients (dev-dependencies `tokio-tungstenite` and `futures-util`) to a server on an ephemeral port and covers:
+
+- join: Snapshot identity and role; dev auth off; unknown user, malformed token, wrong campaign id; first frame not a Hello (an intent, garbage, empty); a text frame before the Hello; the 10 second Hello timeout (run on a paused tokio clock, so it takes no real time);
+- broadcast: chat reaches everyone with the same `seq`; a rejection goes only to the sender, with its `client_intent_id` and code, and uses no `seq`; `seq` strictly increases;
+- filtering over the wire: hidden tokens and hp in the Snapshot; a `GM_ONLY` roll and a hidden-token move reach the GM only; `set_controllers` delivers the token and creature to the new controller, who can then move it;
+- hostile input: a message over 64 KiB (before and after joining), garbage after joining, text frames and a second Hello (ignored);
+- a client that stops reading is dropped (broadcast lag, found by flooding until the socket buffers fill; 12000 chats of 2000 characters).
+
+"Nothing arrives" is asserted with a sentinel chat that must be the next message, never with a sleep.
+
+Not tested: the exact lag threshold of 256 events (the drop is tested, not the number); behaviour under many simultaneous connections; TLS and the Cloudflare tunnel (outside this crate).

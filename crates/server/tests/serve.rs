@@ -1,5 +1,5 @@
 //! End-to-end check of the HTTP side of `serve`, over a raw TCP stream.
-//! (The WebSocket loop is not tested here: no WebSocket client is approved.)
+//! (The WebSocket loop is tested in socket.rs.)
 
 use std::time::Duration;
 
