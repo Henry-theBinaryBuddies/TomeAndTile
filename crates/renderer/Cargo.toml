@@ -10,3 +10,19 @@ crate-type = ["cdylib", "rlib"]
 
 [lints]
 workspace = true
+
+[dependencies]
+tt-contracts = { path = "../../contracts/rust" }
+prost = "0.14.6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30.0.2", default-features = false, features = ["std", "webgpu", "webgl", "wgsl"] }
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-sys = { version = "0.3.107", features = [
+    "Window", "Document", "Blob", "HtmlCanvasElement", "ImageBitmap", "Response",
+    "PointerEvent", "WheelEvent", "MouseEvent", "Event", "EventTarget",
+    "DomRect", "Element", "console",
+] }
+js-sys = "0.3.107"
+bytemuck = { version = "1.25.2", features = ["derive"] }
