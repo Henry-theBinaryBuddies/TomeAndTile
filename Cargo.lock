@@ -986,10 +986,12 @@ name = "tt-server"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "futures-util",
  "getrandom",
  "prost",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "tt-contracts",
  "tt-rules",
 ]

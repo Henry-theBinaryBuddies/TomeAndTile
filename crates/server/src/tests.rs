@@ -1,5 +1,5 @@
 //! Tests for the pure core: intents, filtering, identity and the wire.
-//! The socket loop itself is not covered (no WebSocket client is available).
+//! The socket loop is covered by tests/socket.rs.
 
 use prost::Message as _;
 use tt_contracts::v1::{
