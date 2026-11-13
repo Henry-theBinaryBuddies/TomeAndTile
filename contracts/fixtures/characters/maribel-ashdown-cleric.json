@@ -207,6 +207,16 @@
       }
     },
     {
+      "abilityId": "divine-order-protector",
+      "name": "Divine Order: Protector",
+      "description": "Cleric feature: training with heavy armour and martial weapons, which is what lets you wear chain mail.",
+      "cost": "ACTION_COST_PASSIVE",
+      "provenance": {
+        "source": "srd-5.2",
+        "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
+      }
+    },
+    {
       "abilityId": "dwarven-toughness",
       "name": "Dwarven Toughness",
       "description": "Dwarf trait: your hit point maximum is 1 higher per level (already included). Dwarves also resist poison damage and have darkvision.",

@@ -93,7 +93,7 @@
       "abilityId": "cunning-action",
       "name": "Cunning Action",
       "description": "On your turn you can use a bonus action to Dash, Disengage or Hide.",
-      "cost": "ACTION_COST_PASSIVE",
+      "cost": "ACTION_COST_BONUS_ACTION",
       "provenance": {
         "source": "srd-5.2",
         "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode."
