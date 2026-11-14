@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-13 — Milestone 1 server, canvas and join token
+
+**Did:** Merged 10 pull requests ([#15](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/15) to [#23](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/23) and [#26](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/26)): contract additions and five SRD 5.2 characters, the dice engine, ADR 0006 (dice-box), server sync version 0 with per-viewer filtering, 19 WebSocket tests, renderer canvas version 0, the LiveKit join-token endpoint, and a web CI job. Approved pull requests #24 and #25 from @Danny-Defeato after reading them and running #25's checks locally. 179 tests pass.
+**Directed Claude to:** act as lead and reviewer while Sonnet sessions wrote the dice engine, server, socket tests, renderer and join-token code against written briefs, and to ask before adding any dependency. Corrections I made after review: the cleric had no source for heavy armour and the rogue's Cunning Action was marked passive instead of a bonus action; a first server session started in the wrong worktree, wrote no code and was relaunched; I added a guard in the renderer for non-finite canvas sizes. Decision of mine: dice animation uses the dice-box library, already used on the portfolio.
+**Learned:** A delegated session's "it works" is not evidence: the renderer only counted as working after I watched it draw and move a token against the real server. The wgpu graphics library fits under the workspace's `unsafe_code = "forbid"` rule. The SRD character values were written from memory and still need checking against the SRD.
+**Blocked on / next:** Issue 5, the LiveKit Cloud project: the join token has never been tried against real LiveKit. Next: file the Milestone 1 issues for the other two, prove renderer images, add a rate limit and event-log cap to the server, start Milestone 2.
+
 ## 2026-11-12 — Toolchain installed, skeleton verified
 
 **Did:** Installed Rust, the C++ build tools and Buf. The workspace passes `cargo fmt`, `clippy`, `test` and the WASM build; the contracts pass `buf lint` and `buf build`. Removed two unused manifest entries that Cargo warned about.
