@@ -98,10 +98,20 @@ Open `http://localhost:8099/`. Query parameters: `?user=mock-player` (default `m
 
 WebGPU needs a secure context: `localhost` qualifies. On a browser without WebGPU the WebGL2 fallback is used.
 
+### Demo with images
+
+The embedded mock seed has no map or token images. `demo/seed-with-images.json` is the same campaign with a map (`demo/assets/cellar-map.png`, 1400x980, 20x14 cells), portraits for two tokens, and a third token whose portrait URL does not exist, to show the fallback (a flat coloured disc and one console warning). The URLs are relative to the demo page, so serve `demo/` and start the server with that seed:
+
+```
+TT_DEV_AUTH=1 TT_SEED=crates/renderer/demo/seed-with-images.json cargo run -p tt-server
+```
+
+The pictures are drawn by `demo/make_assets.py` (Python 3, standard library only), so there is nothing to license; run it to regenerate them.
+
 ## Dependencies
 
 Browser-only crates sit under `[target.'cfg(target_arch = "wasm32")'.dependencies]`, so native `cargo test`/`clippy` do not compile them: `wgpu` 30.0.2 (`default-features = false`, features `std`, `webgpu`, `webgl`, `wgsl`), `wasm-bindgen` 0.2.130, `wasm-bindgen-futures` 0.4.80, `web-sys` 0.3.107 (only the Web API features used), `js-sys` 0.3.107, `bytemuck` 1.25.2 (only `cast_slice` on `f32`; the derive is not used, because it expands to `unsafe impl`, which `unsafe_code = "forbid"` would reject). Native: `prost` and `tt-contracts`. `unsafe_code = "forbid"` applies to this crate unchanged.
 
 ## Not done
 
-Hex grids, fog, lighting, walls, rulers, templates, name plates, HP bars, a level switcher, an active-scene change event, pinch zoom and other touch gestures, mipmaps, texture atlasing (one bind group per image), downscaling of oversized images, device-lost recovery beyond reconfiguring the surface, animation of token moves (a confirmed move jumps), token facing, auras and elevation, and wasm size optimisation (`wasm-opt` is not run; the release `.wasm` is about 4.5 MB). Not tested in CI: the GPU path (needs a browser).
+Hex grids, fog, lighting, walls, rulers, templates, name plates, HP bars, a level switcher, an active-scene change event, pinch zoom and other touch gestures, mipmaps, texture atlasing (one bind group per image), downscaling of oversized images, device-lost recovery beyond reconfiguring the surface, animation of token moves (a confirmed move jumps), token facing, auras and elevation, and wasm size optimisation (`wasm-opt` is not run; the release `.wasm` is about 4.5 MB). Not tested in CI: the GPU path (needs a browser). Checked by hand in a browser on the WebGPU path: the map, token portraits, the missing-image fallback, zoom and drag with images. Never run: the WebGL2 fallback, a failed map image, an image larger than the GPU limit.
