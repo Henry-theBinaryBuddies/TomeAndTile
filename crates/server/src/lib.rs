@@ -12,6 +12,7 @@
 pub mod auth;
 pub mod campaign;
 pub mod ids;
+pub mod media;
 pub mod net;
 pub mod rng;
 pub mod view;

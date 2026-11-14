@@ -24,6 +24,7 @@ use tt_contracts::v1::{
 use crate::auth::authenticate;
 use crate::campaign::{Campaign, Rejection};
 use crate::ids::Uuid7Ids;
+use crate::media::{self, MediaConfig, MediaDenied};
 use crate::rng::OsRolls;
 use crate::view::Viewer;
 
@@ -40,6 +41,8 @@ pub struct Config {
     pub seed: Snapshot,
     /// DEV ONLY, not security: accept `dev:<user_id>` tokens. See `auth`.
     pub dev_auth: bool,
+    /// LiveKit settings (ADR 0007); None turns video and voice off.
+    pub media: Option<MediaConfig>,
 }
 
 struct State {
@@ -53,6 +56,7 @@ struct Shared {
     // A std mutex is enough: it is never held across an await.
     state: Mutex<State>,
     dev_auth: bool,
+    media: Option<MediaConfig>,
 }
 
 impl Shared {
@@ -74,6 +78,7 @@ pub async fn serve(listener: TcpListener, config: Config) -> std::io::Result<()>
             tx,
         }),
         dev_auth: config.dev_auth,
+        media: config.media,
     });
     let app = Router::new()
         .route(
@@ -169,12 +174,19 @@ async fn connection(mut socket: WebSocket, shared: Arc<Shared>) {
                 let Some(message) = decode_client(&bytes) else {
                     return close(socket).await;
                 };
-                // A second Hello and media_token_request are ignored.
-                if let Some(client_message::Kind::Intent(intent)) = message.kind {
-                    if let Some(reply) = handle_intent(&shared, &viewer, intent) {
-                        if socket.send(Message::Binary(reply)).await.is_err() {
-                            return;
-                        }
+                // A second Hello is ignored.
+                let reply = match message.kind {
+                    Some(client_message::Kind::Intent(intent)) => {
+                        handle_intent(&shared, &viewer, intent)
+                    }
+                    Some(client_message::Kind::MediaTokenRequest(_)) => {
+                        Some(handle_media_request(&shared, &viewer))
+                    }
+                    _ => None,
+                };
+                if let Some(reply) = reply {
+                    if socket.send(Message::Binary(reply)).await.is_err() {
+                        return;
                     }
                 }
             }
@@ -207,6 +219,42 @@ fn join(
     let rx = state.tx.subscribe();
     let snapshot = state.campaign.snapshot_for(&viewer);
     Some((viewer, encode(server_message::Kind::Snapshot(snapshot)), rx))
+}
+
+/// Answer a MediaTokenRequest for the requester alone. No seq, no
+/// broadcast, no log entry. A refusal is an IntentRejected with an empty
+/// client_intent_id (the request carries none).
+fn handle_media_request(shared: &Shared, viewer: &Viewer) -> Bytes {
+    let (campaign_id, display_name) = {
+        let state = shared.lock();
+        let name = state
+            .campaign
+            .members
+            .iter()
+            .find(|m| m.user_id == viewer.user_id)
+            .map(|m| m.display_name.clone())
+            .unwrap_or_default();
+        (state.campaign.campaign_id.clone(), name)
+    };
+    match media::decide(
+        shared.media.as_ref(),
+        &campaign_id,
+        &viewer.user_id,
+        &display_name,
+        viewer.role,
+        now_ms(),
+    ) {
+        Ok(token) => encode(server_message::Kind::MediaToken(token)),
+        Err(denied) => media_rejection(denied),
+    }
+}
+
+fn media_rejection(denied: MediaDenied) -> Bytes {
+    encode(server_message::Kind::IntentRejected(IntentRejected {
+        client_intent_id: String::new(),
+        code: denied.code().to_string(),
+        message: denied.message().to_string(),
+    }))
 }
 
 /// Apply one intent. Returns a direct reply (a rejection) for the sender, or
