@@ -14,9 +14,11 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
     client_message, event, intent, server_message, ChatIntent, ClientMessage, Creature, Event,
-    Hello, Intent, Level, Member, MoveTokenIntent, Role, RollDiceIntent, RollMode, RollVisibility,
-    Scene, ServerMessage, SetControllersIntent, Snapshot, Token, Vec2,
+    Hello, Intent, Level, MediaToken, MediaTokenRequest, Member, MoveTokenIntent, Role,
+    RollDiceIntent, RollMode, RollVisibility, Scene, ServerMessage, SetControllersIntent, Snapshot,
+    Token, Vec2,
 };
+use tt_server::media::MediaConfig;
 use tt_server::net::MAX_MESSAGE_BYTES;
 use tt_server::{serve, Config};
 
@@ -111,6 +113,10 @@ impl Drop for Server {
 }
 
 async fn start(dev_auth: bool) -> Server {
+    start_with_media(dev_auth, None).await
+}
+
+async fn start_with_media(dev_auth: bool, media: Option<MediaConfig>) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     let handle = tokio::spawn(serve(
@@ -118,6 +124,7 @@ async fn start(dev_auth: bool) -> Server {
         Config {
             seed: seed(),
             dev_auth,
+            media,
         },
     ));
     Server { addr, handle }
@@ -209,6 +216,20 @@ impl Client {
             Some(server_message::Kind::Event(e)) => e,
             other => panic!("expected an event, got {other:?}"),
         }
+    }
+
+    async fn recv_media_token(&mut self) -> MediaToken {
+        match self.recv().await.kind {
+            Some(server_message::Kind::MediaToken(m)) => m,
+            other => panic!("expected a media token, got {other:?}"),
+        }
+    }
+
+    async fn request_media(&mut self) {
+        self.send_raw(client_message(client_message::Kind::MediaTokenRequest(
+            MediaTokenRequest {},
+        )))
+        .await;
     }
 
     async fn recv_rejection(&mut self) -> tt_contracts::v1::IntentRejected {
@@ -674,4 +695,102 @@ async fn a_client_that_stops_reading_is_dropped() {
     // The server and the GM are fine.
     gm.send_intent("after", chat_kind("alive")).await;
     gm.expect_chat("alive").await;
+}
+
+// ------------------------------------------------------------------ media
+
+fn media_config() -> MediaConfig {
+    MediaConfig::new("wss://sfu.example.test", "test-key", "test-secret-not-real")
+        .expect("valid test config")
+}
+
+/// Decode the claims of a compact JWT (no signature check here; the unit
+/// tests verify signatures).
+fn claims_of(token: &str) -> serde_json::Value {
+    use base64::Engine as _;
+    let payload = token.split('.').nth(1).expect("three segments");
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .expect("base64url");
+    serde_json::from_slice(&bytes).expect("json claims")
+}
+
+#[tokio::test]
+async fn player_and_spectator_get_scoped_tokens_for_themselves_only() {
+    let server = start_with_media(true, Some(media_config())).await;
+    let (mut gm, _) = join(&server, "gm").await;
+    let (mut alice, _) = join(&server, "alice").await;
+    let (mut spec, _) = join(&server, "spec").await;
+
+    alice.request_media().await;
+    let a = alice.recv_media_token().await;
+    assert_eq!(a.sfu_url, "wss://sfu.example.test");
+    assert_eq!(a.room, "tt-camp");
+    assert!(a.can_publish);
+    let c = claims_of(&a.token);
+    assert_eq!(c["iss"], "test-key");
+    assert_eq!(c["sub"], "alice");
+    assert_eq!(c["name"], "alice");
+    assert_eq!(c["video"]["room"], "tt-camp");
+    assert_eq!(c["video"]["roomJoin"], true);
+    assert_eq!(c["video"]["canPublish"], true);
+    assert_eq!(c["video"]["canPublishData"], true);
+    assert_eq!(c["video"]["canSubscribe"], true);
+    assert_eq!(c["exp"].as_i64().unwrap() - c["nbf"].as_i64().unwrap(), 600);
+    assert_eq!(a.expires_at_ms, c["exp"].as_i64().unwrap() * 1000);
+
+    spec.request_media().await;
+    let s = spec.recv_media_token().await;
+    assert!(!s.can_publish);
+    assert_eq!(s.room, "tt-camp");
+    let c = claims_of(&s.token);
+    assert_eq!(c["sub"], "spec");
+    assert_eq!(c["video"]["canPublish"], false);
+    assert_eq!(c["video"]["canPublishData"], false);
+    assert_eq!(c["video"]["canSubscribe"], true);
+    assert_eq!(c["video"]["roomJoin"], true);
+    assert_ne!(a.token, s.token);
+
+    // Nobody else saw anything, and no seq was used: the sentinel is the
+    // first message for everyone and has seq 1.
+    let text = sentinel(&mut alice, 1).await;
+    assert_eq!(gm.expect_chat(&text).await.seq, 1);
+    assert_eq!(spec.expect_chat(&text).await.seq, 1);
+    alice.expect_chat(&text).await;
+}
+
+#[tokio::test]
+async fn repeated_media_requests_each_get_a_token() {
+    let server = start_with_media(true, Some(media_config())).await;
+    let (mut gm, _) = join(&server, "gm").await;
+    for _ in 0..3 {
+        gm.request_media().await;
+        let m = gm.recv_media_token().await;
+        assert!(m.can_publish);
+        assert_eq!(claims_of(&m.token)["sub"], "gm");
+    }
+}
+
+#[tokio::test]
+async fn media_off_rejects_only_the_requester() {
+    let server = start(true).await;
+    let (mut gm, _) = join(&server, "gm").await;
+    let (mut alice, _) = join(&server, "alice").await;
+    for _ in 0..2 {
+        alice.request_media().await;
+        let r = alice.recv_rejection().await;
+        assert_eq!(r.code, "media_not_configured");
+        assert_eq!(r.client_intent_id, "");
+    }
+    let text = sentinel(&mut alice, 1).await;
+    assert_eq!(gm.expect_chat(&text).await.seq, 1);
+    alice.expect_chat(&text).await;
+}
+
+#[tokio::test]
+async fn media_request_before_hello_closes_the_socket() {
+    let server = start_with_media(true, Some(media_config())).await;
+    let mut c = Client::connect(server.addr).await;
+    c.request_media().await;
+    c.expect_closed().await;
 }
