@@ -15,6 +15,11 @@ export default defineConfig({
 			adapter: adapter({ fallback: 'index.html' })
 		})
 	],
+	resolve: {
+		// The generated contract code lives in ../contracts/ts, which has no node_modules
+		// in CI. Resolve its @bufbuild/protobuf imports from this app's copy instead.
+		dedupe: ['@bufbuild/protobuf']
+	},
 	test: {
 		include: ['src/**/*.test.ts'],
 		environment: 'node'

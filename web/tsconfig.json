@@ -1,7 +1,13 @@
 {
 	"extends": "$app/tsconfig",
 	"compilerOptions": {
-		"strict": true
+		"strict": true,
+		// The generated contract code lives in ../contracts/ts, which has no node_modules in CI.
+		// Point its two @bufbuild/protobuf imports at the copy installed in web/.
+		"paths": {
+			"@bufbuild/protobuf": ["./node_modules/@bufbuild/protobuf"],
+			"@bufbuild/protobuf/codegenv2": ["./node_modules/@bufbuild/protobuf/dist/esm/codegenv2/index"]
+		}
 	},
 	"include": ["src", "vite.config.ts"]
 }
