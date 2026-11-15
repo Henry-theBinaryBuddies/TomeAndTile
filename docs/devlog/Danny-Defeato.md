@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-13 — #10 UI shell with dockable panels
+
+**Did:** Scaffolded the web app (SvelteKit 3, Svelte 5, TypeScript, static adapter) and built the shell: a full-window map placeholder with a slot for the renderer's canvas, empty Chat, Sheet, Initiative, Video and Tools panels that dock to any edge, collapse and float (mouse, touch and keyboard), and bottom tabs at phone width (640 px and below). All layout state (docked edge, collapsed, floating position) lives in one store in `web/src/lib/layout/`, separate from the panel components, as Henry asked. `npm run check`, `npm test` (20 tests) and `npm run build` pass. PR: (add the link).
+**Directed Claude to:** Use Henry's decisions: SvelteKit with TypeScript, no panel library (a position dropdown and a collapse button on each panel instead), and only a placeholder for the map. Claude's review of its own diff found an invalid `:global()` selector in plain CSS that would have silently dropped `touch-action: none` on the canvas; it was fixed and checked on a real canvas. I started the shell before watching onboarding section 3, which the issue asks for first.
+**Learned:** SvelteKit 3 scaffolds a `#lib` import alias that TypeScript cannot resolve for extensionless paths, so the code uses relative imports. One invalid selector in a CSS selector list drops the whole rule.
+**Blocked on / next:** Henry to review the dependencies listed in the PR and add a CI job for `web/`. Still to do for #9: watch onboarding sections 3 and 4. Next milestone work: the chat and dice log panel and the initiative bar (due 11/22), and wiring the renderer into the map slot in a later issue.
+
 ## 2026-11-13 — Onboarding (no issue yet)
 
 **Did:** Read ARCHITECTURE.md, the root CLAUDE.md, web/CLAUDE.md and ADRs 0002, 0012 and 0013, in that order, then the extra reading Henry listed for my area: ADR 0011 (layout), ADR 0006 (dice and hidden information) and contracts/proto/tomeandtile/v1/session.proto. Ran `bash tools/check-deps.sh` (boundaries OK) and `cargo test --workspace` (all 164 tests pass, 0 failed) on a cloud Linux workspace, not on my Windows machine. Changed no code; this devlog entry is the only change.
