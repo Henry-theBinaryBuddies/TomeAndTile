@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-14 — #30 Chat and dice log panel
+
+**Did:** Built the Chat panel ([#30](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/30); [PR #39](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/39)) on top of the socket client: a chat and dice log, a message box, and a roll form (notation, mode, label, and a "Hide from players" box only the GM sees). Roll cards show every die (dropped ones marked in words), modifiers with their source, the server's total and critical or fumble. The server's rejection codes become plain sentences, and a refused chat message comes back into the box. The page opens one shared connection when it loads. 26 new unit tests (100 total); check, test and build pass. In a browser against the mock server, a GM tab and a player tab chatted and rolled, and at 360 px wide nothing overflowed.
+**Directed Claude to:** Do the issue's ten acceptance tests with the UI computing nothing. Claude's own review of its screenshots found two layout problems that I would have missed: the roll form was cut off in the docked Chat panel, and on a phone the Roll button wrapped onto its own row under the tab bar. Both were fixed (the Chat panel gets a bigger share of the dock; Dice and Roll share a row).
+**Learned:** The mock server accepts only `1d20+5`, not `d20+5`, while the real server accepts both, so the placeholder shows `d20+5` and the real error text comes from the server's codes. A sheet that animates in is semi-transparent for a moment, which made a screenshot look like a bug.
+**Blocked on / next:** #29 must merge first (this branch is built on it). Next: #31 (initiative bar), then #32 (map canvas), which also needs Henry's renderer packaging issue.
+
 ## 2026-11-14 — #29 Game socket client
 
 **Did:** Built the typed game-socket client in `web/src/lib/net/` ([#29](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/29); [PR #38](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/38)). It connects, sends `Hello` first, folds `Snapshot` and `Event` messages into panel state (identity, role, members, chat and roll log, encounters) with a pure function, reconnects with backoff, assigns an id to every intent, requests video join tokens, and hands raw frames to the renderer through `onFrame`. 54 new unit tests use a fake WebSocket; `npm run check`, `npm test` (74) and `npm run build` pass. I also ran it against the mock server: a GM and a player joined, chat and an advantage roll reached both, and an empty chat was rejected with `empty_chat`.

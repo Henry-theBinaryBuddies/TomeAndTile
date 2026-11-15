@@ -8,13 +8,13 @@
 		type Placement
 	} from '../layout/model';
 	import { phoneOpen, viewportSize } from '../layout/viewport';
+	import ChatPanel from './ChatPanel.svelte';
 
 	type Mode = 'docked' | 'floating' | 'sheet';
 
 	let { id, mode }: { id: PanelId; mode: Mode } = $props();
 
-	const HINTS: Record<PanelId, string> = {
-		chat: 'Chat and dice rolls will appear here.',
+	const HINTS: Record<Exclude<PanelId, 'chat'>, string> = {
 		sheet: 'Your character sheet will appear here.',
 		initiative: 'The initiative order will appear here.',
 		video: 'Video tiles will appear here.',
@@ -112,7 +112,11 @@
 	</header>
 	{#if !collapsed}
 		<div class="panel-body" id="panel-{id}-body">
-			<p class="empty">{HINTS[id]}</p>
+			{#if id === 'chat'}
+				<ChatPanel />
+			{:else}
+				<p class="empty">{HINTS[id]}</p>
+			{/if}
 		</div>
 	{/if}
 </section>

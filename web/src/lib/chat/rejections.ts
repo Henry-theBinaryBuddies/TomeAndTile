@@ -1,0 +1,25 @@
+// Plain-language text for the server's `IntentRejected` codes. The text is
+// chosen by the stable code; the server's own message is never shown.
+
+const TEXT: Record<string, string> = {
+	empty_chat: 'Type a message first.',
+	chat_too_long: 'That message is too long. Shorten it and try again.',
+	not_permitted: 'You are not allowed to do that.',
+	not_implemented: 'The server does not support that yet.',
+	malformed_intent: 'The server could not understand that request.',
+	// Dice notation: the mock uses bad_notation, the real server the dice_* codes.
+	bad_notation: 'That dice notation is not valid. Try something like d20+5 or 2d6.',
+	dice_empty: 'Enter dice to roll, for example d20+5.',
+	dice_syntax: 'That dice notation is not valid. Try something like d20+5 or 2d6.',
+	dice_bad_sides: 'That die does not exist. Try d4, d6, d8, d10, d12, d20 or d100.',
+	dice_bad_count: 'That is not a valid number of dice.',
+	dice_too_many_dice: 'That is too many dice in one roll.',
+	dice_too_many_terms: 'That roll has too many parts.',
+	dice_bad_keep: 'The keep or drop part of that roll is not valid.',
+	dice_number_too_large: 'One of the numbers in that roll is too large.',
+	dice_too_long: 'That dice notation is too long.'
+};
+
+export function rejectionText(code: string): string {
+	return TEXT[code] ?? `The server could not do that (${code || 'no reason given'}).`;
+}
