@@ -108,6 +108,31 @@ TT_DEV_AUTH=1 TT_SEED=crates/renderer/demo/seed-with-images.json cargo run -p tt
 
 The pictures are drawn by `demo/make_assets.py` (Python 3, standard library only), so there is nothing to license; run it to regenerate them.
 
+## Using the renderer from `web/`
+
+`web/` imports the renderer as a WASM package that is built, not committed. From the repository root:
+
+```
+bash tools/build-renderer.sh            # release build; add --dev for a debug build
+```
+
+It writes `web/src/lib/renderer/pkg/` (git-ignored, like every `pkg/`): `tt_renderer.js`, `tt_renderer.d.ts` (the types `web/` should rely on), and `tt_renderer_bg.wasm`. It needs the same `wasm32` target and exactly matching `wasm-bindgen-cli` as the demo, and checks the version. `--out DIR` writes somewhere else; `crates/renderer/build-demo.sh` is the same script with the demo's directory.
+
+From `web/`, the package is imported through the `#lib` alias and started once before use:
+
+```ts
+import init, { Renderer } from '#lib/renderer/pkg/tt_renderer.js';
+
+await init();                                  // loads the .wasm; call once
+const renderer = await Renderer.create(canvas);
+```
+
+Vite emits the `.wasm` as a build asset, so no plugin is needed. The build script puts `// @ts-nocheck` on the first line of the generated `tt_renderer.js`: SvelteKit's default tsconfig type-checks JavaScript, and without that line `npm run check` reports about 2,000 implicit-any errors in the generated glue. The real types come from `tt_renderer.d.ts`.
+
+CI builds this package in the web job (once `web/package.json` exists), before `npm run check`.
+
+Checked by hand: on the UI shell branch (pull request 25), a temporary page imported the package; `npm run check` reported 0 errors, `npm run build` emitted the `.wasm`, and the built app, served with `npm run preview`, loaded it in a browser and called `encodeHello`. The map canvas itself is not mounted yet (issue 32).
+
 ## Dependencies
 
 Browser-only crates sit under `[target.'cfg(target_arch = "wasm32")'.dependencies]`, so native `cargo test`/`clippy` do not compile them: `wgpu` 30.0.2 (`default-features = false`, features `std`, `webgpu`, `webgl`, `wgsl`), `wasm-bindgen` 0.2.130, `wasm-bindgen-futures` 0.4.80, `web-sys` 0.3.107 (only the Web API features used), `js-sys` 0.3.107, `bytemuck` 1.25.2 (only `cast_slice` on `f32`; the derive is not used, because it expands to `unsafe impl`, which `unsafe_code = "forbid"` would reject). Native: `prost` and `tt-contracts`. `unsafe_code = "forbid"` applies to this crate unchanged.
