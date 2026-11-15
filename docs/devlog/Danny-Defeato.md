@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-14 — #31 Initiative bar
+
+**Did:** Built the Initiative panel ([#31](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/31); [PR #40](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/40)): the round and the combatants in the server's order, the current turn from `turn_index` outlined and marked, a spoken line when the turn changes, and "No combat in progress." when there is none or it ends. It reads from the socket client. 13 new unit tests (113 total); check, test and build pass. Because neither server can start an encounter yet, I checked it in a browser with a scripted fake server that sent a Snapshot, two `EncounterUpdated` events and an `EncounterEnded`.
+**Directed Claude to:** Show only what the server sends: no sorting, no rolling, no buttons. One change reaches outside the issue's file list: a combatant has only a token id, so I had Claude add token names to the socket client's state (`web/src/lib/net/`) and flagged it in the PR. A combatant whose name is missing shows as "Unknown".
+**Learned:** Neither server can create an encounter yet, so a UI built against them cannot be seen working without a fake server; Playwright can intercept a page's WebSocket and play back recorded frames. #30 and #31 both change `Panel.svelte`, so I stacked this branch on #30 instead of branching from #29, to avoid a merge conflict.
+**Blocked on / next:** #29 then #30 must merge before this one. Next: #32 (map canvas), which also needs Henry's renderer packaging issue.
+
 ## 2026-11-14 — #30 Chat and dice log panel
 
 **Did:** Built the Chat panel ([#30](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/30); [PR #39](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/39)) on top of the socket client: a chat and dice log, a message box, and a roll form (notation, mode, label, and a "Hide from players" box only the GM sees). Roll cards show every die (dropped ones marked in words), modifiers with their source, the server's total and critical or fumble. The server's rejection codes become plain sentences, and a refused chat message comes back into the box. The page opens one shared connection when it loads. 26 new unit tests (100 total); check, test and build pass. In a browser against the mock server, a GM tab and a player tab chatted and rolled, and at 360 px wide nothing overflowed.
