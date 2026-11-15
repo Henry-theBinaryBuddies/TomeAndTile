@@ -207,6 +207,7 @@ export function createGameClient(options: GameClientOptions): GameClient {
 		switch (message.kind.case) {
 			case 'snapshot':
 				attempt = 0;
+				problem.set(null);
 				state.update((s) => foldMessage(s, message));
 				break;
 			case 'event':
