@@ -1,7 +1,8 @@
 // The state the panels read, and the pure function that builds it from the
 // server's messages. Nothing here opens a socket or changes game state: it only
 // records what the server said. Tokens and scenes are not kept here; the map
-// renderer takes those from the raw frames.
+// renderer takes those from the raw frames. The one thing kept from tokens is each
+// token's name, because the initiative bar needs to say whose turn it is.
 import { Role } from '@tomeandtile/contracts';
 import type {
 	Encounter,
@@ -31,6 +32,8 @@ export interface PanelState {
 	/** Chat lines and dice rolls in the order the server sent them. */
 	log: LogEntry[];
 	encounters: Encounter[];
+	/** Token id to name. A token with no name is absent or empty: treat it as unknown. */
+	tokenNames: Record<string, string>;
 }
 
 export function emptyState(): PanelState {
@@ -42,7 +45,8 @@ export function emptyState(): PanelState {
 		members: [],
 		activeSceneId: '',
 		log: [],
-		encounters: []
+		encounters: [],
+		tokenNames: {}
 	};
 }
 
@@ -56,7 +60,8 @@ export function applySnapshot(snapshot: Snapshot): PanelState {
 		members: [...snapshot.members],
 		activeSceneId: snapshot.activeSceneId,
 		log: [],
-		encounters: [...snapshot.encounters]
+		encounters: [...snapshot.encounters],
+		tokenNames: Object.fromEntries(snapshot.tokens.map((t) => [t.tokenId, t.name]))
 	};
 }
 
@@ -111,6 +116,15 @@ export function applyEvent(state: PanelState, event: Event): PanelState {
 				...base,
 				encounters: state.encounters.filter((e) => e.encounterId !== kind.value.encounterId)
 			};
+		case 'tokenUpserted': {
+			const token = kind.value.token;
+			if (!token) return base;
+			return { ...base, tokenNames: { ...state.tokenNames, [token.tokenId]: token.name } };
+		}
+		case 'tokenRemoved': {
+			const { [kind.value.tokenId]: _removed, ...rest } = state.tokenNames;
+			return { ...base, tokenNames: rest };
+		}
 		case 'eventUndone':
 			return {
 				...base,
@@ -119,7 +133,7 @@ export function applyEvent(state: PanelState, event: Event): PanelState {
 				)
 			};
 		default:
-			// Token, scene, creature and resolution events are not panel state.
+			// Token moves, scene, creature and resolution events are not panel state.
 			return base;
 	}
 }

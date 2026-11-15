@@ -7,8 +7,10 @@ import {
 	encounterUpdatedKind,
 	eventMessage,
 	rollKind,
+	sceneUpsertedKind,
 	snapshotMessage,
 	tokenRemovedKind,
+	tokenUpsertedKind,
 	undoneKind
 } from './testing';
 
@@ -90,9 +92,19 @@ describe('events', () => {
 	});
 
 	it('that are not panel state only advance the sequence', () => {
-		const s = fold(joined(), 6n, tokenRemovedKind('t1'));
+		const s = fold(joined(), 6n, sceneUpsertedKind());
 		expect(s.seq).toBe(6n);
 		expect(s.log).toEqual([]);
+	});
+
+	it('keep token names: set by the Snapshot, changed by upserts, dropped by removals', () => {
+		let s = joined();
+		expect(s.tokenNames).toEqual({ 't-aria': 'Aria', 't-gob': 'Goblin' });
+		s = fold(s, 6n, tokenUpsertedKind('t-gob', 'Goblin Boss'));
+		s = fold(s, 7n, tokenUpsertedKind('t-new', 'Orc'));
+		expect(s.tokenNames).toEqual({ 't-aria': 'Aria', 't-gob': 'Goblin Boss', 't-new': 'Orc' });
+		s = fold(s, 8n, tokenRemovedKind('t-aria'));
+		expect(s.tokenNames).toEqual({ 't-gob': 'Goblin Boss', 't-new': 'Orc' });
 	});
 
 	it('keep at most MAX_LOG_ENTRIES, dropping the oldest', () => {
