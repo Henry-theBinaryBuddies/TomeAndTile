@@ -360,6 +360,17 @@ describe('bad frames', () => {
 		expect(get(client.state).joined).toBe(true);
 	});
 
+	it('the report is cleared by the next Snapshot, for example after a reconnect', () => {
+		const client = join();
+		FakeSocket.last().receive('not a message');
+		expect(get(client.problem)).not.toBeNull();
+		FakeSocket.last().drop();
+		vi.advanceTimersByTime(500);
+		FakeSocket.last().open();
+		FakeSocket.last().receive(snapshotFrame());
+		expect(get(client.problem)).toBeNull();
+	});
+
 	it('the report never contains text from the server', () => {
 		const client = join();
 		FakeSocket.last().receive('<script>alert(1)</script>');

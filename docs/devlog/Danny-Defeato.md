@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-14 — #29 Game socket client
+
+**Did:** Built the typed game-socket client in `web/src/lib/net/` ([#29](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/29); [PR #38](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/38)). It connects, sends `Hello` first, folds `Snapshot` and `Event` messages into panel state (identity, role, members, chat and roll log, encounters) with a pure function, reconnects with backoff, assigns an id to every intent, requests video join tokens, and hands raw frames to the renderer through `onFrame`. 54 new unit tests use a fake WebSocket; `npm run check`, `npm test` (74) and `npm run build` pass. I also ran it against the mock server: a GM and a player joined, chat and an advantage roll reached both, and an empty chat was rejected with `empty_chat`.
+**Directed Claude to:** Follow the issue's ten acceptance tests and use only the generated contract types. A read-through of the diff found one thing, fixed in a follow-up commit: the "problem" note was never cleared after a reconnect. Claude's choices that I should check: `send` returns null (and sends nothing) before the Snapshot arrives; `requestMediaToken` times out after 10 s because the mock never replies to it; the log keeps at most 1000 entries. Two build problems had to be fixed: the generated code in `contracts/ts` cannot find `@bufbuild/protobuf` when only `web/` is installed, which broke type-checking and the production build until I added a path mapping in `web/tsconfig.json` and `resolve.dedupe` in `web/vite.config.ts`.
+**Learned:** The mock server accepts only `NdM` dice notation (`1d20+5`, not `d20+5`), and a reconnect gives a fresh Snapshot with no chat history, so the log starts empty after every reconnect. Two new dependencies: `@tomeandtile/contracts` (the local `contracts/ts` folder) and `@bufbuild/protobuf`.
+**Blocked on / next:** Henry to approve the two dependencies. Next: #30 (chat and dice log panel) and #31 (initiative bar), both read from this client; #32 (map canvas) also needs the renderer packaging issue.
+
 ## 2026-11-14 — #9 Onboarding finished, #10 merged
 
 **Did:** Finished onboarding on my own machine: Windows setup from docs/SETUP-WINDOWS.md, `cargo test --workspace` and `bash tools/check-deps.sh` pass on Windows, and I watched onboarding sections 1, 3 and 4. The onboarding entry ([#24](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/24)) and the UI shell ([#25](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/25)) are merged, so issues 9 and 10 are done. The `PR: (add the link)` in the entry below is #25. The web CI job from #26 now covers `web/`.
