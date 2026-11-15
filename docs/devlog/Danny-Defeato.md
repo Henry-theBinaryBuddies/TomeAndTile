@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-14 — #9 Onboarding finished, #10 merged
+
+**Did:** Finished onboarding on my own machine: Windows setup from docs/SETUP-WINDOWS.md, `cargo test --workspace` and `bash tools/check-deps.sh` pass on Windows, and I watched onboarding sections 1, 3 and 4. The onboarding entry ([#24](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/24)) and the UI shell ([#25](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/25)) are merged, so issues 9 and 10 are done. The `PR: (add the link)` in the entry below is #25. The web CI job from #26 now covers `web/`.
+**Directed Claude to:** Walk me through the git steps on Windows. Two things went wrong and were fixed: PowerShell blocks `npm`, `buf` and other `.ps1` shims, so I use `npm.cmd` and `buf.cmd`; and an early `git pull` left a merge unfinished, so `git switch` and `git pull` refused to run until I ran `git merge --abort`.
+**Learned:** The dev log entry for a PR that depends on another PR's dev log entry cannot be applied until the first one is merged, because both insert at the top of the same file. Approved is not merged.
+**Blocked on / next:** @Henry-theBinaryBuddies to file the M1 issues (chat and dice log panel, initiative bar, due 2026-11-22). Next: read the mock server's protocol (`crates/mock-server`) and ADR 0006 so the panel's first version can be planned before the issue arrives.
+
 ## 2026-11-13 — #10 UI shell with dockable panels
 
 **Did:** Scaffolded the web app (SvelteKit 3, Svelte 5, TypeScript, static adapter) and built the shell: a full-window map placeholder with a slot for the renderer's canvas, empty Chat, Sheet, Initiative, Video and Tools panels that dock to any edge, collapse and float (mouse, touch and keyboard), and bottom tabs at phone width (640 px and below). All layout state (docked edge, collapsed, floating position) lives in one store in `web/src/lib/layout/`, separate from the panel components, as Henry asked. `npm run check`, `npm test` (20 tests) and `npm run build` pass. PR: (add the link).
