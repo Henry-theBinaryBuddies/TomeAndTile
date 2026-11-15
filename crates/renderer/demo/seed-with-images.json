@@ -1,0 +1,107 @@
+{
+  "members": [
+    {
+      "userId": "mock-gm",
+      "displayName": "Mock GM",
+      "role": "ROLE_GM",
+      "online": true
+    },
+    {
+      "userId": "mock-player",
+      "displayName": "Mock Player",
+      "role": "ROLE_PLAYER",
+      "online": true
+    }
+  ],
+  "scenes": [
+    {
+      "sceneId": "scene-mock",
+      "campaignId": "campaign-mock",
+      "name": "The Lantern Cellar",
+      "grid": {
+        "kind": "GRID_KIND_SQUARE",
+        "cellSize": 70,
+        "feetPerCell": 5,
+        "diagonalRule": "DIAGONAL_RULE_FIVE"
+      },
+      "levels": [
+        {
+          "levelId": "level-ground",
+          "name": "Cellar floor",
+          "background": {
+            "assetId": "asset-cellar-map",
+            "mediaType": "image/png",
+            "url": "assets/cellar-map.png",
+            "width": 1400,
+            "height": 980
+          }
+        }
+      ]
+    }
+  ],
+  "tokens": [
+    {
+      "tokenId": "token-aria",
+      "sceneId": "scene-mock",
+      "levelId": "level-ground",
+      "name": "Aria",
+      "position": {
+        "x": 105,
+        "y": 105
+      },
+      "size": "CREATURE_SIZE_MEDIUM",
+      "healthState": "HEALTH_STATE_HEALTHY",
+      "hpCurrent": 24,
+      "hpMax": 24,
+      "controllerUserIds": [
+        "mock-player"
+      ],
+      "image": {
+        "assetId": "asset-aria",
+        "mediaType": "image/png",
+        "url": "assets/aria.png",
+        "width": 140,
+        "height": 140
+      }
+    },
+    {
+      "tokenId": "token-goblin",
+      "sceneId": "scene-mock",
+      "levelId": "level-ground",
+      "name": "Goblin",
+      "position": {
+        "x": 385,
+        "y": 245
+      },
+      "size": "CREATURE_SIZE_SMALL",
+      "healthState": "HEALTH_STATE_HEALTHY",
+      "image": {
+        "assetId": "asset-goblin",
+        "mediaType": "image/png",
+        "url": "assets/goblin.png",
+        "width": 140,
+        "height": 140
+      }
+    },
+    {
+      "tokenId": "token-missing",
+      "sceneId": "scene-mock",
+      "levelId": "level-ground",
+      "name": "Missing portrait",
+      "position": {
+        "x": 490,
+        "y": 350
+      },
+      "size": "CREATURE_SIZE_LARGE",
+      "healthState": "HEALTH_STATE_HEALTHY",
+      "image": {
+        "assetId": "asset-missing",
+        "mediaType": "image/png",
+        "url": "assets/does-not-exist.png",
+        "width": 140,
+        "height": 140
+      }
+    }
+  ],
+  "activeSceneId": "scene-mock"
+}
