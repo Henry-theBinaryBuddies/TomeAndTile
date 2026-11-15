@@ -9,14 +9,14 @@
 	} from '../layout/model';
 	import { phoneOpen, viewportSize } from '../layout/viewport';
 	import ChatPanel from './ChatPanel.svelte';
+	import InitiativePanel from './InitiativePanel.svelte';
 
 	type Mode = 'docked' | 'floating' | 'sheet';
 
 	let { id, mode }: { id: PanelId; mode: Mode } = $props();
 
-	const HINTS: Record<Exclude<PanelId, 'chat'>, string> = {
+	const HINTS: Record<Exclude<PanelId, 'chat' | 'initiative'>, string> = {
 		sheet: 'Your character sheet will appear here.',
-		initiative: 'The initiative order will appear here.',
 		video: 'Video tiles will appear here.',
 		tools: 'GM tools will appear here.'
 	};
@@ -114,6 +114,8 @@
 		<div class="panel-body" id="panel-{id}-body">
 			{#if id === 'chat'}
 				<ChatPanel />
+			{:else if id === 'initiative'}
+				<InitiativePanel />
 			{:else}
 				<p class="empty">{HINTS[id]}</p>
 			{/if}

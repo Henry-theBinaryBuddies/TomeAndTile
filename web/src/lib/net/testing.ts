@@ -18,6 +18,9 @@ import {
 	ServerMessageSchema,
 	SnapshotSchema,
 	TokenRemovedSchema,
+	TokenSchema,
+	TokenUpsertedSchema,
+	SceneUpsertedSchema,
 	type ClientMessage,
 	type Event
 } from '@tomeandtile/contracts';
@@ -74,7 +77,7 @@ function frame(init: Parameters<typeof create<typeof ServerMessageSchema>>[1]): 
 	return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-export function snapshotMessage(seq = 5n) {
+export function snapshotMessage(seq = 5n, tokens: [string, string][] = [['t-aria', 'Aria'], ['t-gob', 'Goblin']]) {
 	return create(ServerMessageSchema, {
 		kind: {
 			case: 'snapshot',
@@ -97,6 +100,7 @@ export function snapshotMessage(seq = 5n) {
 						online: true
 					})
 				],
+				tokens: tokens.map(([tokenId, name]) => create(TokenSchema, { tokenId, name })),
 				encounters: [
 					create(EncounterSchema, { encounterId: 'enc-1', round: 1, turnIndex: 0 })
 				]
@@ -151,6 +155,16 @@ export const encounterEndedKind = (id: string): Event['kind'] => ({
 export const undoneKind = (seq: bigint): Event['kind'] => ({
 	case: 'eventUndone',
 	value: create(EventUndoneSchema, { undoneSeq: seq })
+});
+
+export const tokenUpsertedKind = (tokenId: string, name: string): Event['kind'] => ({
+	case: 'tokenUpserted',
+	value: create(TokenUpsertedSchema, { token: create(TokenSchema, { tokenId, name }) })
+});
+
+export const sceneUpsertedKind = (): Event['kind'] => ({
+	case: 'sceneUpserted',
+	value: create(SceneUpsertedSchema, {})
 });
 
 export const tokenRemovedKind = (id: string): Event['kind'] => ({
