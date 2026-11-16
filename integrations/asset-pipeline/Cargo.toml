@@ -1,0 +1,12 @@
+[package]
+name = "tt-asset-pipeline"
+description = "Inspects and describes uploaded map/token images: media type, dimensions, content id."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tt-contracts = { path = "../../contracts/rust" }
