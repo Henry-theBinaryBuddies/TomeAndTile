@@ -8,6 +8,8 @@ Status: Accepted (2026-11-12)
 - The server rolls every die. A client can ask for a roll; it can never supply a result.
 - Full dice notation is supported (`2d20kh1+5`, `8d6`, exploding and reroll rules), with one-click advantage and disadvantage on sheet rolls.
 - The client plays a 3D dice animation that lands on the server's result.
+- The animation uses the dice-box library family (`@3d-dice/dice-box`, MIT), already used on the portfolio site (decided 2026-11-12). It lives in `web/` behind a small interface, the same way `web/media` wraps its video library, and is Milestone 4 work.
+- Open point, to settle before Milestone 4: the animation must show the server's numbers, never its own. `@3d-dice/dice-box` decides results with its physics; its sibling `@3d-dice/dice-box-threejs` documents notation that pins each die's face (`2d6@4,2`). Check whether the main package can do the same; if not, use the sibling. If neither lands reliably, the roll card's numbers are authoritative and the animation is decoration.
 - Each roll is a roll card in chat showing every die, every modifier and its source, with GM buttons to re-roll, halve or undo.
 
 ### Roll visibility

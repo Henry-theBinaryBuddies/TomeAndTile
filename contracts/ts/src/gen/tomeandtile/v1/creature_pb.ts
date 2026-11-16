@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tomeandtile/v1/creature.proto.
  */
 export const file_tomeandtile_v1_creature: GenFile = /*@__PURE__*/
-  fileDesc("Ch10b21lYW5kdGlsZS92MS9jcmVhdHVyZS5wcm90bxIOdG9tZWFuZHRpbGUudjEiggEKDUFiaWxpdHlTY29yZXMSEAoIc3RyZW5ndGgYASABKAUSEQoJZGV4dGVyaXR5GAIgASgFEhQKDGNvbnN0aXR1dGlvbhgDIAEoBRIUCgxpbnRlbGxpZ2VuY2UYBCABKAUSDgoGd2lzZG9tGAUgASgFEhAKCGNoYXJpc21hGAYgASgFIkQKCFJlc291cmNlEgsKA2tleRgBIAEoCRINCgVsYWJlbBgCIAEoCRIPCgdjdXJyZW50GAMgASgFEgsKA21heBgEIAEoBSKgAQoJVGFyZ2V0aW5nEioKBXNoYXBlGAEgASgOMhsudG9tZWFuZHRpbGUudjEuVGFyZ2V0U2hhcGUSEgoKcmFuZ2VfZmVldBgCIAEoAhIXCg9sb25nX3JhbmdlX2ZlZXQYAyABKAISEwoLbWF4X3RhcmdldHMYBCABKA0SEQoJc2l6ZV9mZWV0GAUgASgCEhIKCndpZHRoX2ZlZXQYBiABKAIiRAoKRGFtYWdlUGFydBIMCgRkaWNlGAEgASgJEigKBHR5cGUYAiABKA4yGi50b21lYW5kdGlsZS52MS5EYW1hZ2VUeXBlIk4KCkF0dGFja1N0ZXASFAoMdG9faGl0X2JvbnVzGAEgASgFEioKBmRhbWFnZRgCIAMoCzIaLnRvbWVhbmR0aWxlLnYxLkRhbWFnZVBhcnQiigEKCFNhdmVTdGVwEi0KB2FiaWxpdHkYASABKA4yHC50b21lYW5kdGlsZS52MS5BYmlsaXR5U2NvcmUSCgoCZGMYAiABKAUSKgoGZGFtYWdlGAMgAygLMhoudG9tZWFuZHRpbGUudjEuRGFtYWdlUGFydBIXCg9oYWxmX29uX3N1Y2Nlc3MYBCABKAgiTAoIRmxhdFN0ZXASKgoGZGFtYWdlGAEgAygLMhoudG9tZWFuZHRpbGUudjEuRGFtYWdlUGFydBIUCgxoZWFsaW5nX2RpY2UYAiABKAkiXQoIRHVyYXRpb24SKgoEdW5pdBgBIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkR1cmF0aW9uVW5pdBIOCgZhbW91bnQYAiABKA0SFQoNY29uY2VudHJhdGlvbhgDIAEoCCJpCg9BcHBseUVmZmVjdFN0ZXASEQoJZWZmZWN0X2lkGAEgASgJEioKCGR1cmF0aW9uGAIgASgLMhgudG9tZWFuZHRpbGUudjEuRHVyYXRpb24SFwoPb25seV9vbl9mYWlsdXJlGAMgASgIIkcKClBsdWdpblN0ZXASEQoJcGx1Z2luX2lkGAEgASgJEhMKC2VudHJ5X3BvaW50GAIgASgJEhEKCWFyZ3NfanNvbhgDIAEoCSL9AQoKRWZmZWN0U3RlcBIsCgZhdHRhY2sYASABKAsyGi50b21lYW5kdGlsZS52MS5BdHRhY2tTdGVwSAASKAoEc2F2ZRgCIAEoCzIYLnRvbWVhbmR0aWxlLnYxLlNhdmVTdGVwSAASKAoEZmxhdBgDIAEoCzIYLnRvbWVhbmR0aWxlLnYxLkZsYXRTdGVwSAASNwoMYXBwbHlfZWZmZWN0GAQgASgLMh8udG9tZWFuZHRpbGUudjEuQXBwbHlFZmZlY3RTdGVwSAASLAoGcGx1Z2luGAUgASgLMhoudG9tZWFuZHRpbGUudjEuUGx1Z2luU3RlcEgAQgYKBHN0ZXAiogIKB0FiaWxpdHkSEgoKYWJpbGl0eV9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEigKBGNvc3QYBCABKA4yGi50b21lYW5kdGlsZS52MS5BY3Rpb25Db3N0EhQKDHJlc291cmNlX2tleRgFIAEoCRIXCg9yZXNvdXJjZV9hbW91bnQYBiABKAUSLAoJdGFyZ2V0aW5nGAcgASgLMhkudG9tZWFuZHRpbGUudjEuVGFyZ2V0aW5nEikKBXN0ZXBzGAggAygLMhoudG9tZWFuZHRpbGUudjEuRWZmZWN0U3RlcBIuCgpwcm92ZW5hbmNlGAkgASgLMhoudG9tZWFuZHRpbGUudjEuUHJvdmVuYW5jZSK3BgoIQ3JlYXR1cmUSEwoLY3JlYXR1cmVfaWQYASABKAkSKgoEa2luZBgCIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkNyZWF0dXJlS2luZBIMCgRuYW1lGAMgASgJEi0KB2VkaXRpb24YBCABKA4yHC50b21lYW5kdGlsZS52MS5SdWxlc0VkaXRpb24SKgoEc2l6ZRgFIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkNyZWF0dXJlU2l6ZRItCgZzY29yZXMYBiABKAsyHS50b21lYW5kdGlsZS52MS5BYmlsaXR5U2NvcmVzEhkKEXByb2ZpY2llbmN5X2JvbnVzGAcgASgFEhMKC2FybW9yX2NsYXNzGAggASgFEhIKCmhwX2N1cnJlbnQYCSABKAUSDgoGaHBfbWF4GAogASgFEg8KB2hwX3RlbXAYCyABKAUSEgoKc3BlZWRfZmVldBgMIAEoAhIYChBpbml0aWF0aXZlX2JvbnVzGA0gASgFEjgKEnNhdmVfcHJvZmljaWVuY2llcxgOIAMoDjIcLnRvbWVhbmR0aWxlLnYxLkFiaWxpdHlTY29yZRIvCgtyZXNpc3RhbmNlcxgPIAMoDjIaLnRvbWVhbmR0aWxlLnYxLkRhbWFnZVR5cGUSLgoKaW1tdW5pdGllcxgQIAMoDjIaLnRvbWVhbmR0aWxlLnYxLkRhbWFnZVR5cGUSMwoPdnVsbmVyYWJpbGl0aWVzGBEgAygOMhoudG9tZWFuZHRpbGUudjEuRGFtYWdlVHlwZRIrCglyZXNvdXJjZXMYEiADKAsyGC50b21lYW5kdGlsZS52MS5SZXNvdXJjZRIqCglhYmlsaXRpZXMYEyADKAsyFy50b21lYW5kdGlsZS52MS5BYmlsaXR5EhIKCmNvbmRpdGlvbnMYFCADKAkSDwoHc3VtbWFyeRgVIAEoCRIqCghwb3J0cmFpdBgWIAEoCzIYLnRvbWVhbmR0aWxlLnYxLkFzc2V0UmVmEi4KCnByb3ZlbmFuY2UYFyABKAsyGi50b21lYW5kdGlsZS52MS5Qcm92ZW5hbmNlEhUKDW93bmVyX3VzZXJfaWQYGCABKAkqgwEKDENyZWF0dXJlS2luZBIdChlDUkVBVFVSRV9LSU5EX1VOU1BFQ0lGSUVEEAASIgoeQ1JFQVRVUkVfS0lORF9QTEFZRVJfQ0hBUkFDVEVSEAESGQoVQ1JFQVRVUkVfS0lORF9NT05TVEVSEAISFQoRQ1JFQVRVUkVfS0lORF9OUEMQAyrrAgoKRGFtYWdlVHlwZRIbChdEQU1BR0VfVFlQRV9VTlNQRUNJRklFRBAAEhQKEERBTUFHRV9UWVBFX0FDSUQQARIbChdEQU1BR0VfVFlQRV9CTFVER0VPTklORxACEhQKEERBTUFHRV9UWVBFX0NPTEQQAxIUChBEQU1BR0VfVFlQRV9GSVJFEAQSFQoRREFNQUdFX1RZUEVfRk9SQ0UQBRIZChVEQU1BR0VfVFlQRV9MSUdIVE5JTkcQBhIYChREQU1BR0VfVFlQRV9ORUNST1RJQxAHEhgKFERBTUFHRV9UWVBFX1BJRVJDSU5HEAgSFgoSREFNQUdFX1RZUEVfUE9JU09OEAkSFwoTREFNQUdFX1RZUEVfUFNZQ0hJQxAKEhcKE0RBTUFHRV9UWVBFX1JBRElBTlQQCxIYChREQU1BR0VfVFlQRV9TTEFTSElORxAMEhcKE0RBTUFHRV9UWVBFX1RIVU5ERVIQDSqqAQoKQWN0aW9uQ29zdBIbChdBQ1RJT05fQ09TVF9VTlNQRUNJRklFRBAAEhYKEkFDVElPTl9DT1NUX0FDVElPThABEhwKGEFDVElPTl9DT1NUX0JPTlVTX0FDVElPThACEhgKFEFDVElPTl9DT1NUX1JFQUNUSU9OEAMSFAoQQUNUSU9OX0NPU1RfRlJFRRAEEhkKFUFDVElPTl9DT1NUX0xFR0VOREFSWRAFKrwBCgtUYXJnZXRTaGFwZRIcChhUQVJHRVRfU0hBUEVfVU5TUEVDSUZJRUQQABIVChFUQVJHRVRfU0hBUEVfU0VMRhABEhoKFlRBUkdFVF9TSEFQRV9DUkVBVFVSRVMQAhIXChNUQVJHRVRfU0hBUEVfU1BIRVJFEAMSFQoRVEFSR0VUX1NIQVBFX0NPTkUQBBIVChFUQVJHRVRfU0hBUEVfTElORRAFEhUKEVRBUkdFVF9TSEFQRV9DVUJFEAYqnQIKDER1cmF0aW9uVW5pdBIdChlEVVJBVElPTl9VTklUX1VOU1BFQ0lGSUVEEAASGQoVRFVSQVRJT05fVU5JVF9JTlNUQU5UEAESGAoURFVSQVRJT05fVU5JVF9ST1VORFMQAhIZChVEVVJBVElPTl9VTklUX01JTlVURVMQAxIXChNEVVJBVElPTl9VTklUX0hPVVJTEAQSLworRFVSQVRJT05fVU5JVF9VTlRJTF9FTkRfT0ZfU09VUkNFX05FWFRfVFVSThAFEjEKLURVUkFUSU9OX1VOSVRfVU5USUxfU1RBUlRfT0ZfU09VUkNFX05FWFRfVFVSThAGEiEKHURVUkFUSU9OX1VOSVRfVU5USUxfRElTUEVMTEVEEAdiBnByb3RvMw", [file_tomeandtile_v1_common, file_tomeandtile_v1_scene]);
+  fileDesc("Ch10b21lYW5kdGlsZS92MS9jcmVhdHVyZS5wcm90bxIOdG9tZWFuZHRpbGUudjEiggEKDUFiaWxpdHlTY29yZXMSEAoIc3RyZW5ndGgYASABKAUSEQoJZGV4dGVyaXR5GAIgASgFEhQKDGNvbnN0aXR1dGlvbhgDIAEoBRIUCgxpbnRlbGxpZ2VuY2UYBCABKAUSDgoGd2lzZG9tGAUgASgFEhAKCGNoYXJpc21hGAYgASgFIkQKCFJlc291cmNlEgsKA2tleRgBIAEoCRINCgVsYWJlbBgCIAEoCRIPCgdjdXJyZW50GAMgASgFEgsKA21heBgEIAEoBSKgAQoJVGFyZ2V0aW5nEioKBXNoYXBlGAEgASgOMhsudG9tZWFuZHRpbGUudjEuVGFyZ2V0U2hhcGUSEgoKcmFuZ2VfZmVldBgCIAEoAhIXCg9sb25nX3JhbmdlX2ZlZXQYAyABKAISEwoLbWF4X3RhcmdldHMYBCABKA0SEQoJc2l6ZV9mZWV0GAUgASgCEhIKCndpZHRoX2ZlZXQYBiABKAIiRAoKRGFtYWdlUGFydBIMCgRkaWNlGAEgASgJEigKBHR5cGUYAiABKA4yGi50b21lYW5kdGlsZS52MS5EYW1hZ2VUeXBlIk4KCkF0dGFja1N0ZXASFAoMdG9faGl0X2JvbnVzGAEgASgFEioKBmRhbWFnZRgCIAMoCzIaLnRvbWVhbmR0aWxlLnYxLkRhbWFnZVBhcnQiigEKCFNhdmVTdGVwEi0KB2FiaWxpdHkYASABKA4yHC50b21lYW5kdGlsZS52MS5BYmlsaXR5U2NvcmUSCgoCZGMYAiABKAUSKgoGZGFtYWdlGAMgAygLMhoudG9tZWFuZHRpbGUudjEuRGFtYWdlUGFydBIXCg9oYWxmX29uX3N1Y2Nlc3MYBCABKAgiTAoIRmxhdFN0ZXASKgoGZGFtYWdlGAEgAygLMhoudG9tZWFuZHRpbGUudjEuRGFtYWdlUGFydBIUCgxoZWFsaW5nX2RpY2UYAiABKAkiXQoIRHVyYXRpb24SKgoEdW5pdBgBIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkR1cmF0aW9uVW5pdBIOCgZhbW91bnQYAiABKA0SFQoNY29uY2VudHJhdGlvbhgDIAEoCCJpCg9BcHBseUVmZmVjdFN0ZXASEQoJZWZmZWN0X2lkGAEgASgJEioKCGR1cmF0aW9uGAIgASgLMhgudG9tZWFuZHRpbGUudjEuRHVyYXRpb24SFwoPb25seV9vbl9mYWlsdXJlGAMgASgIIkcKClBsdWdpblN0ZXASEQoJcGx1Z2luX2lkGAEgASgJEhMKC2VudHJ5X3BvaW50GAIgASgJEhEKCWFyZ3NfanNvbhgDIAEoCSL9AQoKRWZmZWN0U3RlcBIsCgZhdHRhY2sYASABKAsyGi50b21lYW5kdGlsZS52MS5BdHRhY2tTdGVwSAASKAoEc2F2ZRgCIAEoCzIYLnRvbWVhbmR0aWxlLnYxLlNhdmVTdGVwSAASKAoEZmxhdBgDIAEoCzIYLnRvbWVhbmR0aWxlLnYxLkZsYXRTdGVwSAASNwoMYXBwbHlfZWZmZWN0GAQgASgLMh8udG9tZWFuZHRpbGUudjEuQXBwbHlFZmZlY3RTdGVwSAASLAoGcGx1Z2luGAUgASgLMhoudG9tZWFuZHRpbGUudjEuUGx1Z2luU3RlcEgAQgYKBHN0ZXAiHAoIUmVjaGFyZ2USEAoIbWluX3JvbGwYASABKA0iKgoKU2tpbGxCb251cxINCgVza2lsbBgBIAEoCRINCgVib251cxgCIAEoBSLmAgoHQWJpbGl0eRISCgphYmlsaXR5X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSKAoEY29zdBgEIAEoDjIaLnRvbWVhbmR0aWxlLnYxLkFjdGlvbkNvc3QSFAoMcmVzb3VyY2Vfa2V5GAUgASgJEhcKD3Jlc291cmNlX2Ftb3VudBgGIAEoBRIsCgl0YXJnZXRpbmcYByABKAsyGS50b21lYW5kdGlsZS52MS5UYXJnZXRpbmcSKQoFc3RlcHMYCCADKAsyGi50b21lYW5kdGlsZS52MS5FZmZlY3RTdGVwEi4KCnByb3ZlbmFuY2UYCSABKAsyGi50b21lYW5kdGlsZS52MS5Qcm92ZW5hbmNlEioKCHJlY2hhcmdlGAogASgLMhgudG9tZWFuZHRpbGUudjEuUmVjaGFyZ2USFgoOcmVjaGFyZ2Vfc3BlbnQYCyABKAgilggKCENyZWF0dXJlEhMKC2NyZWF0dXJlX2lkGAEgASgJEioKBGtpbmQYAiABKA4yHC50b21lYW5kdGlsZS52MS5DcmVhdHVyZUtpbmQSDAoEbmFtZRgDIAEoCRItCgdlZGl0aW9uGAQgASgOMhwudG9tZWFuZHRpbGUudjEuUnVsZXNFZGl0aW9uEioKBHNpemUYBSABKA4yHC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVNpemUSLQoGc2NvcmVzGAYgASgLMh0udG9tZWFuZHRpbGUudjEuQWJpbGl0eVNjb3JlcxIZChFwcm9maWNpZW5jeV9ib251cxgHIAEoBRITCgthcm1vcl9jbGFzcxgIIAEoBRISCgpocF9jdXJyZW50GAkgASgFEg4KBmhwX21heBgKIAEoBRIPCgdocF90ZW1wGAsgASgFEhIKCnNwZWVkX2ZlZXQYDCABKAISGAoQaW5pdGlhdGl2ZV9ib251cxgNIAEoBRI4ChJzYXZlX3Byb2ZpY2llbmNpZXMYDiADKA4yHC50b21lYW5kdGlsZS52MS5BYmlsaXR5U2NvcmUSLwoLcmVzaXN0YW5jZXMYDyADKA4yGi50b21lYW5kdGlsZS52MS5EYW1hZ2VUeXBlEi4KCmltbXVuaXRpZXMYECADKA4yGi50b21lYW5kdGlsZS52MS5EYW1hZ2VUeXBlEjMKD3Z1bG5lcmFiaWxpdGllcxgRIAMoDjIaLnRvbWVhbmR0aWxlLnYxLkRhbWFnZVR5cGUSKwoJcmVzb3VyY2VzGBIgAygLMhgudG9tZWFuZHRpbGUudjEuUmVzb3VyY2USKgoJYWJpbGl0aWVzGBMgAygLMhcudG9tZWFuZHRpbGUudjEuQWJpbGl0eRISCgpjb25kaXRpb25zGBQgAygJEg8KB3N1bW1hcnkYFSABKAkSKgoIcG9ydHJhaXQYFiABKAsyGC50b21lYW5kdGlsZS52MS5Bc3NldFJlZhIuCgpwcm92ZW5hbmNlGBcgASgLMhoudG9tZWFuZHRpbGUudjEuUHJvdmVuYW5jZRIVCg1vd25lcl91c2VyX2lkGBggASgJEhYKDmZseV9zcGVlZF9mZWV0GBkgASgCEhcKD3N3aW1fc3BlZWRfZmVldBgaIAEoAhIYChBjbGltYl9zcGVlZF9mZWV0GBsgASgCEhkKEWJ1cnJvd19zcGVlZF9mZWV0GBwgASgCEhEKCWNhbl9ob3ZlchgdIAEoCBIqCgZza2lsbHMYHiADKAsyGi50b21lYW5kdGlsZS52MS5Ta2lsbEJvbnVzEhoKEnBhc3NpdmVfcGVyY2VwdGlvbhgfIAEoBRIcChRjb25kaXRpb25faW1tdW5pdGllcxggIAMoCSqDAQoMQ3JlYXR1cmVLaW5kEh0KGUNSRUFUVVJFX0tJTkRfVU5TUEVDSUZJRUQQABIiCh5DUkVBVFVSRV9LSU5EX1BMQVlFUl9DSEFSQUNURVIQARIZChVDUkVBVFVSRV9LSU5EX01PTlNURVIQAhIVChFDUkVBVFVSRV9LSU5EX05QQxADKusCCgpEYW1hZ2VUeXBlEhsKF0RBTUFHRV9UWVBFX1VOU1BFQ0lGSUVEEAASFAoQREFNQUdFX1RZUEVfQUNJRBABEhsKF0RBTUFHRV9UWVBFX0JMVURHRU9OSU5HEAISFAoQREFNQUdFX1RZUEVfQ09MRBADEhQKEERBTUFHRV9UWVBFX0ZJUkUQBBIVChFEQU1BR0VfVFlQRV9GT1JDRRAFEhkKFURBTUFHRV9UWVBFX0xJR0hUTklORxAGEhgKFERBTUFHRV9UWVBFX05FQ1JPVElDEAcSGAoUREFNQUdFX1RZUEVfUElFUkNJTkcQCBIWChJEQU1BR0VfVFlQRV9QT0lTT04QCRIXChNEQU1BR0VfVFlQRV9QU1lDSElDEAoSFwoTREFNQUdFX1RZUEVfUkFESUFOVBALEhgKFERBTUFHRV9UWVBFX1NMQVNISU5HEAwSFwoTREFNQUdFX1RZUEVfVEhVTkRFUhANKsMBCgpBY3Rpb25Db3N0EhsKF0FDVElPTl9DT1NUX1VOU1BFQ0lGSUVEEAASFgoSQUNUSU9OX0NPU1RfQUNUSU9OEAESHAoYQUNUSU9OX0NPU1RfQk9OVVNfQUNUSU9OEAISGAoUQUNUSU9OX0NPU1RfUkVBQ1RJT04QAxIUChBBQ1RJT05fQ09TVF9GUkVFEAQSGQoVQUNUSU9OX0NPU1RfTEVHRU5EQVJZEAUSFwoTQUNUSU9OX0NPU1RfUEFTU0lWRRAGKrwBCgtUYXJnZXRTaGFwZRIcChhUQVJHRVRfU0hBUEVfVU5TUEVDSUZJRUQQABIVChFUQVJHRVRfU0hBUEVfU0VMRhABEhoKFlRBUkdFVF9TSEFQRV9DUkVBVFVSRVMQAhIXChNUQVJHRVRfU0hBUEVfU1BIRVJFEAMSFQoRVEFSR0VUX1NIQVBFX0NPTkUQBBIVChFUQVJHRVRfU0hBUEVfTElORRAFEhUKEVRBUkdFVF9TSEFQRV9DVUJFEAYqnQIKDER1cmF0aW9uVW5pdBIdChlEVVJBVElPTl9VTklUX1VOU1BFQ0lGSUVEEAASGQoVRFVSQVRJT05fVU5JVF9JTlNUQU5UEAESGAoURFVSQVRJT05fVU5JVF9ST1VORFMQAhIZChVEVVJBVElPTl9VTklUX01JTlVURVMQAxIXChNEVVJBVElPTl9VTklUX0hPVVJTEAQSLworRFVSQVRJT05fVU5JVF9VTlRJTF9FTkRfT0ZfU09VUkNFX05FWFRfVFVSThAFEjEKLURVUkFUSU9OX1VOSVRfVU5USUxfU1RBUlRfT0ZfU09VUkNFX05FWFRfVFVSThAGEiEKHURVUkFUSU9OX1VOSVRfVU5USUxfRElTUEVMTEVEEAdiBnByb3RvMw", [file_tomeandtile_v1_common, file_tomeandtile_v1_scene]);
 
 /**
  * @generated from message tomeandtile.v1.AbilityScores
@@ -403,6 +403,56 @@ export const EffectStepSchema: GenMessage<EffectStep> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_creature, 10);
 
 /**
+ * "Recharge 5-6": after use, the ability is unavailable until a d6 rolled at
+ * the start of the creature's turn shows `min_roll` or higher.
+ *
+ * @generated from message tomeandtile.v1.Recharge
+ */
+export type Recharge = Message<"tomeandtile.v1.Recharge"> & {
+  /**
+   * Lowest d6 result that recharges the ability, 2 to 6.
+   *
+   * @generated from field: uint32 min_roll = 1;
+   */
+  minRoll: number;
+};
+
+/**
+ * Describes the message tomeandtile.v1.Recharge.
+ * Use `create(RechargeSchema)` to create a new message.
+ */
+export const RechargeSchema: GenMessage<Recharge> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_creature, 11);
+
+/**
+ * A skill the creature has a stated bonus in.
+ *
+ * @generated from message tomeandtile.v1.SkillBonus
+ */
+export type SkillBonus = Message<"tomeandtile.v1.SkillBonus"> & {
+  /**
+   * Lower-case skill id with underscores: "perception", "sleight_of_hand".
+   *
+   * @generated from field: string skill = 1;
+   */
+  skill: string;
+
+  /**
+   * Total bonus added to the d20.
+   *
+   * @generated from field: int32 bonus = 2;
+   */
+  bonus: number;
+};
+
+/**
+ * Describes the message tomeandtile.v1.SkillBonus.
+ * Use `create(SkillBonusSchema)` to create a new message.
+ */
+export const SkillBonusSchema: GenMessage<SkillBonus> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_creature, 12);
+
+/**
  * Anything clickable on a sheet: a weapon attack, a spell, a feature.
  *
  * @generated from message tomeandtile.v1.Ability
@@ -456,6 +506,21 @@ export type Ability = Message<"tomeandtile.v1.Ability"> & {
    * @generated from field: tomeandtile.v1.Provenance provenance = 9;
    */
   provenance?: Provenance | undefined;
+
+  /**
+   * Unset for abilities that do not recharge on a die roll.
+   *
+   * @generated from field: tomeandtile.v1.Recharge recharge = 10;
+   */
+  recharge?: Recharge | undefined;
+
+  /**
+   * True after a recharge ability is used, until it recharges. Set by the
+   * server; importers leave it false.
+   *
+   * @generated from field: bool recharge_spent = 11;
+   */
+  rechargeSpent: boolean;
 };
 
 /**
@@ -463,7 +528,7 @@ export type Ability = Message<"tomeandtile.v1.Ability"> & {
  * Use `create(AbilitySchema)` to create a new message.
  */
 export const AbilitySchema: GenMessage<Ability> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_creature, 11);
+  messageDesc(file_tomeandtile_v1_creature, 13);
 
 /**
  * A character, monster or NPC. Full form: sent only to viewers allowed to
@@ -528,6 +593,9 @@ export type Creature = Message<"tomeandtile.v1.Creature"> & {
   hpTemp: number;
 
   /**
+   * Walking speed. 0 if the creature cannot walk; never borrowed from
+   * another movement mode.
+   *
    * @generated from field: float speed_feet = 12;
    */
   speedFeet: number;
@@ -601,6 +669,58 @@ export type Creature = Message<"tomeandtile.v1.Creature"> & {
    * @generated from field: string owner_user_id = 24;
    */
   ownerUserId: string;
+
+  /**
+   * Other movement modes, in feet. 0 means the creature lacks that mode.
+   *
+   * @generated from field: float fly_speed_feet = 25;
+   */
+  flySpeedFeet: number;
+
+  /**
+   * @generated from field: float swim_speed_feet = 26;
+   */
+  swimSpeedFeet: number;
+
+  /**
+   * @generated from field: float climb_speed_feet = 27;
+   */
+  climbSpeedFeet: number;
+
+  /**
+   * @generated from field: float burrow_speed_feet = 28;
+   */
+  burrowSpeedFeet: number;
+
+  /**
+   * True if the creature can hover: it stays aloft when its speed is 0.
+   *
+   * @generated from field: bool can_hover = 29;
+   */
+  canHover: boolean;
+
+  /**
+   * Skills with a stated bonus. A skill not listed uses the plain ability
+   * modifier.
+   *
+   * @generated from field: repeated tomeandtile.v1.SkillBonus skills = 30;
+   */
+  skills: SkillBonus[];
+
+  /**
+   * Passive Wisdom (Perception) score. 0 means not stated.
+   *
+   * @generated from field: int32 passive_perception = 31;
+   */
+  passivePerception: number;
+
+  /**
+   * Condition ids the creature cannot be given, e.g. "prone", "blinded".
+   * `conditions` holds the ones currently active.
+   *
+   * @generated from field: repeated string condition_immunities = 32;
+   */
+  conditionImmunities: string[];
 };
 
 /**
@@ -608,7 +728,7 @@ export type Creature = Message<"tomeandtile.v1.Creature"> & {
  * Use `create(CreatureSchema)` to create a new message.
  */
 export const CreatureSchema: GenMessage<Creature> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_creature, 12);
+  messageDesc(file_tomeandtile_v1_creature, 14);
 
 /**
  * @generated from enum tomeandtile.v1.CreatureKind
@@ -755,6 +875,14 @@ export enum ActionCost {
    * @generated from enum value: ACTION_COST_LEGENDARY = 5;
    */
   LEGENDARY = 5,
+
+  /**
+   * Always on; cannot be activated. Traits such as "Keen Sight". A passive
+   * ability has no steps and nothing happens when it is clicked.
+   *
+   * @generated from enum value: ACTION_COST_PASSIVE = 6;
+   */
+  PASSIVE = 6,
 }
 
 /**

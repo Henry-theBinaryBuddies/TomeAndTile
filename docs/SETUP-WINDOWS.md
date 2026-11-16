@@ -19,8 +19,10 @@ winget install --id Rustlang.Rustup -e
 Rust needs the Microsoft C++ build tools. If the Rust installer asks to install them, say yes. Otherwise:
 
 ```bash
-winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --includeRecommended"
 ```
+
+The command names the Windows SDK explicitly, because the build tools do not always include it. If `cargo test` later fails with `LNK1181: cannot open input file 'kernel32.lib'`, the SDK is missing: open "Visual Studio Installer" from the Start menu, click **Modify** on Build Tools 2022, tick **Windows 11 SDK** under Individual components, and install.
 
 Node.js LTS:
 

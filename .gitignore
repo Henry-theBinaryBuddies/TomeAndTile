@@ -13,3 +13,5 @@ pkg/
 .vscode/
 .DS_Store
 Thumbs.db
+# renderer demo build output (also covered by pkg/ above)
+crates/renderer/demo/pkg/

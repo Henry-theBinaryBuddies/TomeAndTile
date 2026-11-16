@@ -108,3 +108,66 @@ fn target_shape_self_json_roundtrip() {
     let back: Targeting = serde_json::from_value(json).expect("deserialize");
     assert_eq!(t, back);
 }
+
+#[test]
+fn monster_fields_roundtrip_in_both_forms() {
+    use tt_contracts::v1::{ActionCost, Provenance, Recharge, SkillBonus};
+    let creature = Creature {
+        name: "Voidbloom Seer".into(),
+        // No walking speed: flies and hovers.
+        speed_feet: 0.0,
+        fly_speed_feet: 40.0,
+        can_hover: true,
+        skills: vec![SkillBonus {
+            skill: "perception".into(),
+            bonus: 6,
+        }],
+        passive_perception: 16,
+        condition_immunities: vec!["prone".into()],
+        abilities: vec![
+            Ability {
+                name: "Keen Sight".into(),
+                cost: ActionCost::Passive as i32,
+                ..Default::default()
+            },
+            Ability {
+                name: "Stormbreath".into(),
+                recharge: Some(Recharge { min_roll: 5 }),
+                ..Default::default()
+            },
+        ],
+        provenance: Some(Provenance {
+            source: "creature-cauldron".into(),
+            external_id: "curated-voidbloom-seer".into(),
+            origin_notes: "curated".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let decoded = Creature::decode(creature.encode_to_vec().as_slice()).expect("decode");
+    assert_eq!(creature, decoded);
+
+    let json = serde_json::to_value(&creature).expect("serialize");
+    assert_eq!(json["flySpeedFeet"], 40.0);
+    assert_eq!(json["canHover"], true);
+    assert_eq!(json["skills"][0]["skill"], "perception");
+    assert_eq!(json["passivePerception"], 16);
+    assert_eq!(json["conditionImmunities"][0], "prone");
+    assert_eq!(json["abilities"][0]["cost"], "ACTION_COST_PASSIVE");
+    assert_eq!(json["abilities"][1]["recharge"]["minRoll"], 5);
+    assert_eq!(json["provenance"]["externalId"], "curated-voidbloom-seer");
+    let back: Creature = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(creature, back);
+}
+
+#[test]
+fn files_written_before_the_monster_fields_still_parse() {
+    // A creature file from before these fields existed must load unchanged.
+    let old = r#"{"name":"Goblin","armorClass":15,"speedFeet":30}"#;
+    let creature: Creature = serde_json::from_str(old).expect("deserialize");
+    assert_eq!(creature.speed_feet, 30.0);
+    assert_eq!(creature.fly_speed_feet, 0.0);
+    assert!(creature.skills.is_empty());
+    assert!(creature.condition_immunities.is_empty());
+}

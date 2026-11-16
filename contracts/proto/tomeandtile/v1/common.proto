@@ -44,6 +44,14 @@ message Provenance {
   string source = 1;
   // Free text shown in the UI, e.g. the attribution line for SRD content.
   string attribution = 2;
+  // The id this content has in the system it came from (for example a
+  // Creature Cauldron monster id), so a re-import can be matched to the
+  // earlier one. Never used as a Tome & Tile id.
+  string external_id = 3;
+  // The source system's own notes on where the content came from: its
+  // category ("srd", "ai", "reskin"), parent, generator, list of changes.
+  // Free text for display. Licence text goes in `attribution`, verbatim.
+  string origin_notes = 4;
 }
 
 // A non-fatal note attached to an event: "out of range", "no spell slot".

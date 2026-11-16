@@ -13,7 +13,7 @@ Status: Milestone 0 (skeleton). Nothing is playable yet.
 | Understand the design | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | See why a decision was made | [docs/adr/](docs/adr/) |
 | Know what you may edit | [CLAUDE.md](CLAUDE.md) and the `CLAUDE.md` in your directory |
-| Pick up work | GitHub issues labelled with your area; drafts in [docs/backlog/](docs/backlog/) |
+| Pick up work | The GitHub issues assigned to you |
 
 ## Layout
 

@@ -57,6 +57,9 @@ enum ActionCost {
   ACTION_COST_REACTION = 3;
   ACTION_COST_FREE = 4;
   ACTION_COST_LEGENDARY = 5;
+  // Always on; cannot be activated. Traits such as "Keen Sight". A passive
+  // ability has no steps and nothing happens when it is clicked.
+  ACTION_COST_PASSIVE = 6;
 }
 
 enum TargetShape {
@@ -161,6 +164,21 @@ message EffectStep {
   }
 }
 
+// "Recharge 5-6": after use, the ability is unavailable until a d6 rolled at
+// the start of the creature's turn shows `min_roll` or higher.
+message Recharge {
+  // Lowest d6 result that recharges the ability, 2 to 6.
+  uint32 min_roll = 1;
+}
+
+// A skill the creature has a stated bonus in.
+message SkillBonus {
+  // Lower-case skill id with underscores: "perception", "sleight_of_hand".
+  string skill = 1;
+  // Total bonus added to the d20.
+  int32 bonus = 2;
+}
+
 // Anything clickable on a sheet: a weapon attack, a spell, a feature.
 message Ability {
   string ability_id = 1;
@@ -174,6 +192,11 @@ message Ability {
   Targeting targeting = 7;
   repeated EffectStep steps = 8;
   Provenance provenance = 9;
+  // Unset for abilities that do not recharge on a die roll.
+  Recharge recharge = 10;
+  // True after a recharge ability is used, until it recharges. Set by the
+  // server; importers leave it false.
+  bool recharge_spent = 11;
 }
 
 // A character, monster or NPC. Full form: sent only to viewers allowed to
@@ -190,6 +213,8 @@ message Creature {
   int32 hp_current = 9;
   int32 hp_max = 10;
   int32 hp_temp = 11;
+  // Walking speed. 0 if the creature cannot walk; never borrowed from
+  // another movement mode.
   float speed_feet = 12;
   // Added to the d20 when the server rolls initiative.
   int32 initiative_bonus = 13;
@@ -208,4 +233,19 @@ message Creature {
   Provenance provenance = 23;
   // Owning user for player characters. Empty for GM-owned creatures.
   string owner_user_id = 24;
+  // Other movement modes, in feet. 0 means the creature lacks that mode.
+  float fly_speed_feet = 25;
+  float swim_speed_feet = 26;
+  float climb_speed_feet = 27;
+  float burrow_speed_feet = 28;
+  // True if the creature can hover: it stays aloft when its speed is 0.
+  bool can_hover = 29;
+  // Skills with a stated bonus. A skill not listed uses the plain ability
+  // modifier.
+  repeated SkillBonus skills = 30;
+  // Passive Wisdom (Perception) score. 0 means not stated.
+  int32 passive_perception = 31;
+  // Condition ids the creature cannot be given, e.g. "prone", "blinded".
+  // `conditions` holds the ones currently active.
+  repeated string condition_immunities = 32;
 }

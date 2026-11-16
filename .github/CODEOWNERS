@@ -1,13 +1,19 @@
-# Later rules win. The last matching pattern decides the owner.
+# Later rules win. The last matching pattern decides the owners.
+#
+# A pull request needs approval from ONE of the owners listed for each file it
+# touches, and GitHub does not let authors approve their own pull requests.
+# The project owner is therefore listed as a co-owner of every contributor's
+# area: a contributor's pull request in their own area is approved by the
+# project owner, and the project owner's pull request there by the contributor.
 
 *                       @Henry-theBinaryBuddies
 
-/integrations/          @aalemany00
-/web/                   @Danny-Defeato
-/web/media/             @aalemany00
+/integrations/          @aalemany00 @Henry-theBinaryBuddies
+/web/                   @Danny-Defeato @Henry-theBinaryBuddies
+/web/media/             @aalemany00 @Henry-theBinaryBuddies
 
-/docs/devlog/aalemany00.md      @aalemany00
-/docs/devlog/Danny-Defeato.md   @Danny-Defeato
+/docs/devlog/aalemany00.md      @aalemany00 @Henry-theBinaryBuddies
+/docs/devlog/Danny-Defeato.md   @Danny-Defeato @Henry-theBinaryBuddies
 
 # Boundary files stay with the project owner even inside someone else's area.
 /integrations/CLAUDE.md @Henry-theBinaryBuddies
