@@ -27,6 +27,7 @@
 	},
 	"dependencies": {
 		"@bufbuild/protobuf": "^2.17.0",
-		"@tomeandtile/contracts": "file:../contracts/ts"
+		"@tomeandtile/contracts": "file:../contracts/ts",
+		"livekit-client": "^2.24.1"
 	}
 }

@@ -2,6 +2,35 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-15 — #34 LiveKit client module
+
+**Did:** Built `web/media/` per ADR 0007: `createMediaClient()` exporting exactly join, leave,
+mute/unmute, camera on/off, pick a device, list participants, attach/detach a track, and a
+Svelte store to subscribe to state. `livekit-client` (2.24.1, the version ADR 0007 pre-approved)
+is imported only in `room.ts`, which adapts a real `Room` to an internal `RoomLike` interface;
+`client.ts` (the state machine) and the exported `MediaClient` type never see a LiveKit type.
+17 unit tests run against a hand-written fake `RoomLike`, no LiveKit import and no real SFU,
+covering: join connects with the token's `sfu_url`/`token` and only then asks for mic/camera
+permission; a spectator token (`can_publish: false`) never opens either; the client asks for a
+new token and rejoins both ~10s before `expires_at_ms` and on an unexpected disconnect; `leave`
+tears down cleanly and a stale in-flight rejoin can't resurrect a left call; mute/unmute and
+camera on/off; permission-denied/no-device/token-refused/connection-lost each land as a typed
+`MediaFailure` without crashing the client; the token never appears in state or console output.
+**Directed Claude to:** Read issue #34, ADR 0007 and `web/media/CLAUDE.md`, then build the
+module and its tests without touching anything in `web/` outside `web/media/`.
+**Learned:** `web/vite.config.ts`'s test `include` is `src/**/*.test.ts` and `web/tsconfig.json`'s
+`include` is `["src", "vite.config.ts"]` — neither looks at `web/media/` at all. Both files are
+outside this area (Danny's), so per `web/media/CLAUDE.md` ("stop and ask" for a file outside
+`web/media/`) I verified the module with throwaway local-only configs instead of editing them,
+and I'm filing an issue for whoever owns those files to widen the globs, since `npm run check`
+and `npm test` from `web/` currently skip this module entirely despite issue #34 listing them as
+acceptance criteria.
+**Blocked on / next:** The `check`/`test` glob gap above. `npm run build` passes as-is (`web/media/`
+isn't imported into the app yet, so the gap doesn't show up there). `npm run check` and `npm test`
+were run by pointing `tsc`/`vitest` at `media/` directly with throwaway local-only configs
+(deleted, not committed) instead of the real `npm run check`/`npm test`, until the glob gap above
+is fixed.
+
 ## 2026-11-12 — #7 Machine setup and onboarding
 
 **Did:** Accepted the GitHub invite and cloned the repo. Installed the Windows toolchain from `docs/SETUP-WINDOWS.md`: Rustup/cargo, `buf` via npm, and the MSVC C++ build tools. `cargo test --workspace` and `bash tools/check-deps.sh` both pass on this machine.
