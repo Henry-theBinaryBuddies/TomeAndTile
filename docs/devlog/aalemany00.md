@@ -2,6 +2,25 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-15 — #8 Second pass: wire up the merged contracts fields
+
+**Did:** Henry's [#16](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/16) merged,
+adding every field the first round of corrections left as "pending contracts change." Updated
+the branch onto current `main` again and replaced each pending row with the real field: `monster.id`
+→ `Provenance.external_id`; `parent_id`/`generator`/`changes` → `Provenance.origin_notes`;
+traits → `ACTION_COST_PASSIVE`; `recharge.min` → `Ability.recharge` (`Recharge{min_roll}`);
+the four non-walk speeds → `fly_speed_feet`/`swim_speed_feet`/`climb_speed_feet`/`burrow_speed_feet`;
+`speeds.hover` → `Creature.can_hover`; `skills` → `Creature.skills` (`repeated SkillBonus`);
+`senses.passive_perception` → `Creature.passive_perception`; `condition_immunities` →
+`Creature.condition_immunities`. Rewrote the "Gaps" section to say what #16 resolved instead of
+what's pending; only multiattack (Milestone 2, rules-engine work) is still open.
+**Directed Claude to:** Check whether #16 had merged, update the branch, and replace the
+"pending contracts change" rows with the real fields it added.
+**Learned:** This is the second round of "update the branch, it's stale again" on this PR —
+worth watching for on any review that lands while a dependency (here, a contracts PR) is still
+in flight.
+**Blocked on / next:** Nothing of mine; waiting on Henry's re-review.
+
 ## 2026-11-12 — #8 Field map corrections from Henry's review
 
 **Did:** Updated `integrations/8-cauldron-field-map` branch onto current `main` (clean, only `MAPPING.md` left in the diff) and fixed every correction from Henry's PR #11 review: recount of skills (2/5, not 5/5) and non-walk speeds (4/5, not 3/5); a rule for `speeds.walk` being absent (Voidbloom Seer — default to 0, never borrow another mode); an explicit dice+bonus combining rule for a zero and a negative bonus; moved `monster.id` off `attribution` onto a new pending `Provenance.external_id` field; moved traits off `ACTION_COST_FREE` onto a pending passive `ActionCost` value; set `resource_key = "legendary_actions"` on legendary options so the cost is actually spent from the pool; restricted `Provenance.attribution` to the raw SRD text only (parent_id/generator/changes now point at a separate pending contracts field); defined the `per_day` resource-key slug rule; and folded in Henry's gap decisions (save bonuses computed+compared instead of a contract change, multiattack as an interim description-only `Ability` pending Milestone 2 rules-engine work, `radius`→`TARGET_SHAPE_SPHERE` and `CreatureSize` both confirmed).
