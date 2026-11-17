@@ -145,22 +145,8 @@ describe('join', () => {
 	});
 });
 
-describe('token renewal', () => {
-	it('asks for a new token and rejoins shortly before expires_at_ms', async () => {
-		const { client, rooms, requestToken } = setup({
-			requestToken: vi.fn(async () => fakeToken({ expiresAtMs: BigInt(Date.now() + 20_000) }))
-		});
-		await client.join();
-		expect(requestToken).toHaveBeenCalledTimes(1);
-
-		await vi.advanceTimersByTimeAsync(10_001); // renewBeforeMs defaults to 10s
-		expect(requestToken).toHaveBeenCalledTimes(2);
-		expect(rooms[0].disconnected).toBe(true);
-		expect(rooms[1]).toBeDefined();
-		expect(get(client.state).status).toBe('joined');
-	});
-
-	it('asks for a new token and rejoins when the connection drops', async () => {
+describe('reconnect on a dropped connection', () => {
+	it('asks for a new token and rejoins after a short delay when the connection drops', async () => {
 		const { client, rooms, requestToken } = setup();
 		await client.join();
 
@@ -168,9 +154,50 @@ describe('token renewal', () => {
 		// Checked synchronously: the automatic rejoin clears `failure` again once it starts, so
 		// this is the only window where the drop is visible through the subscription.
 		expect(get(client.state).failure?.kind).toBe('connection_lost');
+		expect(requestToken).toHaveBeenCalledTimes(1); // not yet; the rejoin is delayed
 
-		await vi.waitFor(() => expect(requestToken).toHaveBeenCalledTimes(2));
+		await vi.advanceTimersByTimeAsync(1_000); // base reconnect delay
+		expect(requestToken).toHaveBeenCalledTimes(2);
 		expect(rooms[1]).toBeDefined();
+		expect(get(client.state).status).toBe('joined');
+	});
+
+	it('grows the delay on repeated drops, and resets it only once the connection stays up', async () => {
+		const { client, rooms, requestToken } = setup();
+		await client.join();
+
+		rooms[0].fireDisconnected();
+		await vi.advanceTimersByTimeAsync(1_000); // 1st delay: base
+		expect(requestToken).toHaveBeenCalledTimes(2);
+
+		// Dropped again right away, before the join above could count as stable: the delay
+		// keeps growing instead of resetting. This is the "accepts and drops at once" case the
+		// backoff exists for — resetting on every `connect()` resolving, no matter how briefly
+		// the call stays up, would never actually slow anything down.
+		rooms[1].fireDisconnected();
+		await vi.advanceTimersByTimeAsync(1_000); // too soon: delay has grown to 2s
+		expect(requestToken).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1_000); // now at 2s total
+		expect(requestToken).toHaveBeenCalledTimes(3);
+
+		// This time, let the join stay up long enough to count as stable before it drops again.
+		await vi.advanceTimersByTimeAsync(5_000); // STABLE_CONNECTION_MS
+		rooms[2].fireDisconnected();
+		await vi.advanceTimersByTimeAsync(1_000); // back to the base delay
+		expect(requestToken).toHaveBeenCalledTimes(4);
+	});
+
+	it('cancels a pending reconnect when left before it fires', async () => {
+		const { client, rooms, requestToken } = setup();
+		await client.join();
+
+		rooms[0].fireDisconnected();
+		await client.leave();
+
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(requestToken).toHaveBeenCalledTimes(1); // the pending reconnect never fired
+		expect(get(client.state).status).toBe('idle');
+		expect(rooms).toHaveLength(1);
 	});
 });
 
@@ -188,18 +215,6 @@ describe('leave', () => {
 		expect(state.participants).toEqual([]);
 	});
 
-	it('a stale rejoin from before leave never resurrects the call', async () => {
-		const { client, rooms, requestToken } = setup({
-			requestToken: vi.fn(async () => fakeToken({ expiresAtMs: BigInt(Date.now() + 20_000) }))
-		});
-		await client.join();
-		await client.leave();
-
-		await vi.advanceTimersByTimeAsync(20_000);
-		expect(requestToken).toHaveBeenCalledTimes(1); // the renewal timer never fires post-leave
-		expect(get(client.state).status).toBe('idle');
-		expect(rooms).toHaveLength(1);
-	});
 });
 
 describe('mute, unmute, camera', () => {

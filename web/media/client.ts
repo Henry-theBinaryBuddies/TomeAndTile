@@ -18,17 +18,25 @@ import type {
 
 export type { DeviceKind, MediaClientState, MediaDeviceOption, MediaFailure, ParticipantInfo, TrackKind };
 
-const DEFAULT_RENEW_BEFORE_MS = 10_000;
+// A token's expiry only matters for the initial connection: LiveKit's client library refreshes
+// its own token for a network-drop reconnect, so there is no pre-expiry renewal here (see
+// https://docs.livekit.io/home/get-started/authentication/#access-tokens-and-grants). What this
+// module does handle is a dropped connection: it rejoins (asking the server for a new token)
+// with a delay that grows on repeated failures, so a server that accepts and immediately drops
+// the connection cannot spin in a tight loop.
+const BASE_RECONNECT_DELAY_MS = 1_000;
+const MAX_RECONNECT_DELAY_MS = 16_000;
+// A join only counts as "successful" for backoff purposes once the connection has stayed up
+// this long. Resetting the backoff the instant `connect()` resolves would let a server that
+// accepts and immediately drops the connection reset to the base delay every cycle, which is
+// exactly the tight loop the backoff exists to prevent.
+const STABLE_CONNECTION_MS = 5_000;
 
 export interface MediaClientOptions {
 	/** Returns the next join token. Backed by the game socket client's `requestMediaToken()`. */
 	requestToken: () => Promise<MediaToken>;
 	/** Creates the room for one join. Defaults to a real LiveKit room; tests supply a fake. */
 	createRoom?: () => RoomLike;
-	/** Wall clock, for scheduling the pre-expiry rejoin. Defaults to `Date.now`. */
-	now?: () => number;
-	/** How long before `expires_at_ms` to ask for a new token and rejoin. Defaults to 10s. */
-	renewBeforeMs?: number;
 }
 
 export interface MediaClient {
@@ -65,16 +73,15 @@ function toFailure(error: unknown): MediaFailure {
 }
 
 export function createMediaClient(options: MediaClientOptions): MediaClient {
-	const {
-		requestToken,
-		createRoom = () => wrapLiveKitRoom(),
-		now = () => Date.now(),
-		renewBeforeMs = DEFAULT_RENEW_BEFORE_MS
-	} = options;
+	const { requestToken, createRoom = () => wrapLiveKitRoom() } = options;
 
 	let state = initialState();
 	let room: RoomLike | null = null;
-	let renewTimer: ReturnType<typeof setTimeout> | null = null;
+	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
+	// Grows on every dropped-connection rejoin, reset to 0 once a join stays up for
+	// STABLE_CONNECTION_MS.
+	let reconnectAttempt = 0;
 	// Bumped on every join/leave. A callback from an earlier join compares against this before
 	// touching `state` or `room`, so a stale rejoin or disconnect handler can never clobber a
 	// newer one.
@@ -86,23 +93,33 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		for (const subscriber of subscribers) subscriber(state);
 	}
 
-	function clearRenewTimer() {
-		if (renewTimer !== null) {
-			clearTimeout(renewTimer);
-			renewTimer = null;
+	function clearReconnectTimer() {
+		if (reconnectTimer !== null) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
 		}
 	}
 
-	function scheduleRenew(expiresAtMs: number, myGeneration: number) {
-		clearRenewTimer();
-		const delay = Math.max(0, expiresAtMs - now() - renewBeforeMs);
-		renewTimer = setTimeout(() => {
+	function clearStabilityTimer() {
+		if (stabilityTimer !== null) {
+			clearTimeout(stabilityTimer);
+			stabilityTimer = null;
+		}
+	}
+
+	function scheduleReconnect(myGeneration: number) {
+		clearReconnectTimer();
+		const delay = Math.min(BASE_RECONNECT_DELAY_MS * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY_MS);
+		reconnectAttempt++;
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = null;
 			if (myGeneration === generation) void rejoin(myGeneration);
 		}, delay);
 	}
 
 	async function teardown() {
-		clearRenewTimer();
+		clearReconnectTimer();
+		clearStabilityTimer();
 		const current = room;
 		room = null;
 		if (current) {
@@ -156,15 +173,19 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 				cameraEnabled: false,
 				failure: { kind: 'connection_lost', message: 'Disconnected from the call.' }
 			});
-			void rejoin(myGeneration);
+			scheduleReconnect(myGeneration);
 		});
 		nextRoom.onParticipantsChanged(() => {
 			if (myGeneration !== generation || room !== nextRoom) return;
 			setState({ participants: nextRoom.participants() });
 		});
 
+		clearStabilityTimer();
+		stabilityTimer = setTimeout(() => {
+			stabilityTimer = null;
+			if (myGeneration === generation) reconnectAttempt = 0;
+		}, STABLE_CONNECTION_MS);
 		setState({ status: 'joined', canPublish: token.canPublish, participants: nextRoom.participants() });
-		scheduleRenew(Number(token.expiresAtMs), myGeneration);
 
 		if (token.canPublish) {
 			try {
