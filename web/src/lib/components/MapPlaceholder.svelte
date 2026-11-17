@@ -76,7 +76,15 @@
 	{:else if !ready}
 		<p class="map-hint" role="status">Loading the map…</p>
 	{/if}
-	{#if refusal}
-		<p class="map-refusal" role="status">{refusal}</p>
-	{/if}
 </main>
+
+<!--
+	Outside <main>: a fixed element is its own stacking layer, so inside it the notice could
+	never rise above the docked panels. The region stays in the page so screen readers
+	announce the text when it appears.
+-->
+<div class="map-refusal-region" role="status">
+	{#if refusal}
+		<p class="map-refusal">{refusal}</p>
+	{/if}
+</div>

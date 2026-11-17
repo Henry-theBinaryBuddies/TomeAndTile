@@ -73,24 +73,30 @@ body {
 	display: grid;
 	place-items: center;
 	margin: 0;
-	padding: 0 1rem;
+	/* Wrap the text in a column of at most 28rem, so it stays clear of the docks. */
+	padding: 0 max(1rem, calc((100% - 28rem) / 2));
 	text-align: center;
 	color: var(--muted);
 	pointer-events: none;
 }
-.map-refusal {
-	position: absolute;
+/* A short notice above every panel (the docks cover most of the map's edge), so a
+   refused move is never hidden behind one. */
+.map-refusal-region {
+	position: fixed;
+	top: 0.75rem;
 	left: 50%;
-	bottom: 4rem;
 	transform: translateX(-50%);
+	z-index: 40;
 	max-width: min(90vw, 28rem);
+	pointer-events: none;
+}
+.map-refusal {
 	margin: 0;
 	padding: 0.5rem 0.9rem;
 	border-radius: 6px;
-	background: rgb(0 0 0 / 0.75);
+	background: rgb(0 0 0 / 0.85);
 	color: #fff;
 	text-align: center;
-	pointer-events: none;
 }
 
 /* ---- desktop: docked regions overlay the map; the middle stays click-through ---- */
