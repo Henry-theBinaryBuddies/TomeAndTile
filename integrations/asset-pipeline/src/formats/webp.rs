@@ -28,7 +28,7 @@ fn sniff_lossy(payload: &[u8]) -> Result<(u32, u32), AssetError> {
     if payload.len() < 10 {
         return Err(AssetError::TruncatedHeader);
     }
-    if &payload[3..6] != &[0x9d, 0x01, 0x2a] {
+    if payload[3..6] != [0x9d, 0x01, 0x2a] {
         return Err(AssetError::TruncatedHeader);
     }
     let width = u16::from_le_bytes([payload[6], payload[7]]) & 0x3FFF;

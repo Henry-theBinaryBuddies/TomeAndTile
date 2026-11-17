@@ -4,8 +4,11 @@
 use tt_asset_pipeline::{inspect, AssetError, MAX_DIMENSION, MAX_FILE_BYTES, MAX_PIXELS};
 
 fn sample(name: &str) -> Vec<u8> {
-    std::fs::read(format!("{}/tests/samples/{name}", env!("CARGO_MANIFEST_DIR")))
-        .unwrap_or_else(|error| panic!("reading tests/samples/{name}: {error}"))
+    std::fs::read(format!(
+        "{}/tests/samples/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap_or_else(|error| panic!("reading tests/samples/{name}: {error}"))
 }
 
 #[test]
@@ -39,7 +42,8 @@ fn a_real_lossy_webp_icon_is_accepted_with_its_real_dimensions() {
 
 #[test]
 fn a_real_lossless_webp_icon_is_accepted_with_its_real_dimensions() {
-    let asset = inspect(&sample("icon-lossless.webp")).expect("icon-lossless.webp should be accepted");
+    let asset =
+        inspect(&sample("icon-lossless.webp")).expect("icon-lossless.webp should be accepted");
     assert_eq!(asset.media_type, "image/webp");
     assert_eq!((asset.width, asset.height), (32, 32));
 }
@@ -97,7 +101,10 @@ fn a_header_claiming_dimensions_over_the_limit_is_rejected() {
     bytes.extend_from_slice(&1u32.to_be_bytes());
     assert_eq!(
         inspect(&bytes),
-        Err(AssetError::InvalidDimensions { width: MAX_DIMENSION + 1, height: 1 })
+        Err(AssetError::InvalidDimensions {
+            width: MAX_DIMENSION + 1,
+            height: 1
+        })
     );
 }
 
@@ -129,7 +136,10 @@ fn an_oversized_file_is_rejected_by_size_alone_before_any_format_parsing() {
     let bytes = vec![0u8; (MAX_FILE_BYTES + 1) as usize];
     assert_eq!(
         inspect(&bytes),
-        Err(AssetError::TooLarge { max_bytes: MAX_FILE_BYTES, actual_bytes: MAX_FILE_BYTES + 1 })
+        Err(AssetError::TooLarge {
+            max_bytes: MAX_FILE_BYTES,
+            actual_bytes: MAX_FILE_BYTES + 1
+        })
     );
 }
 
@@ -141,16 +151,21 @@ fn an_empty_file_is_rejected() {
 #[test]
 fn completely_random_bytes_are_rejected_as_unknown_not_panicked_on() {
     // A fixed pseudo-random-looking sequence, not any recognized magic bytes.
-    let bytes: Vec<u8> = (0u32..4096).map(|i| ((i * 2654435761u32) >> 24) as u8).collect();
+    let bytes: Vec<u8> = (0u32..4096)
+        .map(|i| ((i.wrapping_mul(2654435761u32)) >> 24) as u8)
+        .collect();
     assert_eq!(inspect(&bytes), Err(AssetError::UnknownFormat));
 }
 
 #[test]
 fn an_svg_is_rejected_even_with_a_png_like_byte_or_two_nearby() {
-    let bytes = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg onload=\"alert(1)\"></svg>".to_vec();
+    let bytes =
+        b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg onload=\"alert(1)\"></svg>".to_vec();
     assert_eq!(
         inspect(&bytes),
-        Err(AssetError::DisallowedFormat { media_type: "image/svg+xml" })
+        Err(AssetError::DisallowedFormat {
+            media_type: "image/svg+xml"
+        })
     );
 }
 
@@ -160,11 +175,11 @@ fn nothing_panics_across_a_spread_of_hostile_short_inputs() {
         vec![],
         vec![0u8; 1],
         vec![0xFFu8; 1],
-        vec![0x89, 0x50, 0x4E, 0x47],      // PNG signature, cut off
-        vec![0xFF, 0xD8],                  // JPEG SOI, cut off
-        b"RIFF".to_vec(),                  // WebP container, cut off
-        b"RIFF\0\0\0\0WEBP".to_vec(),       // WebP container, no chunk
-        vec![0xFFu8; 4096],                // all 0xFF: looks JPEG-ish but has no valid markers
+        vec![0x89, 0x50, 0x4E, 0x47], // PNG signature, cut off
+        vec![0xFF, 0xD8],             // JPEG SOI, cut off
+        b"RIFF".to_vec(),             // WebP container, cut off
+        b"RIFF\0\0\0\0WEBP".to_vec(), // WebP container, no chunk
+        vec![0xFFu8; 4096],           // all 0xFF: looks JPEG-ish but has no valid markers
     ];
     for bytes in cases {
         let _ = inspect(&bytes); // must return, never panic

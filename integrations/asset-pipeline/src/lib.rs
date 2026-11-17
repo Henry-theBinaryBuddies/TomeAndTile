@@ -52,8 +52,14 @@ impl fmt::Display for AssetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AssetError::Empty => write!(f, "the file is empty"),
-            AssetError::TooLarge { max_bytes, actual_bytes } => {
-                write!(f, "the file is {actual_bytes} bytes, over the {max_bytes}-byte limit")
+            AssetError::TooLarge {
+                max_bytes,
+                actual_bytes,
+            } => {
+                write!(
+                    f,
+                    "the file is {actual_bytes} bytes, over the {max_bytes}-byte limit"
+                )
             }
             AssetError::UnknownFormat => {
                 write!(f, "the file's bytes do not match a supported image format")
@@ -65,10 +71,16 @@ impl fmt::Display for AssetError {
                 write!(f, "the file's header is missing, truncated or malformed")
             }
             AssetError::InvalidDimensions { width, height } => {
-                write!(f, "the image is {width}x{height}, outside the accepted range")
+                write!(
+                    f,
+                    "the image is {width}x{height}, outside the accepted range"
+                )
             }
             AssetError::TooManyPixels { pixels, max_pixels } => {
-                write!(f, "the image is {pixels} pixels, over the {max_pixels}-pixel limit")
+                write!(
+                    f,
+                    "the image is {pixels} pixels, over the {max_pixels}-pixel limit"
+                )
             }
         }
     }
@@ -91,7 +103,9 @@ pub fn inspect(bytes: &[u8]) -> Result<AssetRef, AssetError> {
         });
     }
     if looks_like_svg(bytes) {
-        return Err(AssetError::DisallowedFormat { media_type: "image/svg+xml" });
+        return Err(AssetError::DisallowedFormat {
+            media_type: "image/svg+xml",
+        });
     }
 
     let (media_type, width, height) = formats::sniff(bytes)?;
@@ -101,7 +115,10 @@ pub fn inspect(bytes: &[u8]) -> Result<AssetRef, AssetError> {
     }
     let pixels = width as u64 * height as u64;
     if pixels > MAX_PIXELS {
-        return Err(AssetError::TooManyPixels { pixels, max_pixels: MAX_PIXELS });
+        return Err(AssetError::TooManyPixels {
+            pixels,
+            max_pixels: MAX_PIXELS,
+        });
     }
 
     Ok(AssetRef {
@@ -119,7 +136,7 @@ pub fn inspect(bytes: &[u8]) -> Result<AssetRef, AssetError> {
 fn looks_like_svg(bytes: &[u8]) -> bool {
     let head = &bytes[..bytes.len().min(1024)];
     let text = String::from_utf8_lossy(head).to_ascii_lowercase();
-    let trimmed = text.trim_start_matches(|c: char| c == '\u{feff}' || c == '\u{0}').trim_start();
+    let trimmed = text.trim_start_matches(['\u{feff}', '\u{0}']).trim_start();
     trimmed.starts_with("<?xml") || trimmed.starts_with("<svg") || text.contains("<svg")
 }
 
@@ -137,7 +154,10 @@ mod tests {
         let bytes = vec![0u8; (MAX_FILE_BYTES + 1) as usize];
         assert_eq!(
             inspect(&bytes),
-            Err(AssetError::TooLarge { max_bytes: MAX_FILE_BYTES, actual_bytes: MAX_FILE_BYTES + 1 })
+            Err(AssetError::TooLarge {
+                max_bytes: MAX_FILE_BYTES,
+                actual_bytes: MAX_FILE_BYTES + 1
+            })
         );
     }
 
@@ -151,11 +171,15 @@ mod tests {
     fn svg_is_rejected_regardless_of_case_or_leading_whitespace() {
         assert_eq!(
             inspect(b"  \n<SVG xmlns=\"http://www.w3.org/2000/svg\"></SVG>"),
-            Err(AssetError::DisallowedFormat { media_type: "image/svg+xml" })
+            Err(AssetError::DisallowedFormat {
+                media_type: "image/svg+xml"
+            })
         );
         assert_eq!(
             inspect(b"<?xml version=\"1.0\"?><svg></svg>"),
-            Err(AssetError::DisallowedFormat { media_type: "image/svg+xml" })
+            Err(AssetError::DisallowedFormat {
+                media_type: "image/svg+xml"
+            })
         );
     }
 
@@ -170,7 +194,10 @@ mod tests {
         bytes.extend_from_slice(&20_000u32.to_be_bytes());
         assert_eq!(
             inspect(&bytes),
-            Err(AssetError::InvalidDimensions { width: 20_000, height: 20_000 })
+            Err(AssetError::InvalidDimensions {
+                width: 20_000,
+                height: 20_000
+            })
         );
     }
 
@@ -181,7 +208,13 @@ mod tests {
         bytes.extend_from_slice(b"IHDR");
         bytes.extend_from_slice(&0u32.to_be_bytes());
         bytes.extend_from_slice(&64u32.to_be_bytes());
-        assert_eq!(inspect(&bytes), Err(AssetError::InvalidDimensions { width: 0, height: 64 }));
+        assert_eq!(
+            inspect(&bytes),
+            Err(AssetError::InvalidDimensions {
+                width: 0,
+                height: 64
+            })
+        );
     }
 
     #[test]
@@ -197,7 +230,10 @@ mod tests {
         let second = inspect(&bytes).unwrap();
         assert_eq!(first.asset_id, second.asset_id);
         assert_eq!(first.asset_id.len(), 64);
-        assert!(first.asset_id.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(first
+            .asset_id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 
     #[test]

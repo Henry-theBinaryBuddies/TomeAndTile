@@ -21,7 +21,10 @@ const K: [u32; 64] = [
 
 /// Lower-case hex SHA-256 of `data`.
 pub fn hex_digest(data: &[u8]) -> String {
-    digest(data).iter().map(|byte| format!("{byte:02x}")).collect()
+    digest(data)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn digest(data: &[u8]) -> [u8; 32] {
@@ -35,7 +38,7 @@ fn digest(data: &[u8]) -> [u8; 32] {
     }
     message.extend_from_slice(&bit_len.to_be_bytes());
 
-    for block in message.chunks_exact(64) {
+    for block in message.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
         for (i, word) in w.iter_mut().take(16).enumerate() {
             *word = u32::from_be_bytes(block[i * 4..i * 4 + 4].try_into().unwrap());
