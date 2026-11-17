@@ -73,7 +73,23 @@ body {
 	display: grid;
 	place-items: center;
 	margin: 0;
+	padding: 0 1rem;
+	text-align: center;
 	color: var(--muted);
+	pointer-events: none;
+}
+.map-refusal {
+	position: absolute;
+	left: 50%;
+	bottom: 4rem;
+	transform: translateX(-50%);
+	max-width: min(90vw, 28rem);
+	margin: 0;
+	padding: 0.5rem 0.9rem;
+	border-radius: 6px;
+	background: rgb(0 0 0 / 0.75);
+	color: #fff;
+	text-align: center;
 	pointer-events: none;
 }
 
