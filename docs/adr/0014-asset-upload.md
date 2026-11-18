@@ -1,6 +1,6 @@
 # 0014: Where asset upload runs
 
-Status: Proposed (2026-11-17)
+Status: Accepted (2026-11-18)
 
 Amends [0008](0008-data-assets-accounts.md) for the class demo only (where files are stored) and the dependency rule in [ARCHITECTURE.md](../../ARCHITECTURE.md) (one named exception).
 
