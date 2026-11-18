@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-16 — #32 Map canvas
+
+**Did:** Replaced the map placeholder with the real map ([#32](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/32)). A canvas goes in the map slot and Henry's renderer takes it over. Every raw socket frame goes to the renderer unchanged, the renderer's token moves go out through the socket client unchanged, and a refused move shows as a short line of text. If the browser has no working graphics support, the map says so and the rest of the page keeps working. The renderer is destroyed when the page unmounts. 18 new unit tests (131 total); check, test and build pass. In a browser against the mock server, a token the GM dragged in one tab moved in the player's tab, and I also checked the no-graphics message, the refusal text and a phone-width screen.
+**Directed Claude to:** Keep all of it in `web/src/lib/map/` plus `MapPlaceholder.svelte`, with nothing that draws on the canvas or reads its pixels. One change reaches outside the issue's file list: the socket client needed `sendFrame(bytes)` to pass the renderer's own frames through, so I had Claude add it (with tests) and flagged it in the PR.
+**Learned:** The renderer starts asynchronously while the server sends the Snapshot right after Hello, and the server does not send it again, so the map keeps the frames that arrive early and gives them to the renderer in order once it is ready. In the browser, dragging empty space pans the map, so my first test drag moved the camera instead of the token.
+**Blocked on / next:** Henry's review. The real renderer was only checked with WebGL2 in a test browser, not WebGPU or a phone GPU. Next: M2 issues once Henry files them.
+
 ## 2026-11-14 — #31 Initiative bar
 
 **Did:** Built the Initiative panel ([#31](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/31); [PR #40](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/40)): the round and the combatants in the server's order, the current turn from `turn_index` outlined and marked, a spoken line when the turn changes, and "No combat in progress." when there is none or it ends. It reads from the socket client. 13 new unit tests (113 total); check, test and build pass. Because neither server can start an encounter yet, I checked it in a browser with a scripted fake server that sent a Snapshot, two `EncounterUpdated` events and an `EncounterEnded`.
