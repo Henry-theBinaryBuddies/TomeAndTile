@@ -27,9 +27,9 @@ r.destroy();                                       // removes the canvas listene
 | Item | Meaning |
 |---|---|
 | `Renderer.create(canvas)` | async. Picks WebGPU if the browser has it, otherwise WebGL2. Attaches pointer and wheel listeners to the canvas. |
-| `applyServerMessage(bytes)` | One whole `ServerMessage` (one binary WebSocket frame, unchanged). Snapshot replaces all state; events update it; `IntentRejected` clears the matching move preview and calls the rejection handler; other kinds (media token) are ignored. Malformed bytes throw a `JsError` and change nothing. |
+| `applyServerMessage(bytes)` | One whole `ServerMessage` (one binary WebSocket frame, unchanged). Snapshot replaces all state; events update it; `IntentRejected` clears the matching move preview and, if it was this renderer's own move, calls the rejection handler; other kinds (media token) are ignored. Malformed bytes throw a `JsError` and change nothing. |
 | `setIntentHandler(f)` | `f(Uint8Array)` receives one encoded `ClientMessage` per intent. Send it as a binary frame, unchanged. Called outside any internal borrow, so `f` may call back into the renderer. |
-| `setRejectionHandler(f)` | `f(code, message, clientIntentId)`. Optional. |
+| `setRejectionHandler(f)` | `f(code, message, clientIntentId)`. Optional. Called only when the server refuses one of this renderer's own token moves (one that still has a preview); a refusal of a chat or dice intent is not reported here. A move refused after its preview timed out is not reported either. |
 | `resize(w, h, dpr)` | CSS size and device pixel ratio. The backing store becomes `w*dpr` by `h*dpr` (clamped to the GPU's texture limit). The host owns CSS layout and must give the canvas a CSS size that does not depend on its backing store. |
 | `render()` | Draw one frame (call from `requestAnimationFrame`). Also uploads images the browser has finished decoding and expires stale move previews. Throws a `JsError` if the GPU backend reports a hard error. |
 | `encodeHello(campaignId, sessionToken)` | Returns the `Hello` frame, so the host needs no protobuf library. `campaignId` may be `""` (the server only checks it when both sides set it). |
