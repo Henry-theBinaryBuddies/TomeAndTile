@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tomeandtile/v1/session.proto.
  */
 export const file_tomeandtile_v1_session: GenFile = /*@__PURE__*/
-  fileDesc("Chx0b21lYW5kdGlsZS92MS9zZXNzaW9uLnByb3RvEg50b21lYW5kdGlsZS52MSJZCg9Nb3ZlVG9rZW5JbnRlbnQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkijQEKDlJvbGxEaWNlSW50ZW50EhAKCG5vdGF0aW9uGAEgASgJEiYKBG1vZGUYAiABKA4yGC50b21lYW5kdGlsZS52MS5Sb2xsTW9kZRIyCgp2aXNpYmlsaXR5GAMgASgOMh4udG9tZWFuZHRpbGUudjEuUm9sbFZpc2liaWxpdHkSDQoFbGFiZWwYBCABKAkiGgoKQ2hhdEludGVudBIMCgR0ZXh0GAEgASgJItQBChBVc2VBYmlsaXR5SW50ZW50EhcKD3NvdXJjZV90b2tlbl9pZBgBIAEoCRISCgphYmlsaXR5X2lkGAIgASgJEhgKEHRhcmdldF90b2tlbl9pZHMYAyADKAkSLQoPdGVtcGxhdGVfb3JpZ2luGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIiChp0ZW1wbGF0ZV9kaXJlY3Rpb25fZGVncmVlcxgFIAEoAhImCgRtb2RlGAYgASgOMhgudG9tZWFuZHRpbGUudjEuUm9sbE1vZGUiOwoUU3RhcnRFbmNvdW50ZXJJbnRlbnQSEAoIc2NlbmVfaWQYASABKAkSEQoJdG9rZW5faWRzGAIgAygJIiUKDUVuZFR1cm5JbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJImAKE1NldEluaXRpYXRpdmVJbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJEhAKCHRva2VuX2lkGAIgASgJEhIKCmluaXRpYXRpdmUYAyABKAUSDQoFb3JkZXIYBCABKA0iHwoKVW5kb0ludGVudBIRCglldmVudF9zZXEYASABKAQiSwoSU2V0SGl0UG9pbnRzSW50ZW50EhAKCHRva2VuX2lkGAEgASgJEhIKCmhwX2N1cnJlbnQYAiABKAUSDwoHaHBfdGVtcBgDIAEoBSJFChRTZXRDb250cm9sbGVyc0ludGVudBIQCgh0b2tlbl9pZBgBIAEoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGAIgAygJItkECgZJbnRlbnQSGAoQY2xpZW50X2ludGVudF9pZBgBIAEoCRI1Cgptb3ZlX3Rva2VuGAogASgLMh8udG9tZWFuZHRpbGUudjEuTW92ZVRva2VuSW50ZW50SAASMwoJcm9sbF9kaWNlGAsgASgLMh4udG9tZWFuZHRpbGUudjEuUm9sbERpY2VJbnRlbnRIABIqCgRjaGF0GAwgASgLMhoudG9tZWFuZHRpbGUudjEuQ2hhdEludGVudEgAEjcKC3VzZV9hYmlsaXR5GA0gASgLMiAudG9tZWFuZHRpbGUudjEuVXNlQWJpbGl0eUludGVudEgAEj8KD3N0YXJ0X2VuY291bnRlchgOIAEoCzIkLnRvbWVhbmR0aWxlLnYxLlN0YXJ0RW5jb3VudGVySW50ZW50SAASMQoIZW5kX3R1cm4YDyABKAsyHS50b21lYW5kdGlsZS52MS5FbmRUdXJuSW50ZW50SAASPQoOc2V0X2luaXRpYXRpdmUYECABKAsyIy50b21lYW5kdGlsZS52MS5TZXRJbml0aWF0aXZlSW50ZW50SAASKgoEdW5kbxgRIAEoCzIaLnRvbWVhbmR0aWxlLnYxLlVuZG9JbnRlbnRIABI8Cg5zZXRfaGl0X3BvaW50cxgSIAEoCzIiLnRvbWVhbmR0aWxlLnYxLlNldEhpdFBvaW50c0ludGVudEgAEj8KD3NldF9jb250cm9sbGVycxgTIAEoCzIkLnRvbWVhbmR0aWxlLnYxLlNldENvbnRyb2xsZXJzSW50ZW50SABCBgoEa2luZCI1Cg1Ub2tlblVwc2VydGVkEiQKBXRva2VuGAEgASgLMhUudG9tZWFuZHRpbGUudjEuVG9rZW4iIAoMVG9rZW5SZW1vdmVkEhAKCHRva2VuX2lkGAEgASgJImsKClRva2VuTW92ZWQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkSFQoNZGlzdGFuY2VfZmVldBgEIAEoAiIrCgpDaGF0UG9zdGVkEg8KB3VzZXJfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI2CgpEaWNlUm9sbGVkEigKBHJvbGwYASABKAsyGi50b21lYW5kdGlsZS52MS5Sb2xsUmVzdWx0IkAKEEVuY291bnRlclVwZGF0ZWQSLAoJZW5jb3VudGVyGAEgASgLMhkudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyIiYKDkVuY291bnRlckVuZGVkEhQKDGVuY291bnRlcl9pZBgBIAEoCSJDChFSZXNvbHV0aW9uVXBkYXRlZBIuCgpyZXNvbHV0aW9uGAEgASgLMhoudG9tZWFuZHRpbGUudjEuUmVzb2x1dGlvbiI+ChBDcmVhdHVyZVVwc2VydGVkEioKCGNyZWF0dXJlGAEgASgLMhgudG9tZWFuZHRpbGUudjEuQ3JlYXR1cmUiNQoNU2NlbmVVcHNlcnRlZBIkCgVzY2VuZRgBIAEoCzIVLnRvbWVhbmR0aWxlLnYxLlNjZW5lIiEKC0V2ZW50VW5kb25lEhIKCnVuZG9uZV9zZXEYASABKAQiigYKBUV2ZW50EgsKA3NlcRgBIAEoBBINCgVhdF9tcxgCIAEoAxIQCghzY2VuZV9pZBgDIAEoCRIVCg1hY3Rvcl91c2VyX2lkGAQgASgJEhgKEGNsaWVudF9pbnRlbnRfaWQYBSABKAkSKQoId2FybmluZ3MYBiADKAsyFy50b21lYW5kdGlsZS52MS5XYXJuaW5nEjcKDnRva2VuX3Vwc2VydGVkGAogASgLMh0udG9tZWFuZHRpbGUudjEuVG9rZW5VcHNlcnRlZEgAEjUKDXRva2VuX3JlbW92ZWQYCyABKAsyHC50b21lYW5kdGlsZS52MS5Ub2tlblJlbW92ZWRIABIxCgt0b2tlbl9tb3ZlZBgMIAEoCzIaLnRvbWVhbmR0aWxlLnYxLlRva2VuTW92ZWRIABIxCgtjaGF0X3Bvc3RlZBgNIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkNoYXRQb3N0ZWRIABIxCgtkaWNlX3JvbGxlZBgOIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkRpY2VSb2xsZWRIABI9ChFlbmNvdW50ZXJfdXBkYXRlZBgPIAEoCzIgLnRvbWVhbmR0aWxlLnYxLkVuY291bnRlclVwZGF0ZWRIABI5Cg9lbmNvdW50ZXJfZW5kZWQYECABKAsyHi50b21lYW5kdGlsZS52MS5FbmNvdW50ZXJFbmRlZEgAEj8KEnJlc29sdXRpb25fdXBkYXRlZBgRIAEoCzIhLnRvbWVhbmR0aWxlLnYxLlJlc29sdXRpb25VcGRhdGVkSAASPQoRY3JlYXR1cmVfdXBzZXJ0ZWQYEiABKAsyIC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVVwc2VydGVkSAASNwoOc2NlbmVfdXBzZXJ0ZWQYEyABKAsyHS50b21lYW5kdGlsZS52MS5TY2VuZVVwc2VydGVkSAASMwoMZXZlbnRfdW5kb25lGBQgASgLMhsudG9tZWFuZHRpbGUudjEuRXZlbnRVbmRvbmVIAEIGCgRraW5kIkUKBUhlbGxvEhMKC2NhbXBhaWduX2lkGAEgASgJEhUKDXNlc3Npb25fdG9rZW4YAiABKAkSEAoIbGFzdF9zZXEYAyABKAQiYwoGTWVtYmVyEg8KB3VzZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEiIKBHJvbGUYAyABKA4yFC50b21lYW5kdGlsZS52MS5Sb2xlEg4KBm9ubGluZRgEIAEoCCK4AgoIU25hcHNob3QSCwoDc2VxGAEgASgEEg8KB3VzZXJfaWQYAiABKAkSIgoEcm9sZRgDIAEoDjIULnRvbWVhbmR0aWxlLnYxLlJvbGUSJwoHbWVtYmVycxgEIAMoCzIWLnRvbWVhbmR0aWxlLnYxLk1lbWJlchIlCgZzY2VuZXMYBSADKAsyFS50b21lYW5kdGlsZS52MS5TY2VuZRIlCgZ0b2tlbnMYBiADKAsyFS50b21lYW5kdGlsZS52MS5Ub2tlbhIrCgljcmVhdHVyZXMYByADKAsyGC50b21lYW5kdGlsZS52MS5DcmVhdHVyZRItCgplbmNvdW50ZXJzGAggAygLMhkudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyEhcKD2FjdGl2ZV9zY2VuZV9pZBgJIAEoCSJJCg5JbnRlbnRSZWplY3RlZBIYChBjbGllbnRfaW50ZW50X2lkGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKrAQoNQ2xpZW50TWVzc2FnZRImCgVoZWxsbxgBIAEoCzIVLnRvbWVhbmR0aWxlLnYxLkhlbGxvSAASKAoGaW50ZW50GAIgASgLMhYudG9tZWFuZHRpbGUudjEuSW50ZW50SAASQAoTbWVkaWFfdG9rZW5fcmVxdWVzdBgKIAEoCzIhLnRvbWVhbmR0aWxlLnYxLk1lZGlhVG9rZW5SZXF1ZXN0SABCBgoEa2luZCLbAQoNU2VydmVyTWVzc2FnZRIsCghzbmFwc2hvdBgBIAEoCzIYLnRvbWVhbmR0aWxlLnYxLlNuYXBzaG90SAASJgoFZXZlbnQYAiABKAsyFS50b21lYW5kdGlsZS52MS5FdmVudEgAEjkKD2ludGVudF9yZWplY3RlZBgDIAEoCzIeLnRvbWVhbmR0aWxlLnYxLkludGVudFJlamVjdGVkSAASMQoLbWVkaWFfdG9rZW4YCiABKAsyGi50b21lYW5kdGlsZS52MS5NZWRpYVRva2VuSABCBgoEa2luZGIGcHJvdG8z", [file_tomeandtile_v1_combat, file_tomeandtile_v1_common, file_tomeandtile_v1_creature, file_tomeandtile_v1_dice, file_tomeandtile_v1_media, file_tomeandtile_v1_scene]);
+  fileDesc("Chx0b21lYW5kdGlsZS92MS9zZXNzaW9uLnByb3RvEg50b21lYW5kdGlsZS52MSJZCg9Nb3ZlVG9rZW5JbnRlbnQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkijQEKDlJvbGxEaWNlSW50ZW50EhAKCG5vdGF0aW9uGAEgASgJEiYKBG1vZGUYAiABKA4yGC50b21lYW5kdGlsZS52MS5Sb2xsTW9kZRIyCgp2aXNpYmlsaXR5GAMgASgOMh4udG9tZWFuZHRpbGUudjEuUm9sbFZpc2liaWxpdHkSDQoFbGFiZWwYBCABKAkiGgoKQ2hhdEludGVudBIMCgR0ZXh0GAEgASgJItQBChBVc2VBYmlsaXR5SW50ZW50EhcKD3NvdXJjZV90b2tlbl9pZBgBIAEoCRISCgphYmlsaXR5X2lkGAIgASgJEhgKEHRhcmdldF90b2tlbl9pZHMYAyADKAkSLQoPdGVtcGxhdGVfb3JpZ2luGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIiChp0ZW1wbGF0ZV9kaXJlY3Rpb25fZGVncmVlcxgFIAEoAhImCgRtb2RlGAYgASgOMhgudG9tZWFuZHRpbGUudjEuUm9sbE1vZGUiOwoUU3RhcnRFbmNvdW50ZXJJbnRlbnQSEAoIc2NlbmVfaWQYASABKAkSEQoJdG9rZW5faWRzGAIgAygJIiUKDUVuZFR1cm5JbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJImAKE1NldEluaXRpYXRpdmVJbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJEhAKCHRva2VuX2lkGAIgASgJEhIKCmluaXRpYXRpdmUYAyABKAUSDQoFb3JkZXIYBCABKA0iHwoKVW5kb0ludGVudBIRCglldmVudF9zZXEYASABKAQiSwoSU2V0SGl0UG9pbnRzSW50ZW50EhAKCHRva2VuX2lkGAEgASgJEhIKCmhwX2N1cnJlbnQYAiABKAUSDwoHaHBfdGVtcBgDIAEoBSJFChRTZXRDb250cm9sbGVyc0ludGVudBIQCgh0b2tlbl9pZBgBIAEoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGAIgAygJIlAKGFNldExldmVsQmFja2dyb3VuZEludGVudBIQCghzY2VuZV9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIQCghhc3NldF9pZBgDIAEoCSKjBQoGSW50ZW50EhgKEGNsaWVudF9pbnRlbnRfaWQYASABKAkSNQoKbW92ZV90b2tlbhgKIAEoCzIfLnRvbWVhbmR0aWxlLnYxLk1vdmVUb2tlbkludGVudEgAEjMKCXJvbGxfZGljZRgLIAEoCzIeLnRvbWVhbmR0aWxlLnYxLlJvbGxEaWNlSW50ZW50SAASKgoEY2hhdBgMIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkNoYXRJbnRlbnRIABI3Cgt1c2VfYWJpbGl0eRgNIAEoCzIgLnRvbWVhbmR0aWxlLnYxLlVzZUFiaWxpdHlJbnRlbnRIABI/Cg9zdGFydF9lbmNvdW50ZXIYDiABKAsyJC50b21lYW5kdGlsZS52MS5TdGFydEVuY291bnRlckludGVudEgAEjEKCGVuZF90dXJuGA8gASgLMh0udG9tZWFuZHRpbGUudjEuRW5kVHVybkludGVudEgAEj0KDnNldF9pbml0aWF0aXZlGBAgASgLMiMudG9tZWFuZHRpbGUudjEuU2V0SW5pdGlhdGl2ZUludGVudEgAEioKBHVuZG8YESABKAsyGi50b21lYW5kdGlsZS52MS5VbmRvSW50ZW50SAASPAoOc2V0X2hpdF9wb2ludHMYEiABKAsyIi50b21lYW5kdGlsZS52MS5TZXRIaXRQb2ludHNJbnRlbnRIABI/Cg9zZXRfY29udHJvbGxlcnMYEyABKAsyJC50b21lYW5kdGlsZS52MS5TZXRDb250cm9sbGVyc0ludGVudEgAEkgKFHNldF9sZXZlbF9iYWNrZ3JvdW5kGBQgASgLMigudG9tZWFuZHRpbGUudjEuU2V0TGV2ZWxCYWNrZ3JvdW5kSW50ZW50SABCBgoEa2luZCI1Cg1Ub2tlblVwc2VydGVkEiQKBXRva2VuGAEgASgLMhUudG9tZWFuZHRpbGUudjEuVG9rZW4iIAoMVG9rZW5SZW1vdmVkEhAKCHRva2VuX2lkGAEgASgJImsKClRva2VuTW92ZWQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkSFQoNZGlzdGFuY2VfZmVldBgEIAEoAiIrCgpDaGF0UG9zdGVkEg8KB3VzZXJfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI2CgpEaWNlUm9sbGVkEigKBHJvbGwYASABKAsyGi50b21lYW5kdGlsZS52MS5Sb2xsUmVzdWx0IkAKEEVuY291bnRlclVwZGF0ZWQSLAoJZW5jb3VudGVyGAEgASgLMhkudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyIiYKDkVuY291bnRlckVuZGVkEhQKDGVuY291bnRlcl9pZBgBIAEoCSJDChFSZXNvbHV0aW9uVXBkYXRlZBIuCgpyZXNvbHV0aW9uGAEgASgLMhoudG9tZWFuZHRpbGUudjEuUmVzb2x1dGlvbiI+ChBDcmVhdHVyZVVwc2VydGVkEioKCGNyZWF0dXJlGAEgASgLMhgudG9tZWFuZHRpbGUudjEuQ3JlYXR1cmUiNQoNU2NlbmVVcHNlcnRlZBIkCgVzY2VuZRgBIAEoCzIVLnRvbWVhbmR0aWxlLnYxLlNjZW5lIiEKC0V2ZW50VW5kb25lEhIKCnVuZG9uZV9zZXEYASABKAQiigYKBUV2ZW50EgsKA3NlcRgBIAEoBBINCgVhdF9tcxgCIAEoAxIQCghzY2VuZV9pZBgDIAEoCRIVCg1hY3Rvcl91c2VyX2lkGAQgASgJEhgKEGNsaWVudF9pbnRlbnRfaWQYBSABKAkSKQoId2FybmluZ3MYBiADKAsyFy50b21lYW5kdGlsZS52MS5XYXJuaW5nEjcKDnRva2VuX3Vwc2VydGVkGAogASgLMh0udG9tZWFuZHRpbGUudjEuVG9rZW5VcHNlcnRlZEgAEjUKDXRva2VuX3JlbW92ZWQYCyABKAsyHC50b21lYW5kdGlsZS52MS5Ub2tlblJlbW92ZWRIABIxCgt0b2tlbl9tb3ZlZBgMIAEoCzIaLnRvbWVhbmR0aWxlLnYxLlRva2VuTW92ZWRIABIxCgtjaGF0X3Bvc3RlZBgNIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkNoYXRQb3N0ZWRIABIxCgtkaWNlX3JvbGxlZBgOIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkRpY2VSb2xsZWRIABI9ChFlbmNvdW50ZXJfdXBkYXRlZBgPIAEoCzIgLnRvbWVhbmR0aWxlLnYxLkVuY291bnRlclVwZGF0ZWRIABI5Cg9lbmNvdW50ZXJfZW5kZWQYECABKAsyHi50b21lYW5kdGlsZS52MS5FbmNvdW50ZXJFbmRlZEgAEj8KEnJlc29sdXRpb25fdXBkYXRlZBgRIAEoCzIhLnRvbWVhbmR0aWxlLnYxLlJlc29sdXRpb25VcGRhdGVkSAASPQoRY3JlYXR1cmVfdXBzZXJ0ZWQYEiABKAsyIC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVVwc2VydGVkSAASNwoOc2NlbmVfdXBzZXJ0ZWQYEyABKAsyHS50b21lYW5kdGlsZS52MS5TY2VuZVVwc2VydGVkSAASMwoMZXZlbnRfdW5kb25lGBQgASgLMhsudG9tZWFuZHRpbGUudjEuRXZlbnRVbmRvbmVIAEIGCgRraW5kIkUKBUhlbGxvEhMKC2NhbXBhaWduX2lkGAEgASgJEhUKDXNlc3Npb25fdG9rZW4YAiABKAkSEAoIbGFzdF9zZXEYAyABKAQiYwoGTWVtYmVyEg8KB3VzZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEiIKBHJvbGUYAyABKA4yFC50b21lYW5kdGlsZS52MS5Sb2xlEg4KBm9ubGluZRgEIAEoCCK4AgoIU25hcHNob3QSCwoDc2VxGAEgASgEEg8KB3VzZXJfaWQYAiABKAkSIgoEcm9sZRgDIAEoDjIULnRvbWVhbmR0aWxlLnYxLlJvbGUSJwoHbWVtYmVycxgEIAMoCzIWLnRvbWVhbmR0aWxlLnYxLk1lbWJlchIlCgZzY2VuZXMYBSADKAsyFS50b21lYW5kdGlsZS52MS5TY2VuZRIlCgZ0b2tlbnMYBiADKAsyFS50b21lYW5kdGlsZS52MS5Ub2tlbhIrCgljcmVhdHVyZXMYByADKAsyGC50b21lYW5kdGlsZS52MS5DcmVhdHVyZRItCgplbmNvdW50ZXJzGAggAygLMhkudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyEhcKD2FjdGl2ZV9zY2VuZV9pZBgJIAEoCSJJCg5JbnRlbnRSZWplY3RlZBIYChBjbGllbnRfaW50ZW50X2lkGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKrAQoNQ2xpZW50TWVzc2FnZRImCgVoZWxsbxgBIAEoCzIVLnRvbWVhbmR0aWxlLnYxLkhlbGxvSAASKAoGaW50ZW50GAIgASgLMhYudG9tZWFuZHRpbGUudjEuSW50ZW50SAASQAoTbWVkaWFfdG9rZW5fcmVxdWVzdBgKIAEoCzIhLnRvbWVhbmR0aWxlLnYxLk1lZGlhVG9rZW5SZXF1ZXN0SABCBgoEa2luZCLbAQoNU2VydmVyTWVzc2FnZRIsCghzbmFwc2hvdBgBIAEoCzIYLnRvbWVhbmR0aWxlLnYxLlNuYXBzaG90SAASJgoFZXZlbnQYAiABKAsyFS50b21lYW5kdGlsZS52MS5FdmVudEgAEjkKD2ludGVudF9yZWplY3RlZBgDIAEoCzIeLnRvbWVhbmR0aWxlLnYxLkludGVudFJlamVjdGVkSAASMQoLbWVkaWFfdG9rZW4YCiABKAsyGi50b21lYW5kdGlsZS52MS5NZWRpYVRva2VuSABCBgoEa2luZGIGcHJvdG8z", [file_tomeandtile_v1_combat, file_tomeandtile_v1_common, file_tomeandtile_v1_creature, file_tomeandtile_v1_dice, file_tomeandtile_v1_media, file_tomeandtile_v1_scene]);
 
 /**
  * Move a token the sender controls.
@@ -304,6 +304,41 @@ export const SetControllersIntentSchema: GenMessage<SetControllersIntent> = /*@_
   messageDesc(file_tomeandtile_v1_session, 9);
 
 /**
+ * GM only: put an uploaded image on a level as its background (ADR 0014).
+ * Only the id is sent. The server fills in the level's `AssetRef` (media type,
+ * URL, size) from its own record of the upload and answers with
+ * `SceneUpserted`; an id it did not issue is rejected.
+ *
+ * @generated from message tomeandtile.v1.SetLevelBackgroundIntent
+ */
+export type SetLevelBackgroundIntent = Message<"tomeandtile.v1.SetLevelBackgroundIntent"> & {
+  /**
+   * @generated from field: string scene_id = 1;
+   */
+  sceneId: string;
+
+  /**
+   * @generated from field: string level_id = 2;
+   */
+  levelId: string;
+
+  /**
+   * An `AssetRef.asset_id` the server returned from an upload. Empty clears
+   * the background.
+   *
+   * @generated from field: string asset_id = 3;
+   */
+  assetId: string;
+};
+
+/**
+ * Describes the message tomeandtile.v1.SetLevelBackgroundIntent.
+ * Use `create(SetLevelBackgroundIntentSchema)` to create a new message.
+ */
+export const SetLevelBackgroundIntentSchema: GenMessage<SetLevelBackgroundIntent> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_session, 10);
+
+/**
  * @generated from message tomeandtile.v1.Intent
  */
 export type Intent = Message<"tomeandtile.v1.Intent"> & {
@@ -377,6 +412,12 @@ export type Intent = Message<"tomeandtile.v1.Intent"> & {
      */
     value: SetControllersIntent;
     case: "setControllers";
+  } | {
+    /**
+     * @generated from field: tomeandtile.v1.SetLevelBackgroundIntent set_level_background = 20;
+     */
+    value: SetLevelBackgroundIntent;
+    case: "setLevelBackground";
   } | { case: undefined; value?: undefined };
 };
 
@@ -385,7 +426,7 @@ export type Intent = Message<"tomeandtile.v1.Intent"> & {
  * Use `create(IntentSchema)` to create a new message.
  */
 export const IntentSchema: GenMessage<Intent> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 10);
+  messageDesc(file_tomeandtile_v1_session, 11);
 
 /**
  * @generated from message tomeandtile.v1.TokenUpserted
@@ -402,7 +443,7 @@ export type TokenUpserted = Message<"tomeandtile.v1.TokenUpserted"> & {
  * Use `create(TokenUpsertedSchema)` to create a new message.
  */
 export const TokenUpsertedSchema: GenMessage<TokenUpserted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 11);
+  messageDesc(file_tomeandtile_v1_session, 12);
 
 /**
  * @generated from message tomeandtile.v1.TokenRemoved
@@ -419,7 +460,7 @@ export type TokenRemoved = Message<"tomeandtile.v1.TokenRemoved"> & {
  * Use `create(TokenRemovedSchema)` to create a new message.
  */
 export const TokenRemovedSchema: GenMessage<TokenRemoved> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 12);
+  messageDesc(file_tomeandtile_v1_session, 13);
 
 /**
  * @generated from message tomeandtile.v1.TokenMoved
@@ -451,7 +492,7 @@ export type TokenMoved = Message<"tomeandtile.v1.TokenMoved"> & {
  * Use `create(TokenMovedSchema)` to create a new message.
  */
 export const TokenMovedSchema: GenMessage<TokenMoved> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 13);
+  messageDesc(file_tomeandtile_v1_session, 14);
 
 /**
  * @generated from message tomeandtile.v1.ChatPosted
@@ -473,7 +514,7 @@ export type ChatPosted = Message<"tomeandtile.v1.ChatPosted"> & {
  * Use `create(ChatPostedSchema)` to create a new message.
  */
 export const ChatPostedSchema: GenMessage<ChatPosted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 14);
+  messageDesc(file_tomeandtile_v1_session, 15);
 
 /**
  * @generated from message tomeandtile.v1.DiceRolled
@@ -490,7 +531,7 @@ export type DiceRolled = Message<"tomeandtile.v1.DiceRolled"> & {
  * Use `create(DiceRolledSchema)` to create a new message.
  */
 export const DiceRolledSchema: GenMessage<DiceRolled> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 15);
+  messageDesc(file_tomeandtile_v1_session, 16);
 
 /**
  * @generated from message tomeandtile.v1.EncounterUpdated
@@ -507,7 +548,7 @@ export type EncounterUpdated = Message<"tomeandtile.v1.EncounterUpdated"> & {
  * Use `create(EncounterUpdatedSchema)` to create a new message.
  */
 export const EncounterUpdatedSchema: GenMessage<EncounterUpdated> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 16);
+  messageDesc(file_tomeandtile_v1_session, 17);
 
 /**
  * @generated from message tomeandtile.v1.EncounterEnded
@@ -524,7 +565,7 @@ export type EncounterEnded = Message<"tomeandtile.v1.EncounterEnded"> & {
  * Use `create(EncounterEndedSchema)` to create a new message.
  */
 export const EncounterEndedSchema: GenMessage<EncounterEnded> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 17);
+  messageDesc(file_tomeandtile_v1_session, 18);
 
 /**
  * Sent each time a resolution changes state, so clients can animate it.
@@ -543,7 +584,7 @@ export type ResolutionUpdated = Message<"tomeandtile.v1.ResolutionUpdated"> & {
  * Use `create(ResolutionUpdatedSchema)` to create a new message.
  */
 export const ResolutionUpdatedSchema: GenMessage<ResolutionUpdated> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 18);
+  messageDesc(file_tomeandtile_v1_session, 19);
 
 /**
  * Full sheet, sent only to viewers allowed to see it.
@@ -562,7 +603,7 @@ export type CreatureUpserted = Message<"tomeandtile.v1.CreatureUpserted"> & {
  * Use `create(CreatureUpsertedSchema)` to create a new message.
  */
 export const CreatureUpsertedSchema: GenMessage<CreatureUpserted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 19);
+  messageDesc(file_tomeandtile_v1_session, 20);
 
 /**
  * @generated from message tomeandtile.v1.SceneUpserted
@@ -579,7 +620,7 @@ export type SceneUpserted = Message<"tomeandtile.v1.SceneUpserted"> & {
  * Use `create(SceneUpsertedSchema)` to create a new message.
  */
 export const SceneUpsertedSchema: GenMessage<SceneUpserted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 20);
+  messageDesc(file_tomeandtile_v1_session, 21);
 
 /**
  * Marks an earlier event as undone.
@@ -598,7 +639,7 @@ export type EventUndone = Message<"tomeandtile.v1.EventUndone"> & {
  * Use `create(EventUndoneSchema)` to create a new message.
  */
 export const EventUndoneSchema: GenMessage<EventUndone> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 21);
+  messageDesc(file_tomeandtile_v1_session, 22);
 
 /**
  * @generated from message tomeandtile.v1.Event
@@ -719,7 +760,7 @@ export type Event = Message<"tomeandtile.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 22);
+  messageDesc(file_tomeandtile_v1_session, 23);
 
 /**
  * First message on a new socket.
@@ -752,7 +793,7 @@ export type Hello = Message<"tomeandtile.v1.Hello"> & {
  * Use `create(HelloSchema)` to create a new message.
  */
 export const HelloSchema: GenMessage<Hello> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 23);
+  messageDesc(file_tomeandtile_v1_session, 24);
 
 /**
  * @generated from message tomeandtile.v1.Member
@@ -784,7 +825,7 @@ export type Member = Message<"tomeandtile.v1.Member"> & {
  * Use `create(MemberSchema)` to create a new message.
  */
 export const MemberSchema: GenMessage<Member> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 24);
+  messageDesc(file_tomeandtile_v1_session, 25);
 
 /**
  * Reply to Hello: everything this viewer may see, as of `seq`.
@@ -845,7 +886,7 @@ export type Snapshot = Message<"tomeandtile.v1.Snapshot"> & {
  * Use `create(SnapshotSchema)` to create a new message.
  */
 export const SnapshotSchema: GenMessage<Snapshot> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 25);
+  messageDesc(file_tomeandtile_v1_session, 26);
 
 /**
  * The server refused an intent outright (not permitted, malformed). Rule
@@ -877,7 +918,7 @@ export type IntentRejected = Message<"tomeandtile.v1.IntentRejected"> & {
  * Use `create(IntentRejectedSchema)` to create a new message.
  */
 export const IntentRejectedSchema: GenMessage<IntentRejected> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 26);
+  messageDesc(file_tomeandtile_v1_session, 27);
 
 /**
  * @generated from message tomeandtile.v1.ClientMessage
@@ -912,7 +953,7 @@ export type ClientMessage = Message<"tomeandtile.v1.ClientMessage"> & {
  * Use `create(ClientMessageSchema)` to create a new message.
  */
 export const ClientMessageSchema: GenMessage<ClientMessage> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 27);
+  messageDesc(file_tomeandtile_v1_session, 28);
 
 /**
  * @generated from message tomeandtile.v1.ServerMessage
@@ -953,5 +994,5 @@ export type ServerMessage = Message<"tomeandtile.v1.ServerMessage"> & {
  * Use `create(ServerMessageSchema)` to create a new message.
  */
 export const ServerMessageSchema: GenMessage<ServerMessage> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 28);
+  messageDesc(file_tomeandtile_v1_session, 29);
 
