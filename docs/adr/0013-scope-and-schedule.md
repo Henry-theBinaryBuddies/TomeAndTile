@@ -34,7 +34,7 @@ Fog and dynamic lighting, multi-level maps, Universal VTT and animated maps, plu
 | Milestone | @Henry-theBinaryBuddies | @aalemany00 | @Danny-Defeato |
 |---|---|---|---|
 | M0 | Skeleton, contracts, CI, mock server | Machine setup, onboarding, first importer test against a sample file | Machine setup, onboarding, empty UI shell with dockable panels |
-| M1 | Server sync, canvas with map, grid and tokens, join-token endpoint | Map and token upload pipeline, LiveKit client module | Chat and dice log panel, initiative bar |
+| M1 | Server sync, canvas with map, grid and tokens, join-token endpoint, upload endpoint and asset store ([0014](0014-asset-upload.md)) | Map and token upload pipeline, LiveKit client module | Chat and dice log panel, initiative bar, map image upload control ([0014](0014-asset-upload.md)) |
 | M2 | Rules engine: targeting, attack rolls, event log | Device handling and track management | Character sheet screen, video panel |
 | M3 | Saves, damage, conditions, undo and override | Creature Cauldron import | GM override cards, health states, phone layout |
 | M4 | 3D dice, deployment | Reconnect handling, demo data | Polish, demo rehearsal |

@@ -394,10 +394,8 @@ fn server_message_dispatch() {
         code: "not_permitted".into(),
         message: "no".into(),
     }));
-    let Ok(Applied::Rejected(r)) = m.apply_server_message(&rej) else {
-        panic!("expected rejection");
-    };
-    assert_eq!(r.code, "not_permitted");
+    // "x" is not one of this renderer's moves, so it is remembered but not reported.
+    assert_eq!(m.apply_server_message(&rej), Ok(Applied::Ignored));
     assert_eq!(m.last_rejection().unwrap().client_intent_id, "x");
     let media = server_bytes(server_message::Kind::MediaToken(Default::default()));
     assert_eq!(m.apply_server_message(&media), Ok(Applied::Ignored));
@@ -504,6 +502,59 @@ fn initial_fit_frames_the_content_once_sized() {
     let z = m.camera().zoom;
     m.resize(900.0, 500.0);
     assert_eq!(m.camera().zoom, z);
+}
+
+#[test]
+fn fit_happens_when_the_snapshot_arrives_after_the_resize() {
+    // The order in the web page: the host sizes the canvas first, the server's
+    // Snapshot arrives later. The scene must be framed on arrival, not at the next resize.
+    let mut m = Model::new(1);
+    m.resize(1000.0, 600.0);
+    assert_eq!(m.camera().zoom, 1.0);
+    m.apply_snapshot(snapshot(
+        "u",
+        Role::Gm,
+        vec![token("a", 105.0, 105.0, CreatureSize::Medium, &[])],
+    ));
+    let (min, max) = m.camera().visible_world();
+    assert!(min.x <= 0.0 && min.y <= 0.0 && max.x >= 840.0 && max.y >= 560.0);
+    assert_ne!(m.camera().zoom, 1.0);
+    // A reconnect's Snapshot for the same scene does not move a camera the user placed.
+    m.wheel(0.0, 0.0, -300.0);
+    let (z, o) = (m.camera().zoom, m.camera().origin);
+    m.apply_snapshot(snapshot("u", Role::Gm, vec![]));
+    assert_eq!((m.camera().zoom, m.camera().origin), (z, o));
+}
+
+fn snapshot_with_unsized_map() -> Snapshot {
+    let mut s = snapshot("u", Role::Gm, vec![]);
+    s.scenes[0].levels[0].background = Some(AssetRef {
+        url: "https://x/map.png".into(),
+        ..Default::default()
+    });
+    s
+}
+
+#[test]
+fn fit_waits_for_an_unsized_map_image_then_frames_the_map() {
+    let mut m = Model::new(1);
+    m.resize(1000.0, 500.0);
+    m.apply_snapshot(snapshot_with_unsized_map());
+    // The map's size is unknown until its image loads: do not frame the tokens instead.
+    assert_eq!(m.camera().zoom, 1.0);
+    m.mark_image_loaded("https://x/map.png", 2000, 1000);
+    let (min, max) = m.camera().visible_world();
+    assert!(min.x <= 0.0 && max.x >= 2000.0 && min.y <= 0.0 && max.y >= 1000.0);
+}
+
+#[test]
+fn fit_falls_back_to_the_tokens_when_the_map_image_fails() {
+    let mut m = Model::new(1);
+    m.resize(1000.0, 500.0);
+    m.apply_snapshot(snapshot_with_unsized_map());
+    assert_eq!(m.camera().zoom, 1.0);
+    m.mark_image_failed("https://x/map.png");
+    assert_ne!(m.camera().zoom, 1.0);
 }
 
 #[test]
@@ -755,6 +806,35 @@ fn rejection_clears_the_preview() {
     assert!(!m.has_pending("mine"));
     assert_eq!(pos(&m, "mine"), (105.0, 105.0));
     assert_eq!(m.last_rejection().unwrap().code, "not_permitted");
+}
+
+#[test]
+fn only_a_refusal_of_the_renderers_own_move_is_reported() {
+    let mut m = player_model();
+    let bytes = drag(&mut m, (105.0, 105.0), (300.0, 105.0), 0.0).unwrap();
+    let (id, _) = decode_move(&bytes);
+    let refuse = |id: &str| {
+        server_bytes(server_message::Kind::IntentRejected(IntentRejected {
+            client_intent_id: id.into(),
+            code: "not_permitted".into(),
+            message: "no".into(),
+        }))
+    };
+    // A refused chat or dice intent (some other id) is not the map's business.
+    assert_eq!(
+        m.apply_server_message(&refuse("a-chat-id")),
+        Ok(Applied::Ignored)
+    );
+    assert!(m.has_pending("mine"));
+    // The refusal of this move is reported, and the preview is cleared.
+    let Ok(Applied::Rejected(r)) = m.apply_server_message(&refuse(&id)) else {
+        panic!("expected the move's refusal to be reported");
+    };
+    assert_eq!(
+        (r.client_intent_id.as_str(), r.code.as_str()),
+        (id.as_str(), "not_permitted")
+    );
+    assert!(!m.has_pending("mine"));
 }
 
 #[test]

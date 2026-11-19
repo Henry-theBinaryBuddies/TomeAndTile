@@ -121,6 +121,28 @@ describe('send', () => {
 		expect(FakeSocket.last().sent).toHaveLength(1); // only Hello
 	});
 
+	it('sendFrame sends the given bytes unchanged once joined', () => {
+		const client = join();
+		const frame = new Uint8Array([1, 2, 3, 250]);
+		expect(client.sendFrame(frame)).toBe(true);
+		const sent = FakeSocket.last().sent;
+		expect(sent).toHaveLength(2); // Hello plus the frame
+		expect(sent[1]).toBe(frame);
+	});
+
+	it('sendFrame sends nothing and returns false before joining or after close', () => {
+		const client = make();
+		const frame = new Uint8Array([9]);
+		expect(client.sendFrame(frame)).toBe(false);
+		client.connect();
+		FakeSocket.last().open();
+		expect(client.sendFrame(frame)).toBe(false);
+		FakeSocket.last().receive(snapshotFrame());
+		client.close();
+		expect(client.sendFrame(frame)).toBe(false);
+		expect(FakeSocket.last().sent).toHaveLength(1); // only Hello
+	});
+
 	it('uses a random UUID by default', () => {
 		const client = join(
 			createGameClient({

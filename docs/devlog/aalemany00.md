@@ -2,6 +2,45 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-19 — #34 Replace the pre-expiry renewal timer with backoff on reconnect
+
+**Did:** Per Henry's review on PR #45: removed `scheduleRenew`/`renewTimer`/`renewBeforeMs`
+(and the now-unused `now` option) entirely — LiveKit's client library refreshes its own token
+on a network-drop reconnect, so a token's `expires_at_ms` only matters for the initial
+connection, and the pre-expiry timer was tearing down and rejoining the call every ~9m50s for
+no reason. Kept the rejoin-on-drop (still asking the server for a new token), with a backoff
+delay before it: base 1s, doubling to a 16s cap.
+**Directed Claude to:** Apply Henry's three numbered fixes from the review comment.
+**Learned:** Resetting the backoff the instant `connect()` resolves would be wrong — a server
+that accepts and immediately drops the connection would reset to the base delay every single
+cycle, since each cycle *does* briefly reach "joined" before dropping again. That's exactly the
+tight-loop scenario the backoff is supposed to prevent. Caught this while writing the test for
+"growing on repeated failures, reset after a successful join," not before. Fixed by gating the
+reset on the connection staying up for a few seconds (`STABLE_CONNECTION_MS`), not on `connect()`
+succeeding.
+**Blocked on / next:** `web/vite.config.ts`/`tsconfig.json` still don't cover `web/media/` (same
+gap as the #34 entry below); verified again with a throwaway, uncommitted vitest config instead
+of `npm test`. Henry said he's fixing that glob himself in a separate PR.
+
+## 2026-11-15 — #8 Second pass: wire up the merged contracts fields
+
+**Did:** Henry's [#16](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/16) merged,
+adding every field the first round of corrections left as "pending contracts change." Updated
+the branch onto current `main` again and replaced each pending row with the real field: `monster.id`
+→ `Provenance.external_id`; `parent_id`/`generator`/`changes` → `Provenance.origin_notes`;
+traits → `ACTION_COST_PASSIVE`; `recharge.min` → `Ability.recharge` (`Recharge{min_roll}`);
+the four non-walk speeds → `fly_speed_feet`/`swim_speed_feet`/`climb_speed_feet`/`burrow_speed_feet`;
+`speeds.hover` → `Creature.can_hover`; `skills` → `Creature.skills` (`repeated SkillBonus`);
+`senses.passive_perception` → `Creature.passive_perception`; `condition_immunities` →
+`Creature.condition_immunities`. Rewrote the "Gaps" section to say what #16 resolved instead of
+what's pending; only multiattack (Milestone 2, rules-engine work) is still open.
+**Directed Claude to:** Check whether #16 had merged, update the branch, and replace the
+"pending contracts change" rows with the real fields it added.
+**Learned:** This is the second round of "update the branch, it's stale again" on this PR —
+worth watching for on any review that lands while a dependency (here, a contracts PR) is still
+in flight.
+**Blocked on / next:** Nothing of mine; waiting on Henry's re-review.
+
 ## 2026-11-15 — #34 LiveKit client module
 
 **Did:** Built `web/media/` per ADR 0007: `createMediaClient()` exporting exactly join, leave,
@@ -30,6 +69,13 @@ isn't imported into the app yet, so the gap doesn't show up there). `npm run che
 were run by pointing `tsc`/`vitest` at `media/` directly with throwaway local-only configs
 (deleted, not committed) instead of the real `npm run check`/`npm test`, until the glob gap above
 is fixed.
+
+## 2026-11-12 — #8 Field map corrections from Henry's review
+
+**Did:** Updated `integrations/8-cauldron-field-map` branch onto current `main` (clean, only `MAPPING.md` left in the diff) and fixed every correction from Henry's PR #11 review: recount of skills (2/5, not 5/5) and non-walk speeds (4/5, not 3/5); a rule for `speeds.walk` being absent (Voidbloom Seer — default to 0, never borrow another mode); an explicit dice+bonus combining rule for a zero and a negative bonus; moved `monster.id` off `attribution` onto a new pending `Provenance.external_id` field; moved traits off `ACTION_COST_FREE` onto a pending passive `ActionCost` value; set `resource_key = "legendary_actions"` on legendary options so the cost is actually spent from the pool; restricted `Provenance.attribution` to the raw SRD text only (parent_id/generator/changes now point at a separate pending contracts field); defined the `per_day` resource-key slug rule; and folded in Henry's gap decisions (save bonuses computed+compared instead of a contract change, multiattack as an interim description-only `Ability` pending Milestone 2 rules-engine work, `radius`→`TARGET_SHAPE_SPHERE` and `CreatureSize` both confirmed).
+**Directed Claude to:** Pull up PR #11 on GitHub, read Henry's review in full, update the branch, and apply each correction and gap decision to `MAPPING.md` without touching anything outside `integrations/`.
+**Learned:** Henry is filing the five contract-change issues himself as one `contracts/` PR rather than me opening them — the mapping now says "pending contracts change" on the affected rows instead of promising to file issues.
+**Blocked on / next:** Waiting on Henry's `contracts/` PR (external_id, passive ActionCost, per-mode speeds, skills/passive scores, condition immunities, ability recharge) before the importer itself can be written.
 
 ## 2026-11-12 — #7 Machine setup and onboarding
 
