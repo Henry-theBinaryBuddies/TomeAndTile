@@ -9,5 +9,5 @@
 			"@bufbuild/protobuf/codegenv2": ["./node_modules/@bufbuild/protobuf/dist/esm/codegenv2/index"]
 		}
 	},
-	"include": ["src", "vite.config.ts"]
+	"include": ["src", "media", "vite.config.ts"]
 }

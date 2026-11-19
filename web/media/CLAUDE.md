@@ -11,7 +11,7 @@ You are working for @aalemany00. This directory is the video and voice client mo
 - **No UI here.** No buttons, layout or styles. Those belong to `web/`.
 - **The SFU URL and join token come from the server's `MediaToken` message**, requested with `MediaTokenRequest` over the game socket the app already has. Never hard-code a URL, key, secret or token, and never put one in the repository.
 - **Treat the token as a password:** keep it in memory only. Never log it, store it or put it in a URL.
-- When the token expires or the connection drops, ask the server for a new token and rejoin.
+- When the connection drops and LiveKit's own reconnect does not recover it, ask the server for a new token and rejoin, after a short delay that grows on repeated failures. **Do not rejoin before the token expires.** A token's expiry only matters when connecting: a participant who is already connected stays connected, and the client library refreshes its own token ([Access tokens and grants](https://docs.livekit.io/frontends/reference/tokens-grants/)). Our tokens last 10 minutes, so rejoining before expiry would drop the call about every 10 minutes.
 - Honour `can_publish`: spectators never open the camera or microphone.
 - Ask for camera and microphone permission only when the user chooses to join the call, never on page load.
 - Handle the failure paths: permission denied, no device, token refused, a dropped connection. Each must leave the module in a clean state.

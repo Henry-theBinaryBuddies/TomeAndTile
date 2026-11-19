@@ -160,7 +160,12 @@ impl Renderer {
                 .map_err(|_| js_err("renderer is busy (re-entrant call)"))?;
             let inner = &mut *guard;
             // Upload images the browser has decoded since the last frame.
+            // wgpu records the copy and performs it when the frame is submitted, so
+            // a bitmap must stay open until after `draw`: closing it earlier leaves
+            // the WebGL2 backend copying from a detached bitmap, and the image
+            // never appears.
             let loaded = std::mem::take(&mut *self.shared.loaded.borrow_mut());
+            let mut spent: Vec<ImageBitmap> = Vec::new();
             for (url, result) in loaded {
                 let outcome = match &result {
                     Ok(bitmap) => inner
@@ -169,8 +174,8 @@ impl Renderer {
                         .map(|()| (bitmap.width(), bitmap.height())),
                     Err(e) => Err(e.clone()),
                 };
-                if let Ok(bitmap) = &result {
-                    bitmap.close();
+                if let Ok(bitmap) = result {
+                    spent.push(bitmap);
                 }
                 match outcome {
                     Ok((w, h)) => inner.model.mark_image_loaded(&url, w, h),
@@ -185,7 +190,11 @@ impl Renderer {
                 start_image_load(url, self.shared.loaded.clone());
             }
             let list = inner.model.draw_list();
-            inner.gpu.draw(&list)
+            let drawn = inner.gpu.draw(&list);
+            for bitmap in spent {
+                bitmap.close();
+            }
+            drawn
         };
         flush(&self.shared);
         result.map_err(js_err)

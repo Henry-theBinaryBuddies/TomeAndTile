@@ -21,7 +21,7 @@ export default defineConfig({
 		dedupe: ['@bufbuild/protobuf']
 	},
 	test: {
-		include: ['src/**/*.test.ts'],
+		include: ['src/**/*.test.ts', 'media/**/*.test.ts'],
 		environment: 'node'
 	}
 });

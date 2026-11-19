@@ -104,6 +104,12 @@ export interface GameClient {
 	 */
 	send(kind: IntentKind): string | null;
 	/**
+	 * Send one already-encoded `ClientMessage` frame exactly as given. The map renderer
+	 * builds its own intent frames; this is how they reach the server. Returns false, and
+	 * sends nothing, if the client has not joined.
+	 */
+	sendFrame(frame: Uint8Array): boolean;
+	/**
 	 * Ask for a video join token. Resolves with the next `MediaToken`; rejects with a
 	 * `MediaRequestError` if the server refuses, the connection closes or it times out.
 	 * While a request is waiting, calling again returns the same promise.
@@ -262,6 +268,12 @@ export function createGameClient(options: GameClientOptions): GameClient {
 			const id = newIntentId();
 			socket.send(encodeIntent(id, kind));
 			return id;
+		},
+
+		sendFrame(frame) {
+			if (!socket || socket.readyState !== SOCKET_OPEN || !get(state).joined) return false;
+			socket.send(frame);
+			return true;
 		},
 
 		requestMediaToken() {

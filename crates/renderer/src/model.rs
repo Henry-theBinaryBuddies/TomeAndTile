@@ -160,8 +160,14 @@ impl Model {
                     code: r.code,
                     message: r.message,
                 };
-                self.apply_rejection(&rej);
-                Applied::Rejected(rej)
+                // Only a refusal of one of this renderer's own moves is reported. A
+                // refusal of a chat or dice intent belongs to the chat panel; the host
+                // would otherwise show it on the map as well.
+                if self.apply_rejection(&rej) {
+                    Applied::Rejected(rej)
+                } else {
+                    Applied::Ignored
+                }
             }
             _ => Applied::Ignored,
         })
@@ -185,6 +191,9 @@ impl Model {
         self.pending.clear();
         if scene_changed {
             self.needs_fit = true;
+            // The viewport usually exists already (the host sizes the canvas before the
+            // first Snapshot arrives), so frame the scene now, not at the next resize.
+            self.apply_fit_if_needed();
         }
     }
 
@@ -242,11 +251,14 @@ impl Model {
         }
     }
 
-    /// An intent was refused: drop its preview and remember why.
-    pub fn apply_rejection(&mut self, r: &Rejection) {
+    /// An intent was refused: drop its preview and remember why. Returns true if the
+    /// refused intent was one of this renderer's own moves (it had a preview).
+    pub fn apply_rejection(&mut self, r: &Rejection) -> bool {
+        let before = self.pending.len();
         self.pending
             .retain(|p| p.client_intent_id != r.client_intent_id);
         self.last_rejection = Some(r.clone());
+        self.pending.len() != before
     }
 
     /// Drop previews the server never answered. Call once per frame.
@@ -430,12 +442,28 @@ impl Model {
             || self.camera.width <= 0.0
             || self.camera.height <= 0.0
             || self.active_scene().is_none()
+            || self.waiting_for_map_size()
         {
             return;
         }
         let (min, max) = self.content_bounds();
         self.camera.fit(min, max, 24.0);
         self.needs_fit = false;
+    }
+
+    /// The map's size is not in the scene and its image has not loaded (or failed)
+    /// yet, so framing now would use the tokens instead of the map.
+    fn waiting_for_map_size(&self) -> bool {
+        let Some(bg) = self.current_level().and_then(|l| l.background.as_ref()) else {
+            return false;
+        };
+        if (bg.width > 0 && bg.height > 0) || !loadable_url(&bg.url) {
+            return false;
+        }
+        !matches!(
+            self.images.get(&bg.url),
+            Some(ImageState::Ready { .. } | ImageState::Failed)
+        )
     }
 
     fn map_size(&self) -> Option<(f64, f64)> {
@@ -629,6 +657,8 @@ impl Model {
 
     pub fn mark_image_failed(&mut self, url: &str) {
         self.images.insert(url.to_owned(), ImageState::Failed);
+        // A map whose size was being waited for is framed by its tokens instead.
+        self.apply_fit_if_needed();
     }
 
     pub fn image_state(&self, url: &str) -> Option<ImageState> {
