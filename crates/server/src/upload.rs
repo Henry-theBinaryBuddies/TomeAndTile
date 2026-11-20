@@ -397,3 +397,21 @@ async fn get_asset(
     );
     cors(response)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::listener_base;
+
+    // Checked here, not by binding 0.0.0.0 in an integration test: a test
+    // that listens on every interface sets off the Windows firewall prompt.
+    #[test]
+    fn a_wildcard_listener_becomes_loopback() {
+        let v4 = "0.0.0.0:8788".parse().ok();
+        assert_eq!(listener_base(v4), "http://127.0.0.1:8788");
+        let v6 = "[::]:8788".parse().ok();
+        assert_eq!(listener_base(v6), "http://[::1]:8788");
+        let lan = "192.168.1.20:8788".parse().ok();
+        assert_eq!(listener_base(lan), "http://192.168.1.20:8788");
+        assert_eq!(listener_base(None), "http://127.0.0.1");
+    }
+}

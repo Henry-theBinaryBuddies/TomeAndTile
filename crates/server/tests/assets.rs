@@ -828,32 +828,6 @@ async fn a_restart_link_is_provisional_and_a_reupload_replaces_it() {
 }
 
 #[tokio::test]
-async fn a_wildcard_bind_never_yields_an_unspecified_link() {
-    let dir = TempDir::new("wildcard");
-    let asset = {
-        let first = start(&dir).await;
-        gm_upload(first.addr, PNG).await
-    };
-    let second = start_bound(
-        "0.0.0.0:0",
-        true,
-        Some(AssetConfig {
-            dir: dir.0.clone(),
-            public_url: None,
-        }),
-    )
-    .await;
-    let (mut gm, _) = Client::connect(second.addr, "dev:gm").await;
-    gm.set_background("w", "s1", "l1", &asset.asset_id).await;
-    let bg = background_in(&gm.recv_event().await).expect("bg");
-    assert_eq!(
-        bg.url,
-        format!("http://{}/assets/{}", second.addr, hex_ext_name(&asset))
-    );
-    assert!(!bg.url.contains("0.0.0.0"), "{}", bg.url);
-}
-
-#[tokio::test]
 async fn a_file_whose_extension_does_not_match_its_format_is_not_registered() {
     let dir = TempDir::new("ext-mismatch");
     // Real JPEG bytes under their own hash but a .png name.
