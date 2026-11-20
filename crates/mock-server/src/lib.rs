@@ -1,25 +1,40 @@
 //! Mock game server: speaks the real game-socket protocol from recorded data.
 //!
-//! It applies NO rules and NO permissions and does no per-viewer filtering.
-//! It exists so the web UI and importers can be built before the real server
-//! does. See the crate README.
+//! It applies NO rules and does no per-viewer filtering. The only permission it
+//! checks is the GM role, for asset upload and `set_level_background`, so the
+//! UI can exercise those refusal paths. It exists so the web UI and importers
+//! can be built before the real server does. See the crate README.
+//!
+//! Besides the socket it serves a small HTTP asset surface (ADR 0014):
+//! `POST /campaigns/{campaign_id}/assets` stores an image in memory and
+//! `GET /assets/{asset_id}.{ext}` serves it back, both with CORS enabled. The
+//! mock sniffs magic bytes only (PNG, JPEG, WebP); it does NOT run the real
+//! pipeline's other checks (decoding, dimension limits, re-encoding, scanning),
+//! so width and height are always 0. Ids are FNV-1a, not SHA-256; clients must
+//! treat `asset_id` as opaque.
 
 pub mod dice;
 
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
+use axum::extract::rejection::{BytesRejection, PathRejection};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State as AxumState;
-use axum::routing::get;
+use axum::extract::{DefaultBodyLimit, Path, State as AxumState};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::Response;
+use axum::routing::{get, post};
 use axum::Router;
 use prost::Message as _;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tt_contracts::v1::{
-    client_message, event, intent, server_message, ChatPosted, ClientMessage, DiceRolled, Event,
-    Hello, Intent, IntentRejected, Role, ServerMessage, Snapshot, Token, TokenMoved, Vec2,
+    client_message, event, intent, server_message, AssetRef, ChatPosted, ClientMessage, DiceRolled,
+    Event, Hello, Intent, IntentRejected, Role, SceneUpserted, ServerMessage, Snapshot, Token,
+    TokenMoved, Vec2,
 };
 
 use dice::{Rng, XorShift64Star};
@@ -31,6 +46,10 @@ const FIXTURE: &str = include_str!("../../../contracts/fixtures/mock/snapshot.js
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 /// Longest accepted chat text, in characters.
 pub const MAX_CHAT_CHARS: usize = 2000;
+/// Largest accepted asset upload; matches `tt_asset_pipeline::MAX_FILE_BYTES`.
+pub const MAX_ASSET_BYTES: usize = 20 * 1024 * 1024;
+/// Most distinct assets kept in memory; a new one beyond this is refused.
+pub const MAX_STORED_ASSETS: usize = 32;
 /// Events buffered per receiver before a slow client is dropped.
 const BROADCAST_CAPACITY: usize = 256;
 
@@ -48,12 +67,23 @@ struct Game {
     /// Sequence of the last event emitted; 0 before any.
     seq: u64,
     rng: Box<dyn Rng + Send>,
+    /// Uploaded assets by id; memory only.
+    assets: HashMap<String, StoredAsset>,
+}
+
+struct StoredAsset {
+    bytes: Bytes,
+    media_type: &'static str,
+    ext: &'static str,
+    asset_ref: AssetRef,
 }
 
 struct Shared {
     // A std mutex is enough: it is never held across an await.
     game: Mutex<Game>,
     tx: broadcast::Sender<Bytes>,
+    /// Listener address, the fallback for building asset URLs.
+    local_addr: Option<SocketAddr>,
 }
 
 impl Shared {
@@ -75,6 +105,7 @@ pub async fn serve_with_rng(
     rng: Box<dyn Rng + Send>,
 ) -> std::io::Result<()> {
     let template = fixture_snapshot();
+    let local_addr = listener.local_addr().ok();
     let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
     let shared = Arc::new(Shared {
         game: Mutex::new(Game {
@@ -82,8 +113,10 @@ pub async fn serve_with_rng(
             template,
             seq: 0,
             rng,
+            assets: HashMap::new(),
         }),
         tx,
+        local_addr,
     });
     let app = Router::new()
         .route(
@@ -91,6 +124,19 @@ pub async fn serve_with_rng(
             get(|| async { "Tome & Tile mock server. WebSocket endpoint: /ws\n" }),
         )
         .route("/ws", get(ws_upgrade))
+        .route(
+            "/campaigns/{campaign_id}/assets",
+            post(upload_asset)
+                .options(preflight)
+                .fallback(method_not_allowed)
+                .layer(DefaultBodyLimit::max(MAX_ASSET_BYTES)),
+        )
+        .route(
+            "/assets/{*file}",
+            get(get_asset)
+                .options(preflight)
+                .fallback(method_not_allowed),
+        )
         .with_state(shared);
     axum::serve(listener, app).await
 }
@@ -102,6 +148,224 @@ async fn ws_upgrade(
     ws.max_message_size(MAX_MESSAGE_BYTES)
         .max_frame_size(MAX_MESSAGE_BYTES)
         .on_upgrade(move |socket| connection(socket, shared))
+}
+
+/// Build a JSON error response with CORS.
+fn http_error(status: StatusCode, code: &str, message: &str) -> Response {
+    let body = serde_json::json!({ "code": code, "message": message }).to_string();
+    let mut response = Response::new(axum::body::Body::from(body));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    cors(response)
+}
+
+/// JSON 405 for unsupported methods on the asset routes.
+async fn method_not_allowed() -> Response {
+    http_error(
+        StatusCode::METHOD_NOT_ALLOWED,
+        "method_not_allowed",
+        "this route does not support that method",
+    )
+}
+
+/// Allow any origin to read this response.
+fn cors(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    response
+}
+
+/// Answer a CORS preflight for the asset routes.
+async fn preflight() -> Response {
+    let mut response = Response::new(axum::body::Body::empty());
+    *response.status_mut() = StatusCode::NO_CONTENT;
+    let h = response.headers_mut();
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("Authorization, Content-Type"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("600"),
+    );
+    cors(response)
+}
+
+/// The bearer token from `Authorization: Bearer <token>`, scheme case-insensitive.
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, rest) = value.split_once(' ')?;
+    let token = rest.trim();
+    if !scheme.eq_ignore_ascii_case("bearer")
+        || token.is_empty()
+        || token.contains(char::is_whitespace)
+    {
+        return None;
+    }
+    Some(token)
+}
+
+/// Media type and file extension from the leading magic bytes.
+fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        Some(("image/png", "png"))
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some(("image/jpeg", "jpg"))
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some(("image/webp", "webp"))
+    } else {
+        None
+    }
+}
+
+/// FNV-1a 64-bit. The real server uses SHA-256; this is only a mock id.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
+        (hash ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// Base URL for asset links: the request's Host header, else the listener.
+fn base_url(headers: &HeaderMap, local_addr: Option<SocketAddr>) -> String {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .filter(|h| {
+            !h.is_empty()
+                && h.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))
+        });
+    match (host, local_addr) {
+        (Some(host), _) => format!("http://{host}"),
+        (None, Some(addr)) => format!("http://{addr}"),
+        (None, None) => "http://127.0.0.1".to_string(),
+    }
+}
+
+async fn upload_asset(
+    AxumState(shared): AxumState<Arc<Shared>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Response {
+    let Some(token) = bearer_token(&headers) else {
+        return http_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "send Authorization: Bearer <token>",
+        );
+    };
+    if token != "gm" {
+        return http_error(
+            StatusCode::FORBIDDEN,
+            "not_permitted",
+            "only the GM may upload assets",
+        );
+    }
+    let bytes = match body {
+        Ok(bytes) => bytes,
+        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return http_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "file_too_large",
+                &format!("file is larger than {MAX_ASSET_BYTES} bytes"),
+            );
+        }
+        Err(_) => {
+            return http_error(
+                StatusCode::BAD_REQUEST,
+                "bad_body",
+                "could not read the request body",
+            );
+        }
+    };
+    if bytes.is_empty() {
+        return http_error(StatusCode::BAD_REQUEST, "empty_file", "the file is empty");
+    }
+    let Some((media_type, ext)) = sniff(&bytes) else {
+        return http_error(
+            StatusCode::BAD_REQUEST,
+            "unknown_format",
+            "the mock accepts PNG, JPEG and WebP only",
+        );
+    };
+    let asset_id = format!("mock-{:016x}", fnv1a64(&bytes));
+    let url = format!(
+        "{}/assets/{asset_id}.{ext}",
+        base_url(&headers, shared.local_addr)
+    );
+    let asset_ref = {
+        let mut game = shared.lock();
+        if let Some(existing) = game.assets.get(&asset_id) {
+            existing.asset_ref.clone()
+        } else if game.assets.len() >= MAX_STORED_ASSETS {
+            drop(game);
+            return http_error(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "storage_full",
+                &format!("the mock keeps at most {MAX_STORED_ASSETS} assets; restart it to reset"),
+            );
+        } else {
+            let asset_ref = AssetRef {
+                asset_id: asset_id.clone(),
+                media_type: media_type.to_string(),
+                url,
+                width: 0,
+                height: 0,
+            };
+            game.assets.insert(
+                asset_id,
+                StoredAsset {
+                    bytes,
+                    media_type,
+                    ext,
+                    asset_ref: asset_ref.clone(),
+                },
+            );
+            asset_ref
+        }
+    };
+    let mut response = Response::new(axum::body::Body::from(asset_ref.encode_to_vec()));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-protobuf"),
+    );
+    cors(response)
+}
+
+async fn get_asset(
+    AxumState(shared): AxumState<Arc<Shared>>,
+    file: Result<Path<String>, PathRejection>,
+) -> Response {
+    let Ok(Path(file)) = file else {
+        return http_error(StatusCode::NOT_FOUND, "unknown_asset", "no such asset");
+    };
+    let found = file.split_once('.').and_then(|(id, ext)| {
+        let game = shared.lock();
+        game.assets
+            .get(id)
+            .filter(|a| a.ext == ext)
+            .map(|a| (a.bytes.clone(), a.media_type))
+    });
+    let Some((bytes, media_type)) = found else {
+        return http_error(StatusCode::NOT_FOUND, "unknown_asset", "no such asset");
+    };
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    let h = response.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(media_type));
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    cors(response)
 }
 
 fn now_ms() -> i64 {
@@ -220,6 +484,7 @@ fn handle_intent(shared: &Shared, user_id: &str, intent: Intent) -> Option<Bytes
         Some(intent::Kind::MoveToken(m)) => game.move_token(m),
         Some(intent::Kind::Chat(c)) => game.chat(user_id, c.text.as_str()),
         Some(intent::Kind::RollDice(r)) => game.roll_dice(user_id, r),
+        Some(intent::Kind::SetLevelBackground(b)) => game.set_level_background(user_id, b),
         _ => Err((
             "not_supported_by_mock",
             "the mock server does not support this intent".to_string(),
@@ -228,12 +493,19 @@ fn handle_intent(shared: &Shared, user_id: &str, intent: Intent) -> Option<Bytes
     match result {
         Ok(kind) => {
             game.seq += 1;
-            let scene_id = game
-                .template
-                .scenes
-                .first()
-                .map(|s| s.scene_id.clone())
-                .unwrap_or_default();
+            let scene_id = match &kind {
+                event::Kind::SceneUpserted(u) => u
+                    .scene
+                    .as_ref()
+                    .map(|s| s.scene_id.clone())
+                    .unwrap_or_default(),
+                _ => game
+                    .template
+                    .scenes
+                    .first()
+                    .map(|s| s.scene_id.clone())
+                    .unwrap_or_default(),
+            };
             let event = Event {
                 seq: game.seq,
                 at_ms: now_ms(),
@@ -301,6 +573,42 @@ impl Game {
         Ok(event::Kind::ChatPosted(ChatPosted {
             user_id: user_id.to_string(),
             text: text.to_string(),
+        }))
+    }
+
+    fn set_level_background(
+        &mut self,
+        user_id: &str,
+        b: &tt_contracts::v1::SetLevelBackgroundIntent,
+    ) -> Result<event::Kind, Rejection> {
+        if user_id != "mock-gm" {
+            return Err((
+                "not_permitted",
+                "only the GM may set a level background".to_string(),
+            ));
+        }
+        let Some(scene) = self
+            .template
+            .scenes
+            .iter_mut()
+            .find(|s| s.scene_id == b.scene_id)
+        else {
+            return Err(("unknown_scene", format!("no scene {:?}", b.scene_id)));
+        };
+        let Some(level) = scene.levels.iter_mut().find(|l| l.level_id == b.level_id) else {
+            return Err(("unknown_level", format!("no level {:?}", b.level_id)));
+        };
+        let background = if b.asset_id.is_empty() {
+            None
+        } else {
+            match self.assets.get(&b.asset_id) {
+                Some(asset) => Some(asset.asset_ref.clone()),
+                None => return Err(("unknown_asset", format!("no asset {:?}", b.asset_id))),
+            }
+        };
+        level.background = background;
+        Ok(event::Kind::SceneUpserted(SceneUpserted {
+            scene: Some(scene.clone()),
         }))
     }
 
