@@ -8,6 +8,7 @@ members = [
     "crates/mock-server",
     "contracts/rust",
     "integrations/cauldron-import",
+    "integrations/asset-pipeline",
 ]
 
 [workspace.package]
