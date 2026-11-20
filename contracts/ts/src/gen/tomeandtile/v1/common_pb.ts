@@ -91,7 +91,18 @@ export const ProvenanceSchema: GenMessage<Provenance> = /*@__PURE__*/
  */
 export type Warning = Message<"tomeandtile.v1.Warning"> & {
   /**
-   * Stable machine code, e.g. "out_of_range".
+   * Stable machine code, e.g. "out_of_range". The codes for UseAbilityIntent
+   * (also listed on that message in session.proto):
+   *   out_of_range           a target is beyond long range, or beyond
+   *                          range_feet when there is no long range; the attack
+   *                          is still rolled
+   *   too_many_targets       an ability with one attack step lists more targets
+   *                          than max_targets; every target is still resolved
+   *   not_enough_resource    resource_key names a resource the creature lacks,
+   *                          or it has too few uses; the ability still resolves
+   *   extra_targets_ignored  an ability with several attack steps lists more
+   *                          targets than it has attack steps; the extra
+   *                          entries are ignored
    *
    * @generated from field: string code = 1;
    */
