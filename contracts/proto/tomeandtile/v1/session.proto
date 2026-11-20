@@ -86,6 +86,18 @@ message SetControllersIntent {
   repeated string controller_user_ids = 2;
 }
 
+// GM only: put an uploaded image on a level as its background (ADR 0014).
+// Only the id is sent. The server fills in the level's `AssetRef` (media type,
+// URL, size) from its own record of the upload and answers with
+// `SceneUpserted`; an id it did not issue is rejected.
+message SetLevelBackgroundIntent {
+  string scene_id = 1;
+  string level_id = 2;
+  // An `AssetRef.asset_id` the server returned from an upload. Empty clears
+  // the background.
+  string asset_id = 3;
+}
+
 message Intent {
   // Chosen by the client; echoed in the events it causes and in rejections.
   string client_intent_id = 1;
@@ -100,6 +112,7 @@ message Intent {
     UndoIntent undo = 17;
     SetHitPointsIntent set_hit_points = 18;
     SetControllersIntent set_controllers = 19;
+    SetLevelBackgroundIntent set_level_background = 20;
   }
 }
 
