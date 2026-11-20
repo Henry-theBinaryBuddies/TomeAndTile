@@ -45,18 +45,52 @@ A joined client sends `MediaTokenRequest`; the server replies to that client onl
 - Secrets: the key and secret belong in the server's local environment only, never in the repo, a seed file, a log or chat. The secret and minted tokens are never logged; `MediaConfig`'s `Debug` hides the secret.
 - NOT verified: tokens have never been used against a real LiveKit server (Cloud or self-hosted). Claim names follow LiveKit's "Access tokens & grants" reference (https://docs.livekit.io/frontends/reference/tokens-grants.md), which does not list the `name` claim; `name` is sent on the strength of LiveKit's server SDKs and is unconfirmed. The signature is checked in tests only with the same HMAC code that makes it.
 
+## Asset upload (ADR 0014)
+
+A GM uploads a map image over HTTP, then sends `set_level_background` with the returned `asset_id`; every viewer's level gets it through a `SceneUpserted` event.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `TT_ASSET_DIR` | directory for uploaded files (created if missing; start-up fails if it cannot be created or is not a directory) | unset: uploads OFF |
+| `TT_PUBLIC_URL` | `http://` or `https://` base for the `url` in the returned `AssetRef`, trailing `/` trimmed; anything else is a start-up error | unset: the request's `Host` header |
+
+Routes (both answer any origin with `Access-Control-Allow-Origin: *`, `OPTIONS` with 204, other methods with JSON 405 `method_not_allowed`):
+
+- `POST /campaigns/{campaign_id}/assets`, body = the raw file, `Authorization: Bearer <token>` (the same token as `Hello`, checked by `auth::authenticate` before the body is read). GM only. 200 with a protobuf `AssetRef` (`Content-Type: application/x-protobuf`). The same file twice returns the same `AssetRef`; the file is stored once as `<sha256>.<png|jpg|webp>`, written to a temp file and renamed.
+- `GET /assets/<64 hex>.<png|jpg|webp>`: no auth, `Cache-Control: public, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`.
+
+Every error is JSON `{"code","message"}`:
+
+| Status | Code | When |
+|---|---|---|
+| 503 | `uploads_off` | `TT_ASSET_DIR` not set |
+| 503 | `busy` | four uploads already in progress |
+| 401 | `unauthorized` | no or malformed `Authorization`, dev auth off, bad token, unknown member |
+| 403 | `not_permitted` | signed in but not the GM |
+| 404 | `unknown_campaign` | the path campaign is not this server's campaign |
+| 413 | `file_too_large` | body over 20 MiB (`tt_asset_pipeline::MAX_FILE_BYTES`) |
+| 400 | `bad_body` | the body could not be read |
+| 408 | `upload_timeout` | the body took longer than 120 s to arrive (frees the upload slot) |
+| 400 | pipeline code | `empty_file`, `disallowed_format`, `unknown_format`, `truncated_header`, `invalid_dimensions`, `too_many_pixels` (`tt_asset_pipeline::AssetError::code`) |
+| 500 | `storage_error` | the disk write failed (details on stderr, never a token) |
+| 404 | `unknown_asset` | `GET` of anything that is not a stored `<id>.<ext>` |
+
+At start-up the directory is scanned once: each file named `<64 hex>.<png|jpg|webp>` whose bytes pass the pipeline, whose hash equals its name and whose extension matches its format is registered (up to 1000 files; others are skipped with a note on stderr), so uploads stay usable after a restart. Without `TT_PUBLIC_URL` their link is only a guess from the listener address (a wildcard bind such as `0.0.0.0` becomes `127.0.0.1`); uploading the same file again replaces it with the `Host`-based link. Set `TT_PUBLIC_URL` when clients are not on this machine. An intent can only name an `asset_id` this server registered.
+
+NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to be the GM and upload. Do not expose upload to the internet until real sign-in exists.
+
 ## Rejection codes (`IntentRejected.code`)
 
 | Code | When |
 |---|---|
-| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token they do not control, that is hidden, or that does not exist; non-GM `set_controllers` |
+| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token they do not control, that is hidden, or that does not exist; non-GM `set_controllers` or `set_level_background` |
 | `malformed_intent` | the intent has no kind |
-| `not_implemented` | any intent kind other than move, chat, roll, set_controllers |
+| `not_implemented` | any intent kind other than move, chat, roll, set_controllers, set_level_background |
 | `unknown_token` | GM names a token that does not exist (move, set_controllers) |
 | `empty_path` | move with no waypoints |
 | `path_too_long` | more than 256 waypoints |
 | `bad_coordinate` | NaN, infinite, or beyond 1,000,000 units |
-| `unknown_level` | `level_id` not a level of the token's scene |
+| `unknown_level` | `level_id` not a level of the token's scene (move) or of the named scene (set_level_background) |
 | `empty_chat` | blank after trimming |
 | `chat_too_long` | over 2000 characters |
 | `label_too_long` | roll label over 120 characters |
@@ -64,6 +98,8 @@ A joined client sends `MediaTokenRequest`; the server replies to that client onl
 | `rng_unavailable` | the OS gave no entropy; nothing changed, nothing was rolled |
 | `unknown_user` | `set_controllers` names a non-member |
 | `invalid_controller` | `set_controllers` names a spectator |
+| `unknown_scene` | `set_level_background` names a scene that does not exist |
+| `unknown_asset` | `set_level_background` names an `asset_id` this server never issued (empty clears) |
 
 ## Filtering rules and judgement calls
 

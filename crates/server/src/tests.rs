@@ -903,3 +903,104 @@ fn server_messages_round_trip_through_prost() {
         assert_eq!(decoded.kind, Some(kind));
     }
 }
+
+// -------------------------------------------------------- set_level_background
+
+fn asset(id: &str) -> tt_contracts::v1::AssetRef {
+    tt_contracts::v1::AssetRef {
+        asset_id: id.into(),
+        media_type: "image/png".into(),
+        url: format!("http://x/assets/{id}.png"),
+        width: 64,
+        height: 32,
+    }
+}
+
+fn set_bg(scene: &str, level: &str, asset_id: &str) -> Intent {
+    intent_of(intent::Kind::SetLevelBackground(
+        tt_contracts::v1::SetLevelBackgroundIntent {
+            scene_id: scene.into(),
+            level_id: level.into(),
+            asset_id: asset_id.into(),
+        },
+    ))
+}
+
+fn background_of(c: &Campaign, scene: &str, level: &str) -> Option<tt_contracts::v1::AssetRef> {
+    c.scenes
+        .iter()
+        .find(|s| s.scene_id == scene)?
+        .levels
+        .iter()
+        .find(|l| l.level_id == level)?
+        .background
+        .clone()
+}
+
+#[test]
+fn gm_sets_and_clears_a_level_background() {
+    let mut c = campaign();
+    c.register_asset(asset("a1"));
+    let events = run(&mut c, "gm", set_bg("s1", "l1", "a1")).expect("accepted");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].scene_id, "s1");
+    assert_eq!(events[0].seq, 1);
+    match events[0].kind.as_ref() {
+        Some(event::Kind::SceneUpserted(u)) => {
+            let scene = u.scene.as_ref().expect("scene");
+            assert_eq!(scene.levels[0].background, Some(asset("a1")));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(background_of(&c, "s1", "l1"), Some(asset("a1")));
+    // Other scenes untouched.
+    assert_eq!(background_of(&c, "s2", "l-s2"), None);
+
+    let events = run(&mut c, "gm", set_bg("s1", "l1", "")).expect("clear");
+    assert_eq!(events.len(), 1);
+    assert_eq!(background_of(&c, "s1", "l1"), None);
+    assert_eq!(c.seq, 2);
+}
+
+#[test]
+fn set_level_background_rejections_change_nothing() {
+    let mut c = campaign();
+    c.register_asset(asset("a1"));
+    let scenes = c.scenes.clone();
+    let tokens = c.tokens.clone();
+    let cases = [
+        ("alice", set_bg("s1", "l1", "a1"), "not_permitted"),
+        ("spec", set_bg("s1", "l1", "a1"), "not_permitted"),
+        ("gm", set_bg("nope", "l1", "a1"), "unknown_scene"),
+        ("gm", set_bg("s1", "l-s2", "a1"), "unknown_level"),
+        ("gm", set_bg("s1", "l1", "missing"), "unknown_asset"),
+    ];
+    for (actor, i, want) in cases {
+        assert_eq!(code(run(&mut c, actor, i)), want);
+        assert_untouched(&c, 0, 0, &tokens);
+        assert_eq!(c.scenes, scenes);
+    }
+}
+
+#[test]
+fn snapshot_for_shows_the_new_background_to_everyone() {
+    let mut c = campaign();
+    c.register_asset(asset("a1"));
+    run(&mut c, "gm", set_bg("s1", "l1", "a1")).expect("accepted");
+    for who in ["gm", "alice", "spec"] {
+        let snap = c.snapshot_for(&viewer(&c, who));
+        let level = &snap.scenes[0].levels[0];
+        assert_eq!(level.background, Some(asset("a1")), "{who}");
+    }
+}
+
+#[test]
+fn registering_an_asset_twice_keeps_the_first_record() {
+    let mut c = campaign();
+    c.register_asset(asset("a1"));
+    let mut other = asset("a1");
+    other.url = "http://elsewhere/a1.png".into();
+    c.register_asset(other);
+    assert_eq!(c.assets.get("a1"), Some(&asset("a1")));
+    assert_eq!(c.assets.len(), 1);
+}

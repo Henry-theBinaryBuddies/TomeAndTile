@@ -6,10 +6,15 @@
 //! * `TT_LIVEKIT_URL`, `TT_LIVEKIT_API_KEY`, `TT_LIVEKIT_API_SECRET`: all
 //!   three enable video and voice, none leaves it off, anything in between
 //!   is a start-up error. Values are never printed.
+//! * `TT_ASSET_DIR`: directory for uploaded map images (created if missing);
+//!   unset turns asset upload OFF (ADR 0014)
+//! * `TT_PUBLIC_URL`: optional `http://` or `https://` base for asset links;
+//!   without it links use the request's Host header
 
 use std::process::ExitCode;
 
 use tt_contracts::v1::Snapshot;
+use tt_server::assets::AssetConfig;
 use tt_server::media::MediaConfig;
 use tt_server::{serve, Config};
 
@@ -72,6 +77,37 @@ fn load_media() -> Result<Option<MediaConfig>, String> {
         .map_err(|e| format!("invalid LiveKit settings ({e}); check the TT_LIVEKIT_* variables"))
 }
 
+/// Read `TT_ASSET_DIR` and `TT_PUBLIC_URL`, creating the directory.
+fn load_assets() -> Result<Option<AssetConfig>, String> {
+    let dir = match std::env::var("TT_ASSET_DIR") {
+        Ok(d) if !d.is_empty() => std::path::PathBuf::from(d),
+        Ok(_) | Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err("TT_ASSET_DIR is not valid text".to_string())
+        }
+    };
+    let public_url = match std::env::var("TT_PUBLIC_URL") {
+        Ok(u) if u.is_empty() => None,
+        Ok(u) => {
+            if !(u.starts_with("http://") || u.starts_with("https://")) {
+                return Err("TT_PUBLIC_URL must start with http:// or https://".to_string());
+            }
+            Some(u.trim_end_matches('/').to_string())
+        }
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err("TT_PUBLIC_URL is not valid text".to_string())
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return Err(format!("cannot create TT_ASSET_DIR {}: {e}", dir.display()));
+    }
+    if !dir.is_dir() {
+        return Err(format!("TT_ASSET_DIR {} is not a directory", dir.display()));
+    }
+    Ok(Some(AssetConfig { dir, public_url }))
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let seed = match load_seed() {
@@ -104,6 +140,17 @@ async fn main() -> ExitCode {
         Some(m) => eprintln!("tt-server: video and voice ON (LiveKit at {})", m.sfu_url()),
         None => eprintln!("tt-server: video and voice OFF (TT_LIVEKIT_* not set)"),
     }
+    let assets = match load_assets() {
+        Ok(a) => a,
+        Err(message) => {
+            eprintln!("tt-server: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match &assets {
+        Some(a) => eprintln!("tt-server: asset upload ON (dir {})", a.dir.display()),
+        None => eprintln!("tt-server: asset upload OFF (TT_ASSET_DIR not set)"),
+    }
     let port = match std::env::var("TT_PORT") {
         Ok(p) => match p.parse::<u16>() {
             Ok(p) => p,
@@ -129,6 +176,7 @@ async fn main() -> ExitCode {
             seed,
             dev_auth,
             media,
+            assets,
         },
     )
     .await

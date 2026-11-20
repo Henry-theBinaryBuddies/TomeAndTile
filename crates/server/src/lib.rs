@@ -7,14 +7,18 @@
 //!   randomness and id minting passed in; and
 //! * a thin socket layer ([`net`]) that only moves bytes and broadcasts.
 //!
+//! Asset upload (ADR 0014) lives in [`assets`] (storage) and `upload` (HTTP).
+//!
 //! See docs/adr/0004-state-model.md and 0006-dice-and-visibility.md.
 
+pub mod assets;
 pub mod auth;
 pub mod campaign;
 pub mod ids;
 pub mod media;
 pub mod net;
 pub mod rng;
+mod upload;
 pub mod view;
 
 #[cfg(test)]
