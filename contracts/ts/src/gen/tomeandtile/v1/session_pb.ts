@@ -111,6 +111,37 @@ export const ChatIntentSchema: GenMessage<ChatIntent> = /*@__PURE__*/
 /**
  * Click an ability, then click targets. One message carries both.
  *
+ * Rejection codes (IntentRejected.code):
+ *   not_permitted          the sender may not act with the source token. For
+ *                          a player, a source token that is hidden or does
+ *                          not exist is also not_permitted (as for
+ *                          MoveTokenIntent)
+ *   unknown_token          the source token does not exist (GM sender)
+ *   no_creature            the source token has no creature
+ *   unknown_ability        ability_id is not on the source creature
+ *   no_targets             a TARGET_SHAPE_CREATURES ability with no targets
+ *   unknown_target         a target token does not exist, is hidden from the
+ *                          sender, or has no creature
+ *   not_implemented        a step kind or target shape the engine does not
+ *                          support yet (real server)
+ *   rng_unavailable        the server could not get secure randomness
+ *   not_supported_by_mock  the mock server does not handle this ability
+ *
+ * Warning codes (Resolution.warnings and Event.warnings); the ability still
+ * resolves (ADR 0005):
+ *   out_of_range           a target is beyond long range, or beyond
+ *                          range_feet when there is no long range; the attack
+ *                          is still rolled
+ *   too_many_targets       an ability with one attack step lists more targets
+ *                          than max_targets; every target is still resolved
+ *   not_enough_resource    resource_key names a resource the creature lacks,
+ *                          or it has too few uses
+ *   extra_targets_ignored  an ability with several attack steps lists more
+ *                          targets than it has attack steps; the extra
+ *                          entries are ignored
+ * Disadvantage at long range is not a warning; it shows in the attack roll's
+ * mode.
+ *
  * @generated from message tomeandtile.v1.UseAbilityIntent
  */
 export type UseAbilityIntent = Message<"tomeandtile.v1.UseAbilityIntent"> & {
@@ -126,6 +157,13 @@ export type UseAbilityIntent = Message<"tomeandtile.v1.UseAbilityIntent"> & {
 
   /**
    * For TARGET_SHAPE_CREATURES.
+   *
+   * One attack step: every listed token is a target of that step.
+   * More than one attack step: one target per attack step, in step order,
+   * and a token may appear more than once. Entries past the last attack step
+   * are ignored (warning extra_targets_ignored); steps past the last listed
+   * entry are not rolled. TargetOutcome.step_index says which step produced
+   * each outcome.
    *
    * @generated from field: repeated string target_token_ids = 3;
    */

@@ -75,6 +75,10 @@ message TargetOutcome {
   repeated string effects_applied = 7;
   // True if this dropped the target to 0 HP. Death saves are not automated.
   bool dropped_to_zero = 8;
+  // Index into Ability.steps of the step that produced this outcome. With
+  // several attack steps there is one TargetOutcome per step, in step order,
+  // and the same token_id may appear more than once.
+  uint32 step_index = 9;
 }
 
 // One use of an ability, from click to done.
