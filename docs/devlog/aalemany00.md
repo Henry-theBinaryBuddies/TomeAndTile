@@ -2,6 +2,26 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-19 — #34 Replace the pre-expiry renewal timer with backoff on reconnect
+
+**Did:** Per Henry's review on PR #45: removed `scheduleRenew`/`renewTimer`/`renewBeforeMs`
+(and the now-unused `now` option) entirely — LiveKit's client library refreshes its own token
+on a network-drop reconnect, so a token's `expires_at_ms` only matters for the initial
+connection, and the pre-expiry timer was tearing down and rejoining the call every ~9m50s for
+no reason. Kept the rejoin-on-drop (still asking the server for a new token), with a backoff
+delay before it: base 1s, doubling to a 16s cap.
+**Directed Claude to:** Apply Henry's three numbered fixes from the review comment.
+**Learned:** Resetting the backoff the instant `connect()` resolves would be wrong — a server
+that accepts and immediately drops the connection would reset to the base delay every single
+cycle, since each cycle *does* briefly reach "joined" before dropping again. That's exactly the
+tight-loop scenario the backoff is supposed to prevent. Caught this while writing the test for
+"growing on repeated failures, reset after a successful join," not before. Fixed by gating the
+reset on the connection staying up for a few seconds (`STABLE_CONNECTION_MS`), not on `connect()`
+succeeding.
+**Blocked on / next:** `web/vite.config.ts`/`tsconfig.json` still don't cover `web/media/` (same
+gap as the #34 entry below); verified again with a throwaway, uncommitted vitest config instead
+of `npm test`. Henry said he's fixing that glob himself in a separate PR.
+
 ## 2026-11-15 — #8 Second pass: wire up the merged contracts fields
 
 **Did:** Henry's [#16](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/16) merged,
@@ -20,6 +40,35 @@ what's pending; only multiattack (Milestone 2, rules-engine work) is still open.
 worth watching for on any review that lands while a dependency (here, a contracts PR) is still
 in flight.
 **Blocked on / next:** Nothing of mine; waiting on Henry's re-review.
+
+## 2026-11-15 — #34 LiveKit client module
+
+**Did:** Built `web/media/` per ADR 0007: `createMediaClient()` exporting exactly join, leave,
+mute/unmute, camera on/off, pick a device, list participants, attach/detach a track, and a
+Svelte store to subscribe to state. `livekit-client` (2.24.1, the version ADR 0007 pre-approved)
+is imported only in `room.ts`, which adapts a real `Room` to an internal `RoomLike` interface;
+`client.ts` (the state machine) and the exported `MediaClient` type never see a LiveKit type.
+17 unit tests run against a hand-written fake `RoomLike`, no LiveKit import and no real SFU,
+covering: join connects with the token's `sfu_url`/`token` and only then asks for mic/camera
+permission; a spectator token (`can_publish: false`) never opens either; the client asks for a
+new token and rejoins both ~10s before `expires_at_ms` and on an unexpected disconnect; `leave`
+tears down cleanly and a stale in-flight rejoin can't resurrect a left call; mute/unmute and
+camera on/off; permission-denied/no-device/token-refused/connection-lost each land as a typed
+`MediaFailure` without crashing the client; the token never appears in state or console output.
+**Directed Claude to:** Read issue #34, ADR 0007 and `web/media/CLAUDE.md`, then build the
+module and its tests without touching anything in `web/` outside `web/media/`.
+**Learned:** `web/vite.config.ts`'s test `include` is `src/**/*.test.ts` and `web/tsconfig.json`'s
+`include` is `["src", "vite.config.ts"]` — neither looks at `web/media/` at all. Both files are
+outside this area (Danny's), so per `web/media/CLAUDE.md` ("stop and ask" for a file outside
+`web/media/`) I verified the module with throwaway local-only configs instead of editing them,
+and I'm filing an issue for whoever owns those files to widen the globs, since `npm run check`
+and `npm test` from `web/` currently skip this module entirely despite issue #34 listing them as
+acceptance criteria.
+**Blocked on / next:** The `check`/`test` glob gap above. `npm run build` passes as-is (`web/media/`
+isn't imported into the app yet, so the gap doesn't show up there). `npm run check` and `npm test`
+were run by pointing `tsc`/`vitest` at `media/` directly with throwaway local-only configs
+(deleted, not committed) instead of the real `npm run check`/`npm test`, until the glob gap above
+is fixed.
 
 ## 2026-11-15 — #33 Asset pipeline: inspect and describe uploaded images
 
