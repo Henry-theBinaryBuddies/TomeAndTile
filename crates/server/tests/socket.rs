@@ -125,6 +125,7 @@ async fn start_with_media(dev_auth: bool, media: Option<MediaConfig>) -> Server 
             seed: seed(),
             dev_auth,
             media,
+            assets: None,
         },
     ));
     Server { addr, handle }

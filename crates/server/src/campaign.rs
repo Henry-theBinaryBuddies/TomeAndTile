@@ -4,10 +4,13 @@
 //! passed to [`Campaign::apply`]. A rejected intent leaves state, `seq` and
 //! the log untouched: every handler validates first and mutates last.
 
+use std::collections::HashMap;
+
 use tt_contracts::v1::{
-    event, intent, ChatPosted, Creature, CreatureUpserted, DiceRolled, Encounter, Event, Intent,
-    Member, MoveTokenIntent, Role, RollDiceIntent, RollMode, RollPurpose, RollResult,
-    RollVisibility, Scene, SetControllersIntent, Snapshot, Token, TokenMoved, TokenUpserted, Vec2,
+    event, intent, AssetRef, ChatPosted, Creature, CreatureUpserted, DiceRolled, Encounter, Event,
+    Intent, Member, MoveTokenIntent, Role, RollDiceIntent, RollMode, RollPurpose, RollResult,
+    RollVisibility, Scene, SceneUpserted, SetControllersIntent, SetLevelBackgroundIntent, Snapshot,
+    Token, TokenMoved, TokenUpserted, Vec2,
 };
 use tt_rules::dice::{self, Expr};
 
@@ -54,6 +57,9 @@ pub struct Campaign {
     pub creatures: Vec<Creature>,
     pub encounters: Vec<Encounter>,
     pub active_scene_id: String,
+    /// Uploads this server issued (ADR 0014), by `asset_id`. Not part of the
+    /// snapshot; only these may be put on a level.
+    pub assets: HashMap<String, AssetRef>,
     /// Sequence number of the last event; 0 before any.
     pub seq: u64,
     /// Append-only event log, unfiltered (server-side only).
@@ -80,9 +86,16 @@ impl Campaign {
             creatures: snapshot.creatures,
             encounters: snapshot.encounters,
             active_scene_id: snapshot.active_scene_id,
+            assets: HashMap::new(),
             seq: snapshot.seq,
             log: Vec::new(),
         }
+    }
+
+    /// Record an upload so a `SetLevelBackground` intent may name it. An id
+    /// already registered keeps its first record.
+    pub fn register_asset(&mut self, asset: AssetRef) {
+        self.assets.entry(asset.asset_id.clone()).or_insert(asset);
     }
 
     /// The role of a member; `None` for a user not in this campaign or with
@@ -122,6 +135,7 @@ impl Campaign {
                 self.roll_dice(actor_user_id, is_gm, r, now_ms, rng, ids)?
             }
             intent::Kind::SetControllers(s) => self.set_controllers(is_gm, s)?,
+            intent::Kind::SetLevelBackground(b) => self.set_level_background(is_gm, b)?,
             _ => {
                 return Err(Rejection::new(
                     "not_implemented",
@@ -289,6 +303,51 @@ impl Campaign {
         Ok((
             self.active_scene_id.clone(),
             vec![event::Kind::DiceRolled(DiceRolled { roll: Some(roll) })],
+        ))
+    }
+
+    fn set_level_background(&mut self, is_gm: bool, b: SetLevelBackgroundIntent) -> Outcome {
+        if !is_gm {
+            return Err(Rejection::not_permitted());
+        }
+        let Some(scene_idx) = self.scenes.iter().position(|s| s.scene_id == b.scene_id) else {
+            return Err(Rejection::new(
+                "unknown_scene",
+                format!("no scene {:?}", b.scene_id),
+            ));
+        };
+        let Some(level_idx) = self.scenes[scene_idx]
+            .levels
+            .iter()
+            .position(|l| l.level_id == b.level_id)
+        else {
+            return Err(Rejection::new(
+                "unknown_level",
+                format!("no level {:?} in this scene", b.level_id),
+            ));
+        };
+        let background = if b.asset_id.is_empty() {
+            None
+        } else {
+            match self.assets.get(&b.asset_id) {
+                Some(asset) => Some(asset.clone()),
+                None => {
+                    return Err(Rejection::new(
+                        "unknown_asset",
+                        format!("no uploaded asset {:?}", b.asset_id),
+                    ))
+                }
+            }
+        };
+
+        // Validated: mutate.
+        self.scenes[scene_idx].levels[level_idx].background = background;
+        let scene = self.scenes[scene_idx].clone();
+        Ok((
+            scene.scene_id.clone(),
+            vec![event::Kind::SceneUpserted(SceneUpserted {
+                scene: Some(scene),
+            })],
         ))
     }
 

@@ -1457,6 +1457,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-tungstenite",
+ "tt-asset-pipeline",
  "tt-contracts",
  "tt-rules",
 ]

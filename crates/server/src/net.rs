@@ -5,6 +5,8 @@
 //! UNFILTERED as an `Arc<Event>`; every connection filters it for its own
 //! viewer before encoding.
 
+use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -21,11 +23,13 @@ use tt_contracts::v1::{
     ServerMessage, Snapshot,
 };
 
+use crate::assets::{scan_dir, AssetConfig, DiskStore, UploadGate, MAX_CONCURRENT_UPLOADS};
 use crate::auth::authenticate;
 use crate::campaign::{Campaign, Rejection};
 use crate::ids::Uuid7Ids;
 use crate::media::{self, MediaConfig, MediaDenied};
 use crate::rng::OsRolls;
+use crate::upload::{self, AssetState};
 use crate::view::Viewer;
 
 /// Largest accepted WebSocket message (same as the mock).
@@ -43,24 +47,31 @@ pub struct Config {
     pub dev_auth: bool,
     /// LiveKit settings (ADR 0007); None turns video and voice off.
     pub media: Option<MediaConfig>,
+    /// Asset upload (ADR 0014); None turns uploads off.
+    pub assets: Option<AssetConfig>,
 }
 
-struct State {
-    campaign: Campaign,
+pub(crate) struct State {
+    pub(crate) campaign: Campaign,
     rng: OsRolls,
     ids: Uuid7Ids,
     tx: broadcast::Sender<Arc<Event>>,
+    /// Assets found at start-up whose link is only a guess (no
+    /// TT_PUBLIC_URL); the next upload of the same file replaces the link.
+    pub(crate) provisional_assets: HashSet<String>,
 }
 
-struct Shared {
+pub(crate) struct Shared {
     // A std mutex is enough: it is never held across an await.
     state: Mutex<State>,
-    dev_auth: bool,
+    pub(crate) dev_auth: bool,
     media: Option<MediaConfig>,
+    pub(crate) assets: Option<AssetState>,
+    pub(crate) local_addr: Option<SocketAddr>,
 }
 
 impl Shared {
-    fn lock(&self) -> MutexGuard<'_, State> {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, State> {
         // Handlers never panic while holding the lock; recover anyway.
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -70,15 +81,27 @@ impl Shared {
 /// listener fails.
 pub async fn serve(listener: TcpListener, config: Config) -> std::io::Result<()> {
     let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+    let local_addr = listener.local_addr().ok();
+    let mut campaign = Campaign::from_snapshot(config.seed);
+    let mut provisional_assets = HashSet::new();
+    let assets = match config.assets {
+        Some(cfg) => {
+            Some(start_assets(cfg, &mut campaign, &mut provisional_assets, local_addr).await)
+        }
+        None => None,
+    };
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
-            campaign: Campaign::from_snapshot(config.seed),
+            campaign,
             rng: OsRolls::new(),
             ids: Uuid7Ids::new(),
             tx,
+            provisional_assets,
         }),
         dev_auth: config.dev_auth,
         media: config.media,
+        assets,
+        local_addr,
     });
     let app = Router::new()
         .route(
@@ -87,8 +110,39 @@ pub async fn serve(listener: TcpListener, config: Config) -> std::io::Result<()>
         )
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(ws_upgrade))
+        .merge(upload::routes())
         .with_state(shared);
     axum::serve(listener, app).await
+}
+
+/// Build the asset state and register what an earlier run left in the
+/// directory, so uploads stay usable after a restart.
+async fn start_assets(
+    cfg: AssetConfig,
+    campaign: &mut Campaign,
+    provisional: &mut HashSet<String>,
+    local_addr: Option<SocketAddr>,
+) -> AssetState {
+    let dir = cfg.dir.clone();
+    let found = tokio::task::spawn_blocking(move || scan_dir(&dir))
+        .await
+        .unwrap_or_default();
+    let base = match &cfg.public_url {
+        Some(url) => url.clone(),
+        None => upload::listener_base(local_addr),
+    };
+    for (mut asset, ext) in found {
+        asset.url = format!("{base}/assets/{}.{ext}", asset.asset_id);
+        if cfg.public_url.is_none() {
+            provisional.insert(asset.asset_id.clone());
+        }
+        campaign.register_asset(asset);
+    }
+    AssetState {
+        store: Arc::new(DiskStore::new(cfg.dir)),
+        public_url: cfg.public_url,
+        gate: UploadGate::new(MAX_CONCURRENT_UPLOADS),
+    }
 }
 
 async fn ws_upgrade(

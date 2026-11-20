@@ -30,6 +30,7 @@ async fn healthz_and_banner_answer() {
             seed: Snapshot::default(),
             dev_auth: false,
             media: None,
+            assets: None,
         },
     ));
     let health = get(addr, "/healthz").await;
