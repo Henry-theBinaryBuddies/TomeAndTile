@@ -6,3 +6,4 @@
 
 pub mod attack;
 pub mod dice;
+pub mod distance;
