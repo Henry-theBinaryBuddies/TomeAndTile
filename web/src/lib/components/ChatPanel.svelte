@@ -7,9 +7,11 @@
 		buildRollKind,
 		displayName,
 		rejectionText,
+		resultCardView,
 		rollCardView,
 		textAfterRejection
 	} from '../chat';
+	import ResultCard from './ResultCard.svelte';
 	import RollCard from './RollCard.svelte';
 
 	const client = getGameClient();
@@ -132,6 +134,14 @@
 					<span class="text">{entry.text}</span>
 					{#if entry.undone}<span class="note">(undone)</span>{/if}
 				</p>
+			{:else if entry.kind === 'result'}
+				{@const resolution = $panelState.resolutions[entry.resolutionId]}
+				{#if resolution}
+					<ResultCard
+						view={resultCardView(resolution, $panelState.tokens, $panelState.creatures, entry.warnings)}
+						undone={entry.undone}
+					/>
+				{/if}
 			{:else}
 				<RollCard
 					who={displayName($panelState.members, entry.roll.rollerUserId)}

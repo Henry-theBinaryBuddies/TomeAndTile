@@ -4,5 +4,6 @@ export {
 	nameFor,
 	turnAnnouncement,
 	type InitiativeRow,
-	type InitiativeView
+	type InitiativeView,
+	type TokenNames
 } from './view';

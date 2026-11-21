@@ -4,6 +4,8 @@ import {
 	AssetRefSchema,
 	ChatPostedSchema,
 	ClientMessageSchema,
+	CreatureSchema,
+	CreatureUpsertedSchema,
 	DiceRolledSchema,
 	DieSchema,
 	EncounterEndedSchema,
@@ -15,18 +17,26 @@ import {
 	LevelSchema,
 	MediaTokenSchema,
 	MemberSchema,
+	ResolutionSchema,
+	ResolutionUpdatedSchema,
 	Role,
 	RollResultSchema,
 	SceneSchema,
 	ServerMessageSchema,
 	SnapshotSchema,
+	TokenMovedSchema,
 	TokenRemovedSchema,
 	TokenSchema,
+	Vec2Schema,
+	type Creature,
+	type Resolution,
+	type Token,
 	TokenUpsertedSchema,
 	SceneUpsertedSchema,
 	type ClientMessage,
 	type Event,
-	type Scene
+	type Scene,
+	type Warning
 } from '@tomeandtile/contracts';
 import type { SocketLike } from './client';
 
@@ -105,8 +115,9 @@ export function sceneOf(
 
 export function snapshotMessage(
 	seq = 5n,
-	tokens: [string, string][] = [['t-aria', 'Aria'], ['t-gob', 'Goblin']],
-	scenes: Scene[] = []
+	tokens: (Token | [string, string])[] = [['t-aria', 'Aria'], ['t-gob', 'Goblin']],
+	scenes: Scene[] = [],
+	creatures: Creature[] = []
 ) {
 	return create(ServerMessageSchema, {
 		kind: {
@@ -131,7 +142,10 @@ export function snapshotMessage(
 						online: true
 					})
 				],
-				tokens: tokens.map(([tokenId, name]) => create(TokenSchema, { tokenId, name })),
+				tokens: tokens.map((t) =>
+					Array.isArray(t) ? create(TokenSchema, { tokenId: t[0], name: t[1] }) : t
+				),
+				creatures,
 				encounters: [
 					create(EncounterSchema, { encounterId: 'enc-1', round: 1, turnIndex: 0 })
 				]
@@ -226,3 +240,43 @@ export function mediaTokenFrame(token = 'jwt'): ArrayBuffer {
 		}
 	});
 }
+
+export const tokenMovedKind = (
+	tokenId: string,
+	path: [number, number][],
+	levelId = ''
+): Event['kind'] => ({
+	case: 'tokenMoved',
+	value: create(TokenMovedSchema, {
+		tokenId,
+		levelId,
+		path: path.map(([x, y]) => create(Vec2Schema, { x, y }))
+	})
+});
+
+export const creatureUpsertedKind = (creature: Creature): Event['kind'] => ({
+	case: 'creatureUpserted',
+	value: create(CreatureUpsertedSchema, { creature })
+});
+
+export const resolutionKind = (resolution: Resolution): Event['kind'] => ({
+	case: 'resolutionUpdated',
+	value: create(ResolutionUpdatedSchema, { resolution })
+});
+
+/** Like `eventMessage`, with the intent id and warnings an ability event carries. */
+export function abilityEventMessage(
+	seq: bigint,
+	kind: Event['kind'],
+	clientIntentId: string,
+	warnings: Warning[] = []
+) {
+	return create(ServerMessageSchema, {
+		kind: {
+			case: 'event',
+			value: create(EventSchema, { seq, atMs: 1000n + seq, kind, clientIntentId, warnings })
+		}
+	});
+}
+
+export { CreatureSchema, ResolutionSchema };
