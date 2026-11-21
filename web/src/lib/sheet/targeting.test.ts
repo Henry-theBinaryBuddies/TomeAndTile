@@ -1,0 +1,130 @@
+import { describe, expect, it } from 'vitest';
+import { RollMode, TargetShape } from '@tomeandtile/contracts';
+import {
+	buildUseAbilityKind,
+	limitWarning,
+	pickCount,
+	pickToken,
+	picksTargets,
+	removePick,
+	setMode,
+	startTargeting
+} from './targeting';
+import type { AbilityView } from './view';
+
+const ability = (over: Partial<AbilityView> = {}): AbilityView => ({
+	abilityId: 'longsword',
+	name: 'Longsword',
+	description: '',
+	cost: 1,
+	kind: 'usable',
+	note: '',
+	rangeText: '5 ft',
+	resourceText: '',
+	stepLines: [],
+	shape: TargetShape.CREATURES,
+	attackSteps: 1,
+	maxTargets: 1,
+	recharging: false,
+	...over
+});
+
+describe('picking targets for one attack', () => {
+	it('picks a token, and takes the pick back on a second click', () => {
+		let s = startTargeting(ability());
+		s = pickToken(s, 'gob');
+		expect(s.picks).toEqual(['gob']);
+		s = pickToken(s, 'gob');
+		expect(s.picks).toEqual([]);
+	});
+
+	it('allows any number of picks, in the order picked', () => {
+		let s = startTargeting(ability());
+		for (const id of ['c', 'a', 'b', 'd']) s = pickToken(s, id);
+		expect(s.picks).toEqual(['c', 'a', 'b', 'd']);
+	});
+
+	it('warns when over the limit but still builds the request', () => {
+		let s = startTargeting(ability());
+		s = pickToken(pickToken(s, 'a'), 'b');
+		expect(limitWarning(s)).toBe(
+			'Longsword normally has 1 target, and you picked 2. You can still confirm; the server decides what happens.'
+		);
+		const kind = buildUseAbilityKind('t1', s);
+		expect(kind.case === 'useAbility' && kind.value.targetTokenIds).toEqual(['a', 'b']);
+	});
+
+	it('does not warn at or under the limit', () => {
+		let s = startTargeting(ability());
+		expect(limitWarning(s)).toBe('');
+		s = pickToken(s, 'a');
+		expect(limitWarning(s)).toBe('');
+	});
+
+	it('does not warn when the ability states no limit', () => {
+		let s = startTargeting(ability({ maxTargets: 0 }));
+		for (const id of ['a', 'b', 'c']) s = pickToken(s, id);
+		expect(limitWarning(s)).toBe('');
+	});
+
+	it('can be confirmed with no targets (the server decides)', () => {
+		const kind = buildUseAbilityKind('t1', startTargeting(ability()));
+		expect(kind.case === 'useAbility' && kind.value.targetTokenIds).toEqual([]);
+	});
+});
+
+describe('picking targets for a multi-attack', () => {
+	const multi = () => startTargeting(ability({ name: 'Multiattack', attackSteps: 2 }));
+
+	it('takes one pick per click, in order, and allows the same token again', () => {
+		let s = multi();
+		expect(s.ordered).toBe(true);
+		s = pickToken(pickToken(s, 'gob'), 'gob');
+		expect(s.picks).toEqual(['gob', 'gob']);
+		expect(pickCount(s, 'gob')).toBe(2);
+	});
+
+	it('removes the pick at a position', () => {
+		let s = multi();
+		s = pickToken(pickToken(pickToken(s, 'a'), 'b'), 'c');
+		s = removePick(s, 1);
+		expect(s.picks).toEqual(['a', 'c']);
+	});
+
+	it('warns about more picks than attacks, without blocking', () => {
+		let s = multi();
+		for (const id of ['a', 'b', 'c']) s = pickToken(s, id);
+		expect(limitWarning(s)).toContain('has 2 attacks, and you picked 3');
+		expect(buildUseAbilityKind('t1', s).case).toBe('useAbility');
+	});
+});
+
+describe('mode and the request', () => {
+	it('sends the source token, ability, targets in pick order and the chosen mode', () => {
+		let s = startTargeting(ability());
+		s = pickToken(pickToken(s, 'x'), 'y');
+		s = setMode(s, RollMode.ADVANTAGE);
+		const kind = buildUseAbilityKind('token-brannoch', s);
+		expect(kind.case).toBe('useAbility');
+		if (kind.case !== 'useAbility') return;
+		expect(kind.value.sourceTokenId).toBe('token-brannoch');
+		expect(kind.value.abilityId).toBe('longsword');
+		expect(kind.value.targetTokenIds).toEqual(['x', 'y']);
+		expect(kind.value.mode).toBe(RollMode.ADVANTAGE);
+	});
+
+	it('starts in normal mode and can be set to disadvantage', () => {
+		const s = startTargeting(ability());
+		expect(s.mode).toBe(RollMode.NORMAL);
+		expect(setMode(s, RollMode.DISADVANTAGE).mode).toBe(RollMode.DISADVANTAGE);
+	});
+
+	it('uses a self ability on itself: no targets can be picked or sent', () => {
+		let s = startTargeting(ability({ shape: TargetShape.SELF, maxTargets: 0 }));
+		expect(picksTargets(s)).toBe(false);
+		s = pickToken(s, 'gob');
+		expect(s.picks).toEqual([]);
+		const kind = buildUseAbilityKind('t1', s);
+		expect(kind.case === 'useAbility' && kind.value.targetTokenIds).toEqual([]);
+	});
+});
