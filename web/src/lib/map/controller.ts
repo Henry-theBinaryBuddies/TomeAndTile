@@ -50,8 +50,15 @@ export interface MapController {
 	destroy(): void;
 }
 
-/** Frames received while the renderer is still starting are kept this long, then dropped. */
+/**
+ * Frames received while the renderer is still starting are all kept, up to this many.
+ * Past that the map stops and says so: dropping the oldest frame could drop the
+ * Snapshot, and the later updates would then be drawn onto an empty map.
+ */
 const MAX_WAITING_FRAMES = 200;
+
+export const TOO_MANY_WAITING_MESSAGE =
+	'The map stopped because too many updates arrived while it was starting. Reload the page to try again. Chat, dice and the other panels still work.';
 
 export const NO_GRAPHICS_MESSAGE =
 	'The map cannot start: this browser has no working graphics support (WebGPU or WebGL2). Chat, dice and the other panels still work.';
@@ -82,7 +89,11 @@ export function createMapController(options: MapControllerOptions): MapControlle
 			deliver(frame);
 		} else {
 			waiting.push(frame);
-			if (waiting.length > MAX_WAITING_FRAMES) waiting.shift();
+			if (waiting.length > MAX_WAITING_FRAMES) {
+				failed = true;
+				waiting = [];
+				options.onUnavailable(TOO_MANY_WAITING_MESSAGE);
+			}
 		}
 	});
 
@@ -114,7 +125,7 @@ export function createMapController(options: MapControllerOptions): MapControlle
 	}
 
 	function start(created: MapRenderer): void {
-		if (destroyed) {
+		if (destroyed || failed) {
 			created.destroy();
 			return;
 		}

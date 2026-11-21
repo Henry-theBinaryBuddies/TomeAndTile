@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	createMapController,
 	NO_GRAPHICS_MESSAGE,
+	TOO_MANY_WAITING_MESSAGE,
 	type FrameScheduler,
 	type MapRenderer,
 	type MapSocket
@@ -163,13 +164,27 @@ describe('starting up', () => {
 		expect(renderer.resizes).toEqual([]);
 	});
 
-	it('keeps only the newest waiting frames if the renderer takes very long', async () => {
+	it('keeps every waiting frame up to the limit and delivers them in order', async () => {
 		const t = setup();
-		for (let i = 0; i < 250; i++) t.socket.receive(bytes(i % 256, i >> 8));
+		for (let i = 0; i < 200; i++) t.socket.receive(bytes(i % 256, i >> 8));
 		t.resolve(t.renderer);
 		await flush();
+		expect(t.events.unavailable).not.toHaveBeenCalled();
 		expect(t.renderer.applied).toHaveLength(200);
-		expect(t.renderer.applied[199]).toEqual(bytes(249, 0));
+		expect(t.renderer.applied[0]).toEqual(bytes(0, 0));
+		expect(t.renderer.applied[199]).toEqual(bytes(199, 0));
+	});
+
+	it('stops and says so when too many frames wait, instead of dropping the oldest', async () => {
+		const t = setup();
+		for (let i = 0; i < 250; i++) t.socket.receive(bytes(i % 256, i >> 8));
+		expect(t.events.unavailable).toHaveBeenCalledTimes(1);
+		expect(t.events.unavailable).toHaveBeenCalledWith(TOO_MANY_WAITING_MESSAGE);
+		t.resolve(t.renderer);
+		await flush();
+		expect(t.renderer.applied).toHaveLength(0);
+		expect(t.renderer.destroyed).toBe(1);
+		expect(t.events.ready).not.toHaveBeenCalled();
 	});
 });
 
