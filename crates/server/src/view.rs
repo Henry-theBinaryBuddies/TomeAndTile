@@ -146,8 +146,47 @@ impl Campaign {
                     .is_some_and(|e| self.encounter_visible(e, viewer))
             }
             event::Kind::EncounterEnded(_) => true,
-            // Not emitted in v0 and their payloads are not yet filterable.
-            event::Kind::ResolutionUpdated(_) | event::Kind::EventUndone(_) => gm,
+            // Player rolls are public (ADR 0006): everyone sees a resolution
+            // unless its source or any target token is hidden (or unknown).
+            event::Kind::ResolutionUpdated(u) => {
+                if gm {
+                    true
+                } else {
+                    let r = u.resolution.as_ref()?;
+                    let visible = |id: &str| self.token_by_id(id).is_some_and(|t| !t.hidden);
+                    if !(visible(&r.source_token_id)
+                        && r.outcomes.iter().all(|o| visible(&o.token_id)))
+                    {
+                        return None;
+                    }
+                    // `not_enough_resource` names the source creature's
+                    // resource and how many uses are left. That belongs to
+                    // its sheet, so a viewer who may not see the sheet (a
+                    // monster, for a player) gets the resolution without it.
+                    let sheet_visible = self
+                        .token_by_id(&r.source_token_id)
+                        .and_then(|t| {
+                            self.creatures
+                                .iter()
+                                .find(|c| c.creature_id == t.creature_id)
+                        })
+                        .is_some_and(|c| self.creature_visible(c, viewer));
+                    if !sheet_visible {
+                        let keep = |w: &tt_contracts::v1::Warning| w.code != "not_enough_resource";
+                        let mut out = event.clone();
+                        out.warnings.retain(keep);
+                        if let Some(event::Kind::ResolutionUpdated(ru)) = out.kind.as_mut() {
+                            if let Some(res) = ru.resolution.as_mut() {
+                                res.warnings.retain(keep);
+                            }
+                        }
+                        return Some(out);
+                    }
+                    true
+                }
+            }
+            // Not emitted in v0 and its payload is not yet filterable.
+            event::Kind::EventUndone(_) => gm,
             event::Kind::CreatureUpserted(c) => c
                 .creature
                 .as_ref()
