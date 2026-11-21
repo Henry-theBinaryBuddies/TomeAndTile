@@ -302,3 +302,30 @@ body {
 		}
 	}
 }
+
+/* ---- GM tools: Set map image ---- */
+.tool {
+	display: grid;
+	gap: 0.5rem;
+	padding: 0.5rem 0;
+}
+.tool-label {
+	font-weight: 600;
+}
+.tool input[type='file'] {
+	max-width: 100%;
+	min-height: var(--control);
+}
+.tool-help,
+.tool-status,
+.tool-error {
+	margin: 0;
+	font-size: 0.875rem;
+}
+.tool-help,
+.tool-status {
+	color: var(--muted);
+}
+.tool-error {
+	color: #ff9e9e;
+}

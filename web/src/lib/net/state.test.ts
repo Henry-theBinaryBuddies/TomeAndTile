@@ -7,6 +7,7 @@ import {
 	encounterUpdatedKind,
 	eventMessage,
 	rollKind,
+	sceneOf,
 	sceneUpsertedKind,
 	snapshotMessage,
 	tokenRemovedKind,
@@ -115,5 +116,49 @@ describe('events', () => {
 		expect(s.log).toHaveLength(MAX_LOG_ENTRIES);
 		const first = s.log[0];
 		expect(first.kind === 'chat' && first.text).toBe('m6');
+	});
+});
+
+describe('map target (where a map image goes)', () => {
+	const withScene = (...scenes: ReturnType<typeof sceneOf>[]) =>
+		foldMessage(emptyState(), snapshotMessage(5n, [], scenes));
+
+	it('is null before a Snapshot and when the active scene is unknown', () => {
+		expect(emptyState().mapTarget).toBeNull();
+		expect(withScene().mapTarget).toBeNull();
+		expect(withScene(sceneOf('other-scene', 'camp-1')).mapTarget).toBeNull();
+	});
+
+	it('is the first level of the active scene, with its campaign and current background', () => {
+		const s = withScene(
+			sceneOf('other-scene', 'camp-2', ['x']),
+			sceneOf('scene-1', 'camp-1', ['level-a', 'level-b'], 'asset-1')
+		);
+		expect(s.mapTarget).toEqual({
+			campaignId: 'camp-1',
+			sceneId: 'scene-1',
+			levelId: 'level-a',
+			backgroundAssetId: 'asset-1'
+		});
+	});
+
+	it('has an empty background id when the level has none, and is null for a scene with no level', () => {
+		expect(withScene(sceneOf('scene-1', 'camp-1')).mapTarget?.backgroundAssetId).toBe('');
+		expect(withScene(sceneOf('scene-1', 'camp-1', [])).mapTarget).toBeNull();
+	});
+
+	it('follows a scene update for the active scene, and ignores other scenes', () => {
+		let s = withScene(sceneOf('scene-1', 'camp-1'));
+		s = fold(s, 6n, sceneUpsertedKind(sceneOf('scene-1', 'camp-1', ['level-1'], 'asset-9')));
+		expect(s.mapTarget?.backgroundAssetId).toBe('asset-9');
+		s = fold(s, 7n, sceneUpsertedKind(sceneOf('elsewhere', 'camp-1', ['l'], 'asset-0')));
+		expect(s.mapTarget?.backgroundAssetId).toBe('asset-9');
+		expect(s.seq).toBe(7n);
+	});
+
+	it('is replaced by a new Snapshot', () => {
+		let s = withScene(sceneOf('scene-1', 'camp-1', ['level-1'], 'asset-9'));
+		s = foldMessage(s, snapshotMessage(20n, [], []));
+		expect(s.mapTarget).toBeNull();
 	});
 });

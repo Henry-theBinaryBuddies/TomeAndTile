@@ -8,12 +8,18 @@
 		type Placement
 	} from '../layout/model';
 	import { phoneOpen, viewportSize } from '../layout/viewport';
+	import { Role } from '@tomeandtile/contracts';
+	import { getGameClient } from '../net';
 	import ChatPanel from './ChatPanel.svelte';
 	import InitiativePanel from './InitiativePanel.svelte';
+	import MapImageControl from './MapImageControl.svelte';
 
 	type Mode = 'docked' | 'floating' | 'sheet';
 
 	let { id, mode }: { id: PanelId; mode: Mode } = $props();
+
+	const { state: gameState } = getGameClient();
+	const isGm = $derived($gameState.role === Role.GM);
 
 	const HINTS: Record<Exclude<PanelId, 'chat' | 'initiative'>, string> = {
 		sheet: 'Your character sheet will appear here.',
@@ -116,6 +122,8 @@
 				<ChatPanel />
 			{:else if id === 'initiative'}
 				<InitiativePanel />
+			{:else if id === 'tools' && isGm}
+				<MapImageControl />
 			{:else}
 				<p class="empty">{HINTS[id]}</p>
 			{/if}

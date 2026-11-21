@@ -1,6 +1,7 @@
 // Helpers for the tests only: a fake WebSocket and builders for server messages.
 import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import {
+	AssetRefSchema,
 	ChatPostedSchema,
 	ClientMessageSchema,
 	DiceRolledSchema,
@@ -11,10 +12,12 @@ import {
 	EventSchema,
 	EventUndoneSchema,
 	IntentRejectedSchema,
+	LevelSchema,
 	MediaTokenSchema,
 	MemberSchema,
 	Role,
 	RollResultSchema,
+	SceneSchema,
 	ServerMessageSchema,
 	SnapshotSchema,
 	TokenRemovedSchema,
@@ -22,7 +25,8 @@ import {
 	TokenUpsertedSchema,
 	SceneUpsertedSchema,
 	type ClientMessage,
-	type Event
+	type Event,
+	type Scene
 } from '@tomeandtile/contracts';
 import type { SocketLike } from './client';
 
@@ -77,7 +81,33 @@ function frame(init: Parameters<typeof create<typeof ServerMessageSchema>>[1]): 
 	return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-export function snapshotMessage(seq = 5n, tokens: [string, string][] = [['t-aria', 'Aria'], ['t-gob', 'Goblin']]) {
+/** A scene with one level per id in `levelIds`; the first level has the given background. */
+export function sceneOf(
+	sceneId: string,
+	campaignId: string,
+	levelIds: string[] = ['level-1'],
+	backgroundAssetId = ''
+): Scene {
+	return create(SceneSchema, {
+		sceneId,
+		campaignId,
+		levels: levelIds.map((levelId, i) =>
+			create(LevelSchema, {
+				levelId,
+				background:
+					i === 0 && backgroundAssetId
+						? create(AssetRefSchema, { assetId: backgroundAssetId })
+						: undefined
+			})
+		)
+	});
+}
+
+export function snapshotMessage(
+	seq = 5n,
+	tokens: [string, string][] = [['t-aria', 'Aria'], ['t-gob', 'Goblin']],
+	scenes: Scene[] = []
+) {
 	return create(ServerMessageSchema, {
 		kind: {
 			case: 'snapshot',
@@ -86,6 +116,7 @@ export function snapshotMessage(seq = 5n, tokens: [string, string][] = [['t-aria
 				userId: 'mock-player',
 				role: Role.PLAYER,
 				activeSceneId: 'scene-1',
+				scenes,
 				members: [
 					create(MemberSchema, {
 						userId: 'mock-gm',
@@ -162,9 +193,9 @@ export const tokenUpsertedKind = (tokenId: string, name: string): Event['kind'] 
 	value: create(TokenUpsertedSchema, { token: create(TokenSchema, { tokenId, name }) })
 });
 
-export const sceneUpsertedKind = (): Event['kind'] => ({
+export const sceneUpsertedKind = (scene?: Scene): Event['kind'] => ({
 	case: 'sceneUpserted',
-	value: create(SceneUpsertedSchema, {})
+	value: create(SceneUpsertedSchema, { scene })
 });
 
 export const tokenRemovedKind = (id: string): Event['kind'] => ({
