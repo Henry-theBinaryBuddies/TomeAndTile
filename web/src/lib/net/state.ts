@@ -1,14 +1,16 @@
 // The state the panels read, and the pure function that builds it from the
 // server's messages. Nothing here opens a socket or changes game state: it only
 // records what the server said. Tokens and scenes are not kept here; the map
-// renderer takes those from the raw frames. The one thing kept from tokens is each
-// token's name, because the initiative bar needs to say whose turn it is.
+// renderer takes those from the raw frames. Two small things are kept: each token's
+// name, because the initiative bar needs to say whose turn it is, and the level of the
+// active scene that the GM's "Set map image" control puts a background on.
 import { Role } from '@tomeandtile/contracts';
 import type {
 	Encounter,
 	Event,
 	Member,
 	RollResult,
+	Scene,
 	ServerMessage,
 	Snapshot
 } from '@tomeandtile/contracts';
@@ -20,6 +22,27 @@ export type LogEntry =
 	| { kind: 'chat'; seq: bigint; atMs: number; userId: string; text: string; undone: boolean }
 	| { kind: 'roll'; seq: bigint; atMs: number; roll: RollResult; undone: boolean };
 
+/** The level of the active scene that a map image is set on. */
+export interface MapTarget {
+	campaignId: string;
+	sceneId: string;
+	levelId: string;
+	/** The asset id of that level's background now, or '' if it has none. */
+	backgroundAssetId: string;
+}
+
+/** The first level of a scene. Single-level maps, the only kind in M1, have exactly one. */
+export function mapTargetOf(scene: Scene | undefined): MapTarget | null {
+	const level = scene?.levels[0];
+	if (!scene || !level) return null;
+	return {
+		campaignId: scene.campaignId,
+		sceneId: scene.sceneId,
+		levelId: level.levelId,
+		backgroundAssetId: level.background?.assetId ?? ''
+	};
+}
+
 export interface PanelState {
 	/** True once a Snapshot has arrived on the current connection. */
 	joined: boolean;
@@ -29,6 +52,8 @@ export interface PanelState {
 	role: Role;
 	members: Member[];
 	activeSceneId: string;
+	/** Where a map image goes, or null if the active scene is not known or has no level. */
+	mapTarget: MapTarget | null;
 	/** Chat lines and dice rolls in the order the server sent them. */
 	log: LogEntry[];
 	encounters: Encounter[];
@@ -44,6 +69,7 @@ export function emptyState(): PanelState {
 		role: Role.UNSPECIFIED,
 		members: [],
 		activeSceneId: '',
+		mapTarget: null,
 		log: [],
 		encounters: [],
 		tokenNames: {}
@@ -59,6 +85,7 @@ export function applySnapshot(snapshot: Snapshot): PanelState {
 		role: snapshot.role,
 		members: [...snapshot.members],
 		activeSceneId: snapshot.activeSceneId,
+		mapTarget: mapTargetOf(snapshot.scenes.find((x) => x.sceneId === snapshot.activeSceneId)),
 		log: [],
 		encounters: [...snapshot.encounters],
 		tokenNames: Object.fromEntries(snapshot.tokens.map((t) => [t.tokenId, t.name]))
@@ -125,6 +152,11 @@ export function applyEvent(state: PanelState, event: Event): PanelState {
 			const { [kind.value.tokenId]: _removed, ...rest } = state.tokenNames;
 			return { ...base, tokenNames: rest };
 		}
+		case 'sceneUpserted': {
+			const scene = kind.value.scene;
+			if (!scene || scene.sceneId !== state.activeSceneId) return base;
+			return { ...base, mapTarget: mapTargetOf(scene) };
+		}
 		case 'eventUndone':
 			return {
 				...base,
@@ -133,7 +165,7 @@ export function applyEvent(state: PanelState, event: Event): PanelState {
 				)
 			};
 		default:
-			// Token moves, scene, creature and resolution events are not panel state.
+			// Token moves, creature and resolution events are not panel state.
 			return base;
 	}
 }

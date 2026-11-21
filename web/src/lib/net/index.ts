@@ -1,4 +1,4 @@
-export { getGameClient, DEFAULT_SOCKET_URL } from './shared';
+export { getGameClient, getUploadSession, DEFAULT_SOCKET_URL } from './shared';
 export {
 	createGameClient,
 	backoffDelay,
@@ -16,7 +16,9 @@ export {
 	applySnapshot,
 	emptyState,
 	foldMessage,
+	mapTargetOf,
 	MAX_LOG_ENTRIES,
 	type LogEntry,
+	type MapTarget,
 	type PanelState
 } from './state';

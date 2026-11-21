@@ -6,6 +6,11 @@ const TEXT: Record<string, string> = {
 	chat_too_long: 'That message is too long. Shorten it and try again.',
 	not_permitted: 'You are not allowed to do that.',
 	not_implemented: 'The server does not support that yet.',
+	// Setting a map image (ADR 0014).
+	unknown_scene: 'That map no longer exists on the server. Reload the page and try again.',
+	unknown_level: 'That map level no longer exists on the server. Reload the page and try again.',
+	unknown_asset: 'The server no longer has that image. Choose the file again.',
+	not_supported_by_mock: 'The test server does not support that.',
 	malformed_intent: 'The server could not understand that request.',
 	// Dice notation: the mock uses bad_notation, the real server the dice_* codes.
 	bad_notation: 'That dice notation is not valid. Try something like d20+5 or 2d6.',

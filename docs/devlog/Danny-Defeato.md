@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-20 — #54 GM map image upload
+
+**Did:** Built the GM-only "Set map image" control in the Tools panel ([#54](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/54)). The GM picks a PNG, JPEG or WebP file; the page POSTs the raw bytes to `/campaigns/{campaign_id}/assets` with the socket's token, reads the `AssetRef` it gets back, then sends `SetLevelBackgroundIntent` for the active scene's level and waits for the scene update. Files over 20 MiB are refused in the browser. Every server error is JSON, so the page reads its `code` and shows our own plain text for each code (never the server's words); a refused intent does the same. The control can be retried, and the file input is disabled while an upload runs. 40 new unit tests (171 pass); check and build pass. Checked in a browser against the real mock server and the real server (`TT_DEV_AUTH=1`, `TT_ASSET_DIR`): the GM uploads a PNG and a second browser shows the new map; a file that is not an image, and one over 20 MiB, show their messages.
+**Directed Claude to:** Keep to the issue's files (`web/src/` only), build the upload helper separately from the control so it can be tested with a faked `fetch`, take the campaign id and level from the server's own scene data instead of guessing, and follow Henry's flow and code list exactly.
+**Learned:** The control's own messages first sat below the help text, where the short docked Tools panel cut them off, so they now come right after the file input. Also, my first version went by HTTP status only; the servers send a `code` in the body, which is more exact (a 400 can mean five different things).
+**Blocked on / next:** Nothing. Henry's code list was cut off in my copy of his message, so a few codes (`bad_body`, `storage_full`, `storage_error`, `method_not_allowed`) come from the server source and mock README; worth a look in review.
+
 ## 2026-11-16 — #32 Map canvas
 
 **Did:** Replaced the map placeholder with the real map ([#32](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/32)). A canvas goes in the map slot and Henry's renderer takes it over. Every raw socket frame goes to the renderer unchanged, the renderer's token moves go out through the socket client unchanged, and a refused move shows as a short line of text. If the browser has no working graphics support, the map says so and the rest of the page keeps working. The renderer is destroyed when the page unmounts. 18 new unit tests (131 total); check, test and build pass. In a browser against the mock server, a token the GM dragged in one tab moved in the player's tab, and I also checked the no-graphics message, the refusal text and a phone-width screen.

@@ -48,3 +48,13 @@ describe('displayName', () => {
 		expect(displayName(members, '')).toBe('Unknown');
 	});
 });
+
+describe('map image rejection codes', () => {
+	it('has plain text for the codes set_level_background can be refused with', () => {
+		for (const code of ['not_permitted', 'unknown_scene', 'unknown_level', 'unknown_asset']) {
+			const text = rejectionText(code);
+			expect(text).not.toContain(code);
+			expect(text).not.toContain('could not do that');
+		}
+	});
+});
