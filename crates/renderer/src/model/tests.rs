@@ -1180,6 +1180,420 @@ fn token_colour_is_stable_and_varied() {
     }
 }
 
+// ------------------------------------------------------------------- picking
+
+fn picking_model() -> Model {
+    let mut m = player_model();
+    m.set_picking(true);
+    m
+}
+
+/// Press, move to `to` in two steps and release; returns the intent, if any.
+fn click_through(m: &mut Model, from: (f64, f64), to: (f64, f64)) -> Option<Vec<u8>> {
+    m.pointer_down(from.0, from.1, 0);
+    m.pointer_move((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
+    m.pointer_move(to.0, to.1);
+    m.pointer_up(to.0, to.1, 0.0)
+}
+
+fn rings_of(m: &Model, colour: [f32; 4]) -> Vec<f32> {
+    m.draw_list()
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            DrawItem::Ring { r, color, .. } if *color == colour => Some(*r),
+            _ => None,
+        })
+        .collect()
+}
+
+const SELECT_COLOUR: [f32; 4] = [1.0, 0.85, 0.2, 1.0];
+
+#[test]
+fn picking_is_off_by_default_and_settable() {
+    let mut m = player_model();
+    assert!(!m.picking());
+    m.set_picking(true);
+    assert!(m.picking());
+    m.set_picking(false);
+    assert!(!m.picking());
+}
+
+#[test]
+fn click_on_a_token_while_picking_queues_its_id() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    assert!(!m.is_dragging());
+    assert!(m.pointer_up(385.0, 245.0, 0.0).is_none());
+    assert_eq!(m.take_picks(), vec!["theirs".to_owned()]);
+    assert!(m.take_picks().is_empty(), "take_picks drains");
+    assert!(!m.has_pending("theirs"));
+    assert_eq!(pos(&m, "theirs"), (385.0, 245.0));
+}
+
+#[test]
+fn own_token_is_picked_not_dragged() {
+    for (user, role) in [("p", Role::Player), ("gm", Role::Gm)] {
+        let mut m = model_as(
+            user,
+            role,
+            vec![token("mine", 105.0, 105.0, CreatureSize::Medium, &["p"])],
+        );
+        m.set_picking(true);
+        m.pointer_down(105.0, 105.0, 0);
+        // 5 px: over the drag threshold, under the pick slop.
+        m.pointer_move(110.0, 105.0);
+        assert!(!m.is_dragging(), "{user}: must not drag");
+        assert!(
+            m.pointer_up(110.0, 105.0, 0.0).is_none(),
+            "{user}: no intent"
+        );
+        assert_eq!(m.take_picks(), vec!["mine".to_owned()], "{user}");
+        assert!(!m.has_pending("mine"));
+        assert_eq!(pos(&m, "mine"), (105.0, 105.0));
+        assert_eq!(m.camera().origin, Pt::new(0.0, 0.0), "a tap does not pan");
+    }
+}
+
+#[test]
+fn a_full_drag_gesture_on_an_own_token_sends_no_move_while_picking() {
+    let mut m = picking_model();
+    m.pointer_down(105.0, 105.0, 0);
+    m.pointer_move(250.0, 200.0);
+    m.pointer_move(400.0, 300.0);
+    assert!(!m.is_dragging());
+    assert_eq!(m.camera().origin, Pt::new(-295.0, -195.0), "it panned");
+    let preview = [1.0, 1.0, 1.0, 0.7];
+    assert!(
+        rings_of(&m, preview).is_empty(),
+        "no drag-preview ring is drawn"
+    );
+    assert!(m.pointer_up(400.0, 300.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+    assert!(!m.has_pending("mine"));
+    assert_eq!(pos(&m, "mine"), (105.0, 105.0));
+}
+
+#[test]
+fn moving_past_the_slop_from_a_token_pans_by_the_full_travel_and_picks_nothing() {
+    let mut m = picking_model();
+    assert!(click_through(&mut m, (385.0, 245.0), (425.0, 245.0)).is_none());
+    assert!(m.take_picks().is_empty());
+    assert_eq!(m.camera().origin, Pt::new(-40.0, 0.0));
+    // Coming back onto the token afterwards does not revive a pick.
+    let on = m.camera().world_to_screen(Pt::new(385.0, 245.0));
+    m.pointer_down(on.x, on.y, 0);
+    m.pointer_move(on.x + 20.0, on.y);
+    m.pointer_move(on.x, on.y);
+    m.pointer_up(on.x, on.y, 0.0);
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn nine_pixels_pans_by_exactly_nine_and_picks_nothing() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_move(394.0, 245.0);
+    assert_eq!(m.camera().origin, Pt::new(-9.0, 0.0));
+    assert!(m.pointer_up(394.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn a_wobble_under_the_slop_still_picks_and_the_map_stays_put() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_move(391.0, 245.0);
+    assert_eq!(m.camera().origin, Pt::new(0.0, 0.0));
+    m.pointer_up(391.0, 245.0, 0.0);
+    assert_eq!(m.take_picks(), vec!["theirs".to_owned()]);
+    assert_eq!(m.camera().origin, Pt::new(0.0, 0.0));
+}
+
+#[test]
+fn empty_space_while_picking_pans_and_picks_nothing() {
+    let mut m = picking_model();
+    assert!(click_through(&mut m, (700.0, 500.0), (720.0, 500.0)).is_none());
+    assert!(m.take_picks().is_empty());
+    assert_eq!(m.camera().origin, Pt::new(-20.0, 0.0));
+    // A plain click on empty ground does nothing either.
+    m.pointer_down(700.0, 500.0, 0);
+    assert!(m.pointer_up(700.0, 500.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn right_button_on_a_token_while_picking_pans_and_picks_nothing() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 2);
+    m.pointer_move(405.0, 245.0);
+    assert!(m.pointer_up(405.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+    assert_eq!(m.camera().origin, Pt::new(-20.0, 0.0));
+}
+
+#[test]
+fn picking_leaves_the_selection_unchanged() {
+    let mut m = player_model();
+    m.pointer_down(105.0, 105.0, 0);
+    m.pointer_up(105.0, 105.0, 0.0);
+    assert_eq!(m.selected(), Some("mine"));
+    m.set_picking(true);
+    // Pick another token, click empty ground, right-click: selection stays.
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_up(385.0, 245.0, 0.0);
+    assert_eq!(m.selected(), Some("mine"));
+    m.pointer_down(700.0, 500.0, 0);
+    m.pointer_up(700.0, 500.0, 0.0);
+    assert_eq!(m.selected(), Some("mine"));
+    m.pointer_down(385.0, 245.0, 2);
+    m.pointer_up(385.0, 245.0, 0.0);
+    assert_eq!(m.selected(), Some("mine"));
+}
+
+#[test]
+fn tokens_off_the_view_cannot_be_picked() {
+    let mut elsewhere = token("other-scene", 105.0, 105.0, CreatureSize::Medium, &[]);
+    elsewhere.scene_id = "S2".into();
+    let mut upstairs = token("other-level", 245.0, 105.0, CreatureSize::Medium, &[]);
+    upstairs.level_id = "L2".into();
+    let mut m = model_as(
+        "gm",
+        Role::Gm,
+        vec![
+            elsewhere,
+            upstairs,
+            token("here", 385.0, 105.0, CreatureSize::Medium, &[]),
+        ],
+    );
+    m.set_picking(true);
+    for x in [105.0, 245.0] {
+        m.pointer_down(x, 105.0, 0);
+        m.pointer_up(x, 105.0, 0.0);
+    }
+    assert!(m.take_picks().is_empty());
+    m.pointer_down(385.0, 105.0, 0);
+    m.pointer_up(385.0, 105.0, 0.0);
+    assert_eq!(m.take_picks(), vec!["here".to_owned()]);
+}
+
+#[test]
+fn a_token_the_renderer_never_received_cannot_be_picked() {
+    let mut m = picking_model();
+    m.set_highlights(["ghost".to_owned()]);
+    m.pointer_down(600.0, 400.0, 0);
+    m.pointer_up(600.0, 400.0, 0.0);
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn a_token_with_a_pending_move_can_still_be_picked() {
+    let mut m = player_model();
+    drag(&mut m, (105.0, 105.0), (315.0, 105.0), 0.0).expect("intent");
+    assert!(m.has_pending("mine"));
+    m.set_picking(true);
+    // Hit-testing uses the pending destination.
+    m.pointer_down(315.0, 105.0, 0);
+    assert!(m.pointer_up(315.0, 105.0, 0.0).is_none());
+    assert_eq!(m.take_picks(), vec!["mine".to_owned()]);
+}
+
+#[test]
+fn with_picking_off_click_selects_and_drag_moves() {
+    let mut m = player_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_up(385.0, 245.0, 0.0);
+    assert_eq!(m.selected(), Some("theirs"));
+    assert!(m.take_picks().is_empty());
+    let bytes = drag(&mut m, (105.0, 105.0), (315.0, 105.0), 0.0).expect("intent");
+    assert_eq!(decode_move(&bytes).1.token_id, "mine");
+    assert!(m.take_picks().is_empty());
+    // Switching picking on and off again restores that behaviour.
+    m.set_picking(true);
+    m.set_picking(false);
+    m.apply_event(moved("mine", 315.0, 105.0));
+    assert!(drag(&mut m, (315.0, 105.0), (105.0, 105.0), 1.0).is_some());
+}
+
+#[test]
+fn turning_picking_on_mid_drag_abandons_the_drag() {
+    let mut m = player_model();
+    m.pointer_down(105.0, 105.0, 0);
+    m.pointer_move(200.0, 200.0);
+    assert!(m.is_dragging());
+    m.set_picking(true);
+    assert!(!m.is_dragging());
+    assert!(m.pointer_up(200.0, 200.0, 0.0).is_none());
+    assert!(!m.has_pending("mine"));
+    assert_eq!(pos(&m, "mine"), (105.0, 105.0));
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn turning_picking_off_mid_press_drops_the_pick() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.set_picking(false);
+    // Released at the same point: only the mode change can stop the pick.
+    assert!(m.pointer_up(385.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+    assert_eq!(m.selected(), None, "and it did not select either");
+}
+
+#[test]
+fn turning_picking_off_mid_press_continues_as_a_pan() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.set_picking(false);
+    m.pointer_move(395.0, 245.0);
+    assert_eq!(m.camera().origin, Pt::new(-10.0, 0.0));
+}
+
+#[test]
+fn pointer_cancel_drops_a_pick_press() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_cancel();
+    assert!(m.pointer_up(385.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn a_token_removed_mid_press_is_not_picked() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.apply_event(event_of(event::Kind::TokenRemoved(TokenRemoved {
+        token_id: "theirs".into(),
+    })));
+    assert!(m.pointer_up(385.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn a_token_moved_to_another_level_mid_press_is_not_picked() {
+    let mut m = picking_model();
+    m.pointer_down(385.0, 245.0, 0);
+    m.apply_event(event_of(event::Kind::TokenMoved(TokenMoved {
+        token_id: "theirs".into(),
+        path: vec![Vec2 { x: 385.0, y: 245.0 }],
+        level_id: "L2".into(),
+        ..Default::default()
+    })));
+    assert!(m.pointer_up(385.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty());
+}
+
+#[test]
+fn snapshot_keeps_picking_and_highlights_and_clears_queued_picks() {
+    let mut m = picking_model();
+    m.set_highlights(["mine".to_owned()]);
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_up(385.0, 245.0, 0.0);
+    m.pointer_down(385.0, 245.0, 0);
+    m.apply_snapshot(snapshot(
+        "p",
+        Role::Player,
+        vec![token("mine", 105.0, 105.0, CreatureSize::Medium, &["p"])],
+    ));
+    assert!(m.picking());
+    assert!(m.is_highlighted("mine"));
+    assert!(m.pointer_up(385.0, 245.0, 0.0).is_none());
+    assert!(m.take_picks().is_empty(), "queue and press were dropped");
+}
+
+#[test]
+fn several_picks_come_out_in_order() {
+    let mut m = picking_model();
+    for (x, y) in [(385.0, 245.0), (105.0, 105.0), (385.0, 245.0)] {
+        m.pointer_down(x, y, 0);
+        m.pointer_up(x, y, 0.0);
+    }
+    assert_eq!(m.take_picks(), vec!["theirs", "mine", "theirs"]);
+}
+
+#[test]
+fn highlights_replace_rather_than_add() {
+    let mut m = player_model();
+    m.set_highlights(["mine".to_owned()]);
+    assert!(m.is_highlighted("mine") && !m.is_highlighted("theirs"));
+    m.set_highlights(["theirs".to_owned()]);
+    assert!(!m.is_highlighted("mine") && m.is_highlighted("theirs"));
+    m.set_highlights(Vec::new());
+    assert!(!m.is_highlighted("mine") && !m.is_highlighted("theirs"));
+}
+
+#[test]
+fn empty_ids_are_ignored_in_highlights() {
+    let mut m = player_model();
+    m.set_highlights([String::new(), "mine".to_owned()]);
+    assert!(!m.is_highlighted(""));
+    assert!(m.is_highlighted("mine"));
+}
+
+#[test]
+fn unknown_highlight_ids_are_harmless() {
+    let mut m = player_model();
+    let before = m.draw_list();
+    m.set_highlights(["nobody".to_owned(), "nope".to_owned()]);
+    assert_eq!(m.draw_list(), before, "nothing extra is drawn");
+}
+
+#[test]
+fn a_highlighted_token_gets_a_distinct_outer_ring() {
+    let mut m = model_as(
+        "gm",
+        Role::Gm,
+        vec![token("t", 105.0, 105.0, CreatureSize::Medium, &[])],
+    );
+    m.set_highlights(["t".to_owned()]);
+    let list = m.draw_list();
+    let disc_r = list
+        .items
+        .iter()
+        .find_map(|i| match i {
+            DrawItem::Disc { r, .. } => Some(*r),
+            _ => None,
+        })
+        .unwrap();
+    assert!(list.items.iter().any(|i| matches!(
+        i,
+        DrawItem::Ring { r, thickness, color, .. }
+            if *color == HIGHLIGHT_COLOR && *r == disc_r + 8.0 && *thickness == 3.0
+    )));
+    assert_ne!(HIGHLIGHT_COLOR, SELECT_COLOUR);
+}
+
+#[test]
+fn selected_and_highlighted_shows_both_rings() {
+    let mut m = model_as(
+        "gm",
+        Role::Gm,
+        vec![token("t", 105.0, 105.0, CreatureSize::Medium, &[])],
+    );
+    m.pointer_down(105.0, 105.0, 0);
+    m.pointer_up(105.0, 105.0, 0.0);
+    m.set_highlights(["t".to_owned()]);
+    let sel = rings_of(&m, SELECT_COLOUR);
+    let hi = rings_of(&m, HIGHLIGHT_COLOR);
+    assert_eq!((sel.len(), hi.len()), (1, 1));
+    assert!(
+        hi[0] > sel[0],
+        "highlight ring sits outside the selection ring"
+    );
+}
+
+#[test]
+fn highlights_draw_with_picking_off_and_clearing_removes_them() {
+    let mut m = player_model();
+    assert!(!m.picking());
+    m.set_highlights(["mine".to_owned(), "theirs".to_owned()]);
+    assert_eq!(rings_of(&m, HIGHLIGHT_COLOR).len(), 2);
+    m.set_highlights(["theirs".to_owned()]);
+    assert_eq!(rings_of(&m, HIGHLIGHT_COLOR).len(), 1);
+    m.set_highlights(Vec::new());
+    assert!(rings_of(&m, HIGHLIGHT_COLOR).is_empty());
+}
+
 // --------------------------------------------------------------------- wire
 
 #[test]

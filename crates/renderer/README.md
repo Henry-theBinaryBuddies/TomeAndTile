@@ -17,6 +17,9 @@ await init();
 const r = await Renderer.create(canvas);          // HTMLCanvasElement; rejects if no GPU backend works
 r.setIntentHandler((bytes /* Uint8Array */) => socket.send(bytes));
 r.setRejectionHandler((code, message, clientIntentId) => { /* optional */ });
+r.onPick((tokenId) => { /* a token was clicked while picking is on */ });
+r.setPicking(true);                               // clicks on tokens now pick, not select or drag
+r.setHighlights(['token-aria']);                  // ring on exactly these tokens ([] clears)
 r.resize(cssWidth, cssHeight, devicePixelRatio);  // call on layout changes
 socket.send(encodeHello(campaignId, 'dev:<user_id>'));   // first frame; Uint8Array
 socket.onmessage = (e) => r.applyServerMessage(new Uint8Array(e.data)); // throws on bad bytes
@@ -30,6 +33,9 @@ r.destroy();                                       // removes the canvas listene
 | `applyServerMessage(bytes)` | One whole `ServerMessage` (one binary WebSocket frame, unchanged). Snapshot replaces all state; events update it; `IntentRejected` clears the matching move preview and, if it was this renderer's own move, calls the rejection handler; other kinds (media token) are ignored. Malformed bytes throw a `JsError` and change nothing. |
 | `setIntentHandler(f)` | `f(Uint8Array)` receives one encoded `ClientMessage` per intent. Send it as a binary frame, unchanged. Called outside any internal borrow, so `f` may call back into the renderer. |
 | `setRejectionHandler(f)` | `f(code, message, clientIntentId)`. Optional. Called only when the server refuses one of this renderer's own token moves (one that still has a preview); a refusal of a chat or dice intent is not reported here. A move refused after its preview timed out is not reported either. |
+| `setPicking(enabled)` | Picking mode on or off (off by default). Off is exactly the normal select and drag behaviour. Turning it on abandons a drag in progress without sending anything. |
+| `onPick(f)` | `f(tokenId)` is called when a token is clicked while picking is on. Called on pointer release, outside any internal borrow, so `f` may call `setPicking` and `setHighlights`. A click on empty ground does nothing. The renderer only reports the id. |
+| `setHighlights(tokenIds)` | Marks exactly these tokens as picked. Replaces the whole set each call (it does not add); `[]` clears. Ids not on the map are ignored. Highlights are drawn whether or not picking is on. |
 | `resize(w, h, dpr)` | CSS size and device pixel ratio. The backing store becomes `w*dpr` by `h*dpr` (clamped to the GPU's texture limit). The host owns CSS layout and must give the canvas a CSS size that does not depend on its backing store. |
 | `render()` | Draw one frame (call from `requestAnimationFrame`). Also uploads images the browser has finished decoding and expires stale move previews. Throws a `JsError` if the GPU backend reports a hard error. |
 | `encodeHello(campaignId, sessionToken)` | Returns the `Hello` frame, so the host needs no protobuf library. `campaignId` may be `""` (the server only checks it when both sides set it). |
@@ -56,6 +62,16 @@ The model never moves a token itself (ADR 0004). A drag works like this:
 4. The token is then drawn at the snapped destination (the "pending preview") while its real position is unchanged.
 
 **Preview rule (the simplest correct one).** A pending preview ends at the first of: any `TokenMoved`, `TokenUpserted` or `TokenRemoved` for that token (the server has answered, so the real position is drawn); an `IntentRejected` whose `client_intent_id` matches (the token snaps back); or 5 s after release (`PENDING_TIMEOUT_MS`). A token with a pending preview cannot be grabbed again. `client_intent_id` is `ci-<random hex per page load>-<counter>`.
+
+### Picking targets
+
+For a host that needs the user to choose tokens (a spell's targets, say), `setPicking(true)` turns clicks on tokens into reports to `onPick(tokenId)`:
+
+- A click or tap (press and release with under 8 px of travel, `PICK_SLOP_PX`; wider than the 3 px drag threshold because a finger tap moves more than a mouse click) on a token picks it. The map does not move during a tap. It never starts a drag, even on a token the viewer controls, and it sends no intent. Picking leaves the selection as it was: it neither selects nor clears.
+- Pressing on a token and then moving 8 px or more pans the map instead (it catches up with the whole travel so far), and nothing is picked. Pressing on empty ground (or with a non-primary mouse button) pans as usual.
+- Only tokens the renderer received, on the active scene and level, can be picked. That includes tokens the viewer cannot move and tokens with a pending move preview.
+- `setHighlights(ids)` replaces the highlighted set each call. A highlighted token gets a cyan ring (`[0.3, 0.85, 1.0, 1.0]`, 8 px outside the token, 3 px thick) outside the yellow selection ring (4 px outside); a token that is both selected and highlighted shows both. Highlights stay visible with picking off, and a new `Snapshot` keeps both the picking flag and the highlights (the host owns them) but drops any picks not yet delivered.
+- The renderer holds no targeting rules: no range, count or permission checks. The host decides what a pick means, and calls `setHighlights` with the result.
 
 ## Units and judgement calls
 
@@ -94,7 +110,7 @@ TT_DEV_AUTH=1 cargo run -p tt-server                       # ws://localhost:8788
 python -m http.server 8099 --directory crates/renderer/demo
 ```
 
-Open `http://localhost:8099/`. Query parameters: `?user=mock-player` (default `mock-gm`), `?ws=ws://host:port/ws`, `?campaign=<id>`. The line above the canvas shows connection state and the last rejection. Drag a token you control; drag empty space or use the right mouse button to pan; wheel to zoom. Dev auth is not security (see `crates/server/README.md`); never enable it on a reachable server.
+Open `http://localhost:8099/`. Query parameters: `?user=mock-player` (default `mock-gm`), `?ws=ws://host:port/ws`, `?campaign=<id>`. The line above the canvas shows connection state and the last rejection. Drag a token you control; drag empty space or use the right mouse button to pan; wheel to zoom. Tick "Pick targets" to try picking: clicking a token toggles its cyan highlight ring and lists the picked ids in the status line (unticking leaves the highlights; "Clear" removes them). Dev auth is not security (see `crates/server/README.md`); never enable it on a reachable server.
 
 WebGPU needs a secure context: `localhost` qualifies. On a browser without WebGPU the WebGL2 fallback is used.
 

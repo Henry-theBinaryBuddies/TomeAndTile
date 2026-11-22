@@ -14,10 +14,12 @@ const canvas = document.getElementById('map');
 let connection = 'connecting';
 let rejection = '';
 let lastError = '';
+const picked = new Set();
 
 function showStatus() {
   const lines = [`user: ${user}   socket: ${connection}`];
   if (rejection) lines.push(`last rejection: ${rejection}`);
+  if (picked.size) lines.push(`picked: ${[...picked].join(', ')}`);
   statusEl.textContent = lines.join('\n');
   if (lastError) {
     const span = document.createElement('span');
@@ -50,6 +52,22 @@ async function main() {
   });
   renderer.setRejectionHandler((code, message) => {
     rejection = `${code}: ${message}`;
+    showStatus();
+  });
+
+  // Picking: the renderer only reports clicks; the demo keeps the set.
+  renderer.onPick((id) => {
+    if (!picked.delete(id)) picked.add(id);
+    renderer.setHighlights([...picked]);
+    showStatus();
+  });
+  const pickEl = document.getElementById('pick');
+  pickEl.addEventListener('change', () => renderer.setPicking(pickEl.checked));
+  // Some browsers restore a ticked box on reload without a change event.
+  renderer.setPicking(pickEl.checked);
+  document.getElementById('clear').addEventListener('click', () => {
+    picked.clear();
+    renderer.setHighlights([]);
     showStatus();
   });
 

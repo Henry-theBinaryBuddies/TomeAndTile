@@ -11,8 +11,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
     client_message, event, intent, server_message, ChatIntent, ClientMessage, Die, Event, Hello,
-    Intent, MoveTokenIntent, RollDiceIntent, RollMode, RollVisibility, ServerMessage, Snapshot,
-    UseAbilityIntent, Vec2,
+    Intent, MoveTokenIntent, RollDiceIntent, RollMode, RollVisibility, ServerMessage,
+    SetInitiativeIntent, Snapshot, Vec2,
 };
 use tt_mock_server::dice::XorShift64Star;
 
@@ -137,14 +137,14 @@ async fn expect_closed(ws: &mut Ws) {
 }
 
 #[tokio::test]
-async fn hello_gets_snapshot_with_scene_and_two_tokens() {
+async fn hello_gets_snapshot_with_scene_and_pregen_tokens() {
     let addr = start_server().await;
     let (_ws, snapshot) = join(addr, "anything").await;
     assert_eq!(snapshot.seq, 0);
     assert_eq!(snapshot.user_id, "mock-player");
     assert_eq!(snapshot.role, tt_contracts::v1::Role::Player as i32);
     assert_eq!(snapshot.scenes.len(), 1);
-    assert_eq!(snapshot.tokens.len(), 2);
+    assert_eq!(snapshot.tokens.len(), 7);
     let goblin = snapshot.tokens.iter().find(|t| t.name == "Goblin").unwrap();
     assert_eq!(goblin.hp_current, None);
     let aria = snapshot.tokens.iter().find(|t| t.name == "Aria").unwrap();
@@ -368,11 +368,7 @@ async fn unsupported_intent_is_rejected_with_its_id() {
     send_intent(
         &mut ws,
         "u1",
-        intent::Kind::UseAbility(UseAbilityIntent {
-            source_token_id: "token-aria".into(),
-            ability_id: "whatever".into(),
-            ..Default::default()
-        }),
+        intent::Kind::SetInitiative(SetInitiativeIntent::default()),
     )
     .await;
     let r = recv_rejected(&mut ws).await;

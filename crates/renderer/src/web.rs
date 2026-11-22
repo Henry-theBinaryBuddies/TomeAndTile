@@ -28,6 +28,7 @@ struct Shared {
     canvas: HtmlCanvasElement,
     intent_handler: RefCell<Option<js_sys::Function>>,
     rejection_handler: RefCell<Option<js_sys::Function>>,
+    pick_handler: RefCell<Option<js_sys::Function>>,
     /// Images the browser has finished decoding, waiting for the next frame
     /// to be uploaded to the GPU.
     loaded: Rc<RefCell<Loaded>>,
@@ -84,6 +85,7 @@ impl Renderer {
             canvas,
             intent_handler: RefCell::new(None),
             rejection_handler: RefCell::new(None),
+            pick_handler: RefCell::new(None),
             loaded: Rc::new(RefCell::new(Vec::new())),
             listeners: RefCell::new(Vec::new()),
         });
@@ -134,6 +136,48 @@ impl Renderer {
     #[wasm_bindgen(js_name = setRejectionHandler)]
     pub fn set_rejection_handler(&self, f: js_sys::Function) {
         *self.shared.rejection_handler.borrow_mut() = Some(f);
+    }
+
+    /// Turn picking mode on or off. While on, a click on a token reports it to
+    /// the `onPick` callback instead of selecting or dragging it. Off is the
+    /// normal behaviour.
+    #[wasm_bindgen(js_name = setPicking)]
+    pub fn set_picking(&self, enabled: bool) -> Result<(), JsError> {
+        let mut inner = self
+            .shared
+            .inner
+            .try_borrow_mut()
+            .map_err(|_| js_err("renderer is busy (re-entrant call)"))?;
+        inner.model.set_picking(enabled);
+        Ok(())
+    }
+
+    /// Register a function called as `f(tokenId)` when a token is clicked while
+    /// picking is on. Optional. The renderer only reports the id.
+    #[wasm_bindgen(js_name = onPick)]
+    pub fn on_pick(
+        &self,
+        #[wasm_bindgen(js_name = callback, unchecked_param_type = "(tokenId: string) => void")]
+        f: js_sys::Function,
+    ) {
+        *self.shared.pick_handler.borrow_mut() = Some(f);
+    }
+
+    /// Mark exactly these tokens as picked (a ring is drawn on each). Replaces
+    /// the previous set; an empty list clears it. Ids not on the map are
+    /// ignored. Highlights show whether or not picking is on.
+    #[wasm_bindgen(js_name = setHighlights)]
+    pub fn set_highlights(
+        &self,
+        #[wasm_bindgen(js_name = tokenIds)] token_ids: Vec<String>,
+    ) -> Result<(), JsError> {
+        let mut inner = self
+            .shared
+            .inner
+            .try_borrow_mut()
+            .map_err(|_| js_err("renderer is busy (re-entrant call)"))?;
+        inner.model.set_highlights(token_ids);
+        Ok(())
     }
 
     /// Set the canvas size in CSS pixels and the device pixel ratio. The
@@ -211,21 +255,32 @@ impl Renderer {
     }
 }
 
-/// Hand queued intents to the JS handler, outside any borrow of `inner`.
+/// Hand queued intents and picks to the JS handlers, outside any borrow of
+/// `inner` (so a handler may call back into the renderer).
 fn flush(shared: &Shared) {
-    let out: Vec<Vec<u8>> = match shared.inner.try_borrow_mut() {
-        Ok(mut inner) => std::mem::take(&mut inner.outbox),
+    let (out, picks): (Vec<Vec<u8>>, Vec<String>) = match shared.inner.try_borrow_mut() {
+        Ok(mut inner) => (std::mem::take(&mut inner.outbox), inner.model.take_picks()),
         Err(_) => return,
     };
-    if out.is_empty() {
-        return;
+    if !out.is_empty() {
+        let handler = shared.intent_handler.borrow().clone();
+        if let Some(f) = handler {
+            for bytes in out {
+                let array = js_sys::Uint8Array::from(bytes.as_slice());
+                if let Err(e) = f.call1(&JsValue::NULL, &array) {
+                    web_sys::console::error_2(&"tt-renderer: intent handler threw".into(), &e);
+                }
+            }
+        }
     }
-    let handler = shared.intent_handler.borrow().clone();
-    let Some(f) = handler else { return };
-    for bytes in out {
-        let array = js_sys::Uint8Array::from(bytes.as_slice());
-        if let Err(e) = f.call1(&JsValue::NULL, &array) {
-            web_sys::console::error_2(&"tt-renderer: intent handler threw".into(), &e);
+    if !picks.is_empty() {
+        let handler = shared.pick_handler.borrow().clone();
+        if let Some(f) = handler {
+            for id in picks {
+                if let Err(e) = f.call1(&JsValue::NULL, &JsValue::from_str(&id)) {
+                    web_sys::console::error_2(&"tt-renderer: pick handler threw".into(), &e);
+                }
+            }
         }
     }
 }
