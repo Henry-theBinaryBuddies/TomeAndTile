@@ -98,7 +98,11 @@ export function wrapLiveKitRoom(room: Room = new Room()): RoomLike {
 			}
 		},
 		async switchActiveDevice(kind, deviceId) {
-			await room.switchActiveDevice(kind, deviceId);
+			try {
+				await room.switchActiveDevice(kind, deviceId);
+			} catch (error) {
+				throw classifyDeviceError(error);
+			}
 		},
 		participants() {
 			const list = [toParticipantInfo(room.localParticipant, true)];

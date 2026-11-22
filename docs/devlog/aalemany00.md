@@ -2,6 +2,40 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-21 — #65 Device handling: changes, remembered choices, switch errors
+
+**Did:** Had Claude add device management to `web/media/`: `MediaClientState` now carries
+`devices` (`{audioinput, videoinput}`, each a live list) and `selectedDeviceId` (the chosen
+device per kind, `null` for "no explicit choice"). Two new `MediaClientOptions`, both with real
+defaults and fake-friendly overrides for tests: `listDevices` (defaults to the existing
+`listLocalDevices`, which never asks for permission) and `onDeviceChange` (defaults to
+`navigator.mediaDevices`'s `devicechange` event). The module lists both kinds at startup and on
+every `devicechange`, re-lists a kind right after that kind's permission is first granted (to
+pick up real labels), remembers a `selectDevice` choice made before joining and re-applies it
+when the microphone or camera is first enabled and after every reconnect, falls back to another
+device (or reports `no_device`) when the selected one disappears, and reports a failed
+`switchActiveDevice` through `state.failure` without dropping the call. `room.ts`'s
+`switchActiveDevice` now classifies its errors the same way the mic/camera calls already did.
+28 tests pass (11 new), plus a new `room.test.ts` pinning that device listing never requests
+permission (mocks `livekit-client` directly, since that call lives in the one file allowed to
+import it). Ran the real `npm run check` / `npm test` this time — both work now that #46 widened
+the globs.
+**Directed Claude to:** Read issue #65 in full and build exactly its acceptance list, without
+touching anything outside `web/media/`.
+**Learned:** Claude's first pass had a real race: the startup device listing (fired at
+construction, before any selection exists) could resolve *after* an immediate `selectDevice`
+call and silently overwrite it, because the stale list it had already fetched didn't contain
+the newly-chosen device yet. Caught by a test that called `selectDevice` right after
+construction with no `await` in between. Fixed with a per-kind version counter: anything that
+sets `selectedDeviceId[kind]` bumps it, and a `refreshDevices` call checks the counter after its
+own (asynchronous) listing resolves, backing off if a newer change already happened. Separately,
+the first test run crashed three *existing* tests that construct `createMediaClient` directly
+(bypassing the new options' defaults) with "navigator is not defined" — the default
+`onDeviceChange` assumed a browser. Made it a no-op outside one instead of throwing, which also
+makes it safe under SvelteKit's SSR, not just under test.
+**Blocked on / next:** Still need to open the heads-up issue for Danny listing the interface
+additions (required before this PR can merge) and push/open the PR itself.
+
 ## 2026-11-19 — #34 Replace the pre-expiry renewal timer with backoff on reconnect
 
 **Did:** Per Henry's review on PR #45: removed `scheduleRenew`/`renewTimer`/`renewBeforeMs`

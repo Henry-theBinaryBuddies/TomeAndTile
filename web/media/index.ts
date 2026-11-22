@@ -3,11 +3,13 @@
 export { createMediaClient, type MediaClient, type MediaClientOptions } from './client';
 export type {
 	DeviceKind,
+	DeviceLists,
 	MediaClientState,
 	MediaDeviceOption,
 	MediaFailure,
 	MediaFailureKind,
 	MediaStatus,
 	ParticipantInfo,
+	SelectedDeviceIds,
 	TrackKind
 } from './types';

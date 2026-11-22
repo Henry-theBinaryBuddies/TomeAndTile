@@ -31,6 +31,20 @@ export interface MediaFailure {
 
 export type MediaStatus = 'idle' | 'connecting' | 'joined' | 'leaving';
 
+/** One device list per kind, refreshed on a `devicechange` event. The panel reads this instead
+ * of polling `listDevices`. */
+export interface DeviceLists {
+	audioinput: MediaDeviceOption[];
+	videoinput: MediaDeviceOption[];
+}
+
+/** The chosen device per kind, or `null` for "no explicit choice, use the default". Set by
+ * `selectDevice` and kept even while idle, so a choice made before joining is remembered. */
+export interface SelectedDeviceIds {
+	audioinput: string | null;
+	videoinput: string | null;
+}
+
 export interface MediaClientState {
 	status: MediaStatus;
 	/** From the last `MediaToken`. Spectators (`false`) never get a camera or microphone. */
@@ -40,4 +54,6 @@ export interface MediaClientState {
 	participants: ParticipantInfo[];
 	/** The most recent failure, if any. Cleared on the next successful join. */
 	failure: MediaFailure | null;
+	devices: DeviceLists;
+	selectedDeviceId: SelectedDeviceIds;
 }
