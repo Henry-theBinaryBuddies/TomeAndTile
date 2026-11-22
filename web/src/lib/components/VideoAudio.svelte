@@ -12,7 +12,7 @@
 <div class="audio" aria-hidden="true">
 	{#each remote as participant (participant.id)}
 		<!-- svelte-ignore a11y_media_has_caption -->
-		<audio autoplay use:track={{ media, participantId: participant.id, kind: 'audio' }}></audio>
+		<audio autoplay use:track={{ media, participantId: participant.id, kind: 'audio', version: participant }}></audio>
 	{/each}
 </div>
 
