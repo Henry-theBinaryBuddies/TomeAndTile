@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { track, type TrackParams } from './track';
+import type { ParticipantInfo } from '../../../media/index';
+import { audioTrackParams, track, videoTrackParams, type TrackParams } from './track';
 
 function fakeMedia() {
 	const calls: string[] = [];
@@ -64,5 +65,53 @@ describe('track action', () => {
 		// A new participant object with the same content (a refresh): attach again, now found.
 		action.update({ media, participantId: 'p1', kind: 'video', version: { ...first } });
 		expect(calls).toEqual(['p1 video nothing', 'p1 video found']);
+	});
+});
+
+// What the tiles really pass to the action (the same functions the components call), so these
+// fail if a tile stops re-attaching when it should.
+describe('what a tile re-attaches on', () => {
+	const person = (over: Partial<ParticipantInfo> = {}): ParticipantInfo => ({
+		id: 'p1',
+		name: 'Gale',
+		isLocal: false,
+		micEnabled: true,
+		cameraEnabled: false,
+		...over
+	});
+	const call = { micEnabled: true, cameraEnabled: false };
+
+	it('re-attaches video when someone else gets a new participant object', () => {
+		const { media, calls } = fakeMedia();
+		const p = person();
+		const action = track(element, videoTrackParams(media, p, call));
+		action.update(videoTrackParams(media, { ...p }, call));
+		expect(calls).toEqual(['attach p1 video', 'detach p1 video', 'attach p1 video']);
+	});
+
+	it('leaves video alone when nothing about the participant or the call changed', () => {
+		const { media, calls } = fakeMedia();
+		const p = person();
+		const action = track(element, videoTrackParams(media, p, call));
+		action.update(videoTrackParams(media, p, call));
+		expect(calls).toEqual(['attach p1 video']);
+	});
+
+	it('attaches your own video when your camera is turned on, though your participant object is the same', () => {
+		// The media module does not rebuild the list when your own track is published, so
+		// the participant object stays the same; the call state is what changes.
+		const { media, calls } = fakeMedia();
+		const me = person({ isLocal: true });
+		const action = track(element, videoTrackParams(media, me, { micEnabled: true, cameraEnabled: false }));
+		action.update(videoTrackParams(media, me, { micEnabled: true, cameraEnabled: true }));
+		expect(calls).toEqual(['attach p1 video', 'detach p1 video', 'attach p1 video']);
+	});
+
+	it('re-attaches audio when a remote participant gets a new participant object', () => {
+		const { media, calls } = fakeMedia();
+		const p = person();
+		const action = track(element, audioTrackParams(media, p));
+		action.update(audioTrackParams(media, { ...p }));
+		expect(calls).toEqual(['attach p1 audio', 'detach p1 audio', 'attach p1 audio']);
 	});
 });
