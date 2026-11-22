@@ -204,16 +204,25 @@ describe('tokens', () => {
 		expect(s.tokens['t-gob'].hpCurrent).toBeUndefined();
 	});
 
-	it('are replaced whole by an upsert, and added when new', () => {
+	it('are replaced whole by an upsert, not merged into the old token, and added when new', () => {
 		let s = withTokens();
-		s = fold(s, 6n, {
-			case: 'tokenUpserted',
-			value: { token: fullToken({ name: 'Brannoch the Bold', hpCurrent: 4, conditions: [] }) }
-		} as never);
-		expect(s.tokens['t1'].name).toBe('Brannoch the Bold');
-		expect(s.tokens['t1'].hpCurrent).toBe(4);
-		expect(s.tokens['t1'].conditions).toEqual([]);
-		expect(s.tokens['t1'].controllerUserIds).toEqual(['mock-player']);
+		// Before: the token has HP, a position, a level, a creature, conditions and a controller.
+		expect(s.tokens['t1'].hpCurrent).toBe(11);
+		// The event comes from the generated types and sets only the id and the name, so every
+		// other field is unset. A reducer that merged it into the old token would keep them all.
+		s = fold(s, 6n, tokenUpsertedKind('t1', 'Brannoch the Bold'));
+		const t = s.tokens['t1'];
+		expect(t.name).toBe('Brannoch the Bold');
+		expect(t.hpCurrent).toBeUndefined();
+		expect(t.hpMax).toBeUndefined();
+		expect(t.position).toBeUndefined();
+		expect(t.conditions).toEqual([]);
+		expect(t.controllerUserIds).toEqual([]);
+		expect(t.levelId).toBe('');
+		expect(t.sceneId).toBe('');
+		expect(t.creatureId).toBe('');
+		// Other tokens are untouched, and a new id is added.
+		expect(s.tokens['t-gob'].name).toBe('Goblin');
 		s = fold(s, 7n, tokenUpsertedKind('t-new', 'Orc'));
 		expect(s.tokens['t-new'].name).toBe('Orc');
 	});

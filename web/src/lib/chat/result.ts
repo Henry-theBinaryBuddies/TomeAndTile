@@ -70,7 +70,7 @@ export interface TargetView {
 export interface ResultCardView {
 	abilityName: string;
 	sourceName: string;
-	/** Empty when done; otherwise "In progress" or "Cancelled". */
+	/** Empty when done; otherwise "In progress", "Cancelled" or, when the server sent no state, "State unknown". */
 	stateText: string;
 	targets: TargetView[];
 	warnings: string[];
@@ -85,6 +85,8 @@ function nameOf(tokens: Tokens, tokenId: string): string {
 function stateText(state: ResolutionState): string {
 	if (state === ResolutionState.DONE) return '';
 	if (state === ResolutionState.CANCELLED) return 'Cancelled';
+	// An unset state is unknown, not "in progress" (web/CLAUDE.md: unset means unknown).
+	if (state === ResolutionState.UNSPECIFIED) return 'State unknown';
 	return 'In progress';
 }
 
