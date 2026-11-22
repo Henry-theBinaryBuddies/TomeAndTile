@@ -10,12 +10,25 @@ export interface MediaDeviceOption {
 
 export type TrackKind = 'audio' | 'video';
 
+/** Whether a track of one kind exists for a participant at all (`published`), and, if so,
+ * whether it has actually arrived (`subscribed`). A tile tells "camera off" (not published)
+ * from "waiting for video" (published but not yet subscribed) from these two booleans. For the
+ * local participant `subscribed` mirrors `published`: there is no network subscription step for
+ * your own track. */
+export interface TrackAvailability {
+	published: boolean;
+	subscribed: boolean;
+}
+
 export interface ParticipantInfo {
 	id: string;
 	name: string;
 	isLocal: boolean;
 	micEnabled: boolean;
 	cameraEnabled: boolean;
+	mic: TrackAvailability;
+	camera: TrackAvailability;
+	isSpeaking: boolean;
 }
 
 export type MediaFailureKind =
@@ -56,4 +69,7 @@ export interface MediaClientState {
 	failure: MediaFailure | null;
 	devices: DeviceLists;
 	selectedDeviceId: SelectedDeviceIds;
+	/** True when the browser has blocked remote audio playback (a common autoplay policy).
+	 * `startAudioPlayback()` resumes it from a user gesture (a click handler, for example). */
+	audioPlaybackBlocked: boolean;
 }

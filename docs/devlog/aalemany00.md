@@ -2,6 +2,28 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-21 — #66 Track management: availability, blocked audio, listener clean-up
+
+**Did:** Stacked on #65 (same two files). Had Claude add `mic`/`camera` (`TrackAvailability`:
+`{published, subscribed}`) and `isSpeaking` to `ParticipantInfo`, so a tile can tell "camera
+off" (not published) from "waiting for video" (published, not yet subscribed) instead of one
+flat boolean. `attachTrack` now returns whether a track was actually there (the room wrapper
+already knew; it just wasn't surfaced). Added `state.audioPlaybackBlocked` plus a
+`startAudioPlayback()` method for the browser's autoplay block, wired to LiveKit's
+`AudioPlaybackStatusChanged` event and `canPlaybackAudio`/`startAudio()`. `room.ts`'s
+`onParticipantsChanged` now also listens for `LocalTrackPublished`/`LocalTrackUnpublished`/
+`ActiveSpeakersChanged`, not just the remote-track events it already had. Added `RoomLike.
+dispose()`: `wrapLiveKitRoom` now tracks every listener it registers and removes them on
+teardown, instead of relying only on the generation check to make a stale callback a no-op.
+9 new tests (37 total in `web/media/`), including one that proves `dispose()` actually
+unregisters the fake room's callbacks, not just that state happens to ignore them afterward.
+**Directed Claude to:** Read issue #66 in full and build exactly its acceptance list, on top of
+the #65 branch, without touching anything outside `web/media/`.
+**Learned:** Nothing worth flagging as a misread this round — the acceptance list mapped
+cleanly onto LiveKit's own API (`TrackPublication.isSubscribed` is on the base class, so no
+casting was needed between local/remote participants).
+**Blocked on / next:** Heads-up issue for Danny and the PR itself, same as #65.
+
 ## 2026-11-21 — #65 Device handling: changes, remembered choices, switch errors
 
 **Did:** Had Claude add device management to `web/media/`: `MediaClientState` now carries

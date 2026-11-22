@@ -15,6 +15,7 @@ import type {
 	MediaFailure,
 	ParticipantInfo,
 	SelectedDeviceIds,
+	TrackAvailability,
 	TrackKind
 } from './types';
 
@@ -26,6 +27,7 @@ export type {
 	MediaFailure,
 	ParticipantInfo,
 	SelectedDeviceIds,
+	TrackAvailability,
 	TrackKind
 };
 
@@ -68,8 +70,12 @@ export interface MediaClient {
 	listDevices(kind: DeviceKind): Promise<MediaDeviceOption[]>;
 	selectDevice(kind: DeviceKind, deviceId: string): Promise<void>;
 	listParticipants(): ParticipantInfo[];
-	attachTrack(participantId: string, kind: TrackKind, element: HTMLMediaElement): void;
+	/** Returns whether a track was actually there to attach. */
+	attachTrack(participantId: string, kind: TrackKind, element: HTMLMediaElement): boolean;
 	detachTrack(participantId: string, kind: TrackKind, element: HTMLMediaElement): void;
+	/** Resumes playback after the browser blocked it (`state.audioPlaybackBlocked`). Call this
+	 * from a user gesture, such as a click handler on a "tap to enable sound" prompt. */
+	startAudioPlayback(): Promise<void>;
 }
 
 function emptyDeviceLists(): DeviceLists {
@@ -89,7 +95,8 @@ function initialState(): MediaClientState {
 		participants: [],
 		failure: null,
 		devices: emptyDeviceLists(),
-		selectedDeviceId: noSelectedDevices()
+		selectedDeviceId: noSelectedDevices(),
+		audioPlaybackBlocked: false
 	};
 }
 
@@ -250,6 +257,9 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		const current = room;
 		room = null;
 		if (current) {
+			// Remove our listeners before disconnecting, so a disconnect-triggered event firing
+			// on the way out can never touch state for a room we've already moved on from.
+			current.dispose();
 			try {
 				await current.disconnect();
 			} catch {
@@ -306,13 +316,22 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 			if (myGeneration !== generation || room !== nextRoom) return;
 			setState({ participants: nextRoom.participants() });
 		});
+		nextRoom.onAudioPlaybackStatusChanged((blocked) => {
+			if (myGeneration !== generation || room !== nextRoom) return;
+			setState({ audioPlaybackBlocked: blocked });
+		});
 
 		clearStabilityTimer();
 		stabilityTimer = setTimeout(() => {
 			stabilityTimer = null;
 			if (myGeneration === generation) reconnectAttempt = 0;
 		}, STABLE_CONNECTION_MS);
-		setState({ status: 'joined', canPublish: token.canPublish, participants: nextRoom.participants() });
+		setState({
+			status: 'joined',
+			canPublish: token.canPublish,
+			participants: nextRoom.participants(),
+			audioPlaybackBlocked: nextRoom.isAudioPlaybackBlocked()
+		});
 
 		if (token.canPublish) {
 			try {
@@ -415,11 +434,22 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		},
 
 		attachTrack(participantId, kind, element) {
-			room?.attach(participantId, kind, element);
+			return room?.attach(participantId, kind, element) ?? false;
 		},
 
 		detachTrack(participantId, kind, element) {
 			room?.detach(participantId, kind, element);
+		},
+
+		async startAudioPlayback() {
+			if (!room) return;
+			try {
+				await room.startAudioPlayback();
+			} catch (error) {
+				setState({ failure: toFailure(error) });
+				return;
+			}
+			setState({ audioPlaybackBlocked: room.isAudioPlaybackBlocked() });
 		}
 	};
 }

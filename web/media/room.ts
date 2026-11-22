@@ -10,7 +10,14 @@ import {
 	type LocalParticipant,
 	type Participant
 } from 'livekit-client';
-import type { DeviceKind, MediaDeviceOption, MediaFailureKind, ParticipantInfo, TrackKind } from './types';
+import type {
+	DeviceKind,
+	MediaDeviceOption,
+	MediaFailureKind,
+	ParticipantInfo,
+	TrackAvailability,
+	TrackKind
+} from './types';
 
 /** A failure classified well enough for `client.ts` to turn into a `MediaFailure`. */
 export class RoomFailure extends Error {
@@ -41,13 +48,21 @@ function trackSource(kind: TrackKind) {
 	return kind === 'audio' ? Track.Source.Microphone : Track.Source.Camera;
 }
 
+function trackAvailability(participant: Participant | LocalParticipant, source: Track.Source): TrackAvailability {
+	const publication = participant.getTrackPublication(source);
+	return { published: !!publication, subscribed: publication?.isSubscribed ?? false };
+}
+
 function toParticipantInfo(participant: Participant | LocalParticipant, isLocal: boolean): ParticipantInfo {
 	return {
 		id: participant.identity,
 		name: participant.name || participant.identity,
 		isLocal,
 		micEnabled: participant.isMicrophoneEnabled,
-		cameraEnabled: participant.isCameraEnabled
+		cameraEnabled: participant.isCameraEnabled,
+		mic: trackAvailability(participant, Track.Source.Microphone),
+		camera: trackAvailability(participant, Track.Source.Camera),
+		isSpeaking: participant.isSpeaking
 	};
 }
 
@@ -61,8 +76,15 @@ export interface RoomLike {
 	participants(): ParticipantInfo[];
 	attach(participantId: string, kind: TrackKind, element: HTMLMediaElement): boolean;
 	detach(participantId: string, kind: TrackKind, element: HTMLMediaElement): void;
+	/** Resumes blocked audio playback from a user gesture (for example a click handler). */
+	startAudioPlayback(): Promise<void>;
+	isAudioPlaybackBlocked(): boolean;
 	onDisconnected(callback: () => void): void;
 	onParticipantsChanged(callback: () => void): void;
+	onAudioPlaybackStatusChanged(callback: (blocked: boolean) => void): void;
+	/** Removes every listener this wrapper registered. Called once per room, during teardown;
+	 * a fake room's events after this point must produce no further effect. */
+	dispose(): void;
 }
 
 /** Wraps a real `livekit-client` `Room` as a `RoomLike`. */
@@ -71,6 +93,14 @@ export function wrapLiveKitRoom(room: Room = new Room()): RoomLike {
 		room.localParticipant.identity === participantId
 			? room.localParticipant
 			: room.remoteParticipants.get(participantId);
+
+	// Tracked so `dispose()` can remove exactly the listeners this wrapper added, rather than
+	// every listener on the room (which could belong to another part of the app).
+	const registeredListeners: Array<[RoomEvent, (...args: any[]) => void]> = [];
+	function addListener(event: RoomEvent, callback: (...args: any[]) => void) {
+		room.on(event, callback);
+		registeredListeners.push([event, callback]);
+	}
 
 	return {
 		async connect(url, token) {
@@ -120,16 +150,32 @@ export function wrapLiveKitRoom(room: Room = new Room()): RoomLike {
 		detach(participantId, kind, element) {
 			findParticipant(participantId)?.getTrackPublication(trackSource(kind))?.track?.detach(element);
 		},
+		async startAudioPlayback() {
+			await room.startAudio();
+		},
+		isAudioPlaybackBlocked() {
+			return !room.canPlaybackAudio;
+		},
 		onDisconnected(callback) {
-			room.on(RoomEvent.Disconnected, callback);
+			addListener(RoomEvent.Disconnected, callback);
 		},
 		onParticipantsChanged(callback) {
-			room.on(RoomEvent.ParticipantConnected, callback);
-			room.on(RoomEvent.ParticipantDisconnected, callback);
-			room.on(RoomEvent.TrackMuted, callback);
-			room.on(RoomEvent.TrackUnmuted, callback);
-			room.on(RoomEvent.TrackSubscribed, callback);
-			room.on(RoomEvent.TrackUnsubscribed, callback);
+			addListener(RoomEvent.ParticipantConnected, callback);
+			addListener(RoomEvent.ParticipantDisconnected, callback);
+			addListener(RoomEvent.TrackMuted, callback);
+			addListener(RoomEvent.TrackUnmuted, callback);
+			addListener(RoomEvent.TrackSubscribed, callback);
+			addListener(RoomEvent.TrackUnsubscribed, callback);
+			addListener(RoomEvent.LocalTrackPublished, callback);
+			addListener(RoomEvent.LocalTrackUnpublished, callback);
+			addListener(RoomEvent.ActiveSpeakersChanged, callback);
+		},
+		onAudioPlaybackStatusChanged(callback) {
+			addListener(RoomEvent.AudioPlaybackStatusChanged, () => callback(!room.canPlaybackAudio));
+		},
+		dispose() {
+			for (const [event, callback] of registeredListeners) room.off(event, callback);
+			registeredListeners.length = 0;
 		}
 	};
 }

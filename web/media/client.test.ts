@@ -25,16 +25,20 @@ class FakeRoom implements RoomLike {
 	micEnabled = false;
 	cameraEnabled = false;
 	disconnected = false;
+	disposed = false;
 	connectError: unknown = null;
 	micError: unknown = null;
 	cameraError: unknown = null;
 	switchDeviceError: unknown = null;
 	switchDeviceCalls: Array<{ kind: DeviceKind; deviceId: string }> = [];
+	attachResult = true;
+	attachCalls: Array<{ participantId: string; kind: string }> = [];
+	audioPlaybackBlocked = false;
+	startAudioPlaybackError: unknown = null;
 	private disconnectedCallbacks: Array<() => void> = [];
 	private participantsChangedCallbacks: Array<() => void> = [];
-	private participantList: ParticipantInfo[] = [
-		{ id: 'local', name: 'Me', isLocal: true, micEnabled: false, cameraEnabled: false }
-	];
+	private audioPlaybackStatusCallbacks: Array<(blocked: boolean) => void> = [];
+	private participantList: ParticipantInfo[] = [fakeParticipant({ id: 'local', name: 'Me', isLocal: true })];
 
 	async connect(url: string, token: string) {
 		this.connectCalls.push({ url, token });
@@ -69,11 +73,21 @@ class FakeRoom implements RoomLike {
 		for (const cb of this.participantsChangedCallbacks) cb();
 	}
 
-	attach() {
-		return true;
+	attach(participantId: string, kind: string) {
+		this.attachCalls.push({ participantId, kind });
+		return this.attachResult;
 	}
 
 	detach() {}
+
+	async startAudioPlayback() {
+		if (this.startAudioPlaybackError) throw this.startAudioPlaybackError;
+		this.audioPlaybackBlocked = false;
+	}
+
+	isAudioPlaybackBlocked() {
+		return this.audioPlaybackBlocked;
+	}
 
 	onDisconnected(callback: () => void) {
 		this.disconnectedCallbacks.push(callback);
@@ -83,10 +97,41 @@ class FakeRoom implements RoomLike {
 		this.participantsChangedCallbacks.push(callback);
 	}
 
+	onAudioPlaybackStatusChanged(callback: (blocked: boolean) => void) {
+		this.audioPlaybackStatusCallbacks.push(callback);
+	}
+
+	dispose() {
+		this.disposed = true;
+		this.disconnectedCallbacks = [];
+		this.participantsChangedCallbacks = [];
+		this.audioPlaybackStatusCallbacks = [];
+	}
+
 	fireDisconnected() {
 		this.disconnected = true;
 		for (const cb of this.disconnectedCallbacks) cb();
 	}
+
+	firePublishChanged() {
+		for (const cb of this.participantsChangedCallbacks) cb();
+	}
+
+	fireAudioPlaybackBlocked(blocked: boolean) {
+		this.audioPlaybackBlocked = blocked;
+		for (const cb of this.audioPlaybackStatusCallbacks) cb(blocked);
+	}
+}
+
+function fakeParticipant(overrides: Partial<ParticipantInfo> & Pick<ParticipantInfo, 'id' | 'name' | 'isLocal'>): ParticipantInfo {
+	return {
+		micEnabled: false,
+		cameraEnabled: false,
+		mic: { published: false, subscribed: false },
+		camera: { published: false, subscribed: false },
+		isSpeaking: false,
+		...overrides
+	};
 }
 
 /** A fake device catalog + `devicechange` emitter, with no browser `navigator` involved. Tests
@@ -356,8 +401,8 @@ describe('participants', () => {
 		await client.join();
 
 		rooms[0].setParticipants([
-			{ id: 'local', name: 'Me', isLocal: true, micEnabled: true, cameraEnabled: false },
-			{ id: 'gm', name: 'The GM', isLocal: false, micEnabled: false, cameraEnabled: true }
+			fakeParticipant({ id: 'local', name: 'Me', isLocal: true, micEnabled: true }),
+			fakeParticipant({ id: 'gm', name: 'The GM', isLocal: false, cameraEnabled: true })
 		]);
 
 		expect(client.listParticipants()).toHaveLength(2);
@@ -475,6 +520,120 @@ describe('device handling', () => {
 		await client.join(); // can_publish defaults true, so this enables the microphone
 
 		expect(devices.listCalls).toContain('audioinput');
+	});
+});
+
+describe('track management', () => {
+	it('attachTrack reports whether a track was actually there to attach', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+		const element = {} as HTMLMediaElement;
+
+		rooms[0].attachResult = false;
+		expect(client.attachTrack('local', 'video', element)).toBe(false);
+
+		rooms[0].attachResult = true;
+		expect(client.attachTrack('local', 'video', element)).toBe(true);
+	});
+
+	it('attachTrack returns false with no active call instead of throwing', () => {
+		const { client } = setup();
+		expect(client.attachTrack('anyone', 'audio', {} as HTMLMediaElement)).toBe(false);
+	});
+
+	it('detachTrack for a participant who has left does not throw', async () => {
+		const { client } = setup();
+		await client.join();
+		expect(() => client.detachTrack('someone-who-left', 'audio', {} as HTMLMediaElement)).not.toThrow();
+	});
+
+	it('reports per-kind publish/subscribe availability for each participant', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+
+		rooms[0].setParticipants([
+			fakeParticipant({
+				id: 'local',
+				name: 'Me',
+				isLocal: true,
+				mic: { published: true, subscribed: true }
+			}),
+			fakeParticipant({
+				id: 'gm',
+				name: 'The GM',
+				isLocal: false,
+				camera: { published: true, subscribed: false } // "waiting for video": published, not yet subscribed
+			})
+		]);
+
+		const [local, gm] = client.listParticipants();
+		expect(local.mic).toEqual({ published: true, subscribed: true });
+		expect(gm.camera).toEqual({ published: true, subscribed: false });
+		expect(gm.camera.published && !gm.camera.subscribed).toBe(true); // distinguishable from "camera off"
+	});
+
+	it("updates the local participant's entry when a local track is published", async () => {
+		const { client, rooms } = setup();
+		await client.join();
+
+		rooms[0].setParticipants([
+			fakeParticipant({ id: 'local', name: 'Me', isLocal: true, camera: { published: true, subscribed: true } })
+		]);
+		// Simulate the room notifying on LocalTrackPublished specifically, not just any change.
+		rooms[0].firePublishChanged();
+
+		expect(client.listParticipants()[0].camera.published).toBe(true);
+	});
+
+	it('reports blocked audio playback and resumes it', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+
+		rooms[0].fireAudioPlaybackBlocked(true);
+		expect(get(client.state).audioPlaybackBlocked).toBe(true);
+
+		await client.startAudioPlayback();
+		expect(get(client.state).audioPlaybackBlocked).toBe(false);
+	});
+
+	it('a failed startAudioPlayback is reported, not thrown', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+		rooms[0].fireAudioPlaybackBlocked(true);
+		rooms[0].startAudioPlaybackError = new Error('user gesture required');
+
+		await client.startAudioPlayback();
+
+		expect(get(client.state).failure?.message).toBe('user gesture required');
+		expect(get(client.state).audioPlaybackBlocked).toBe(true); // unchanged; the resume failed
+	});
+
+	it('shows which participants are speaking', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+
+		rooms[0].setParticipants([
+			fakeParticipant({ id: 'local', name: 'Me', isLocal: true }),
+			fakeParticipant({ id: 'gm', name: 'The GM', isLocal: false, isSpeaking: true })
+		]);
+
+		expect(client.listParticipants().find((p) => p.id === 'gm')?.isSpeaking).toBe(true);
+		expect(client.listParticipants().find((p) => p.id === 'local')?.isSpeaking).toBe(false);
+	});
+
+	it('leave() removes every room listener; events firing after it change nothing', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+		await client.leave();
+
+		expect(rooms[0].disposed).toBe(true);
+
+		const stateBefore = get(client.state);
+		rooms[0].firePublishChanged();
+		rooms[0].fireAudioPlaybackBlocked(true);
+		rooms[0].fireDisconnected();
+
+		expect(get(client.state)).toEqual(stateBefore);
 	});
 });
 
