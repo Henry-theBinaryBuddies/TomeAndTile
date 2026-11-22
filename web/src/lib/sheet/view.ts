@@ -36,11 +36,27 @@ function abilityScoreWord(score: AbilityScore): string {
 
 // ---- who the sheet belongs to ----
 
+export interface ActingToken {
+	tokenId: string;
+	name: string;
+}
+
 export interface SheetChoice {
 	creatureId: string;
 	name: string;
-	/** The token that acts for this creature, or null if it has none on the map yet. */
+	/**
+	 * The tokens on the active map that could act for this creature: the ones the viewer
+	 * controls if there are any, otherwise the ones linked to it. Usually one.
+	 */
+	tokens: ActingToken[];
+	/** The token that acts for this creature when there is exactly one; null if none or several. */
 	sourceTokenId: string | null;
+}
+
+/** The token that acts: the only one, or the one the person chose from several. Never a guess. */
+export function actingTokenId(choice: SheetChoice, chosenTokenId: string): string | null {
+	if (choice.tokens.length === 1) return choice.tokens[0].tokenId;
+	return choice.tokens.find((t) => t.tokenId === chosenTokenId)?.tokenId ?? null;
 }
 
 /**
@@ -51,23 +67,33 @@ export interface SheetChoice {
 export function sheetChoices(state: {
 	userId: string;
 	role: Role;
+	/** The scene on the map now; '' if unknown, which counts every token. */
+	activeSceneId?: string;
 	creatures: Readonly<Record<string, Creature>>;
 	tokens: Readonly<Record<string, Token>>;
 }): SheetChoice[] {
+	const active = state.activeSceneId ?? '';
 	const tokens = Object.values(state.tokens);
 	const choices: SheetChoice[] = [];
 	for (const creature of Object.values(state.creatures)) {
-		const linked = tokens.filter((t) => t.creatureId === creature.creatureId);
-		const controlled = linked.filter((t) => t.controllerUserIds.includes(state.userId));
+		const allLinked = tokens.filter((t) => t.creatureId === creature.creatureId);
+		const controlledAnywhere = allLinked.filter((t) => t.controllerUserIds.includes(state.userId));
 		const mine =
 			(state.userId !== '' && creature.ownerUserId === state.userId) ||
-			controlled.length > 0 ||
+			controlledAnywhere.length > 0 ||
 			state.role === Role.GM;
 		if (!mine) continue;
+		// Only tokens on the map being shown can act now.
+		const onMap = (t: Token) => active === '' || t.sceneId === active;
+		const linked = allLinked.filter(onMap);
+		const controlled = linked.filter((t) => t.controllerUserIds.includes(state.userId));
+		const candidates = controlled.length > 0 ? controlled : linked;
+		const acting = candidates.map((t) => ({ tokenId: t.tokenId, name: t.name.trim() || UNKNOWN }));
 		choices.push({
 			creatureId: creature.creatureId,
 			name: creature.name.trim() || UNKNOWN,
-			sourceTokenId: (controlled[0] ?? linked[0])?.tokenId ?? null
+			tokens: acting,
+			sourceTokenId: acting.length === 1 ? acting[0].tokenId : null
 		});
 	}
 	return choices;
@@ -109,7 +135,9 @@ export function statBlockView(c: Creature): StatBlockView {
 		{ label: 'Armor class', value: c.armorClass > 0 ? String(c.armorClass) : UNKNOWN },
 		{ label: 'Speed', value: `${c.speedFeet} ft` },
 		{ label: 'Initiative', value: signed(c.initiativeBonus) },
-		{ label: 'Proficiency', value: c.proficiencyBonus > 0 ? signed(c.proficiencyBonus) : UNKNOWN }
+		{ label: 'Proficiency', value: c.proficiencyBonus > 0 ? signed(c.proficiencyBonus) : UNKNOWN },
+		// A plain number cannot say "not stated", and a real passive Perception is never 0.
+		{ label: 'Passive Perception', value: c.passivePerception > 0 ? String(c.passivePerception) : UNKNOWN }
 	];
 	const lists: Labelled[] = [
 		{ label: 'Saving throws', value: c.saveProficiencies.map(abilityScoreWord).join(', ') },
@@ -154,6 +182,8 @@ export interface AbilityView {
 	/** Why it cannot be clicked, when it cannot. */
 	note: string;
 	rangeText: string;
+	/** For example "Up to 2 targets" or "2 attacks, one target each". Empty if not stated. */
+	targetText: string;
 	/** For example "Uses 1 Second Wind (2 of 2 left)". Empty if it uses nothing. */
 	resourceText: string;
 	/** One line per step: to-hit and damage as the server sent them. */
@@ -221,9 +251,20 @@ function rangeText(a: Ability): string {
 			return t.longRangeFeet > 0 ? `${t.rangeFeet}/${t.longRangeFeet} ft` : `${t.rangeFeet} ft`;
 		case TargetShape.UNSPECIFIED:
 			return UNKNOWN;
-		default:
-			return t.sizeFeet > 0 ? `Area, ${t.sizeFeet} ft` : 'Area';
+		default: {
+			const shape = (TargetShape[t.shape] ?? 'area').toLowerCase();
+			const size = t.sizeFeet > 0 ? `${t.sizeFeet} ft ${shape}` : shape;
+			return t.rangeFeet > 0 ? `${t.rangeFeet} ft, ${size}` : size;
+		}
 	}
+}
+
+/** How many targets the ability takes, in words. Empty when the server did not say. */
+function targetText(shape: TargetShape, attackSteps: number, maxTargets: number): string {
+	if (shape !== TargetShape.CREATURES) return '';
+	if (attackSteps > 1) return `${attackSteps} attacks, one target each`;
+	if (maxTargets > 0) return `Up to ${maxTargets} ${maxTargets === 1 ? 'target' : 'targets'}`;
+	return '';
 }
 
 function resourceText(a: Ability, creature: Creature): string {
@@ -259,6 +300,7 @@ export function abilityView(a: Ability, creature: Creature): AbilityView {
 		kind,
 		note,
 		rangeText: rangeText(a),
+		targetText: targetText(shape, attackSteps, a.targeting?.maxTargets ?? 0),
 		resourceText: resourceText(a, creature),
 		stepLines: a.steps.map(stepLine),
 		shape,

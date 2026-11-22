@@ -5,7 +5,9 @@
 	import { rejectionText } from '../chat';
 	import {
 		abilityGroups,
+		actingTokenId,
 		buildUseAbilityKind,
+		keepTargeting,
 		limitWarning,
 		pickCount,
 		pickToken,
@@ -26,14 +28,21 @@
 	const choices = $derived(sheetChoices($panelState));
 	let selectedId = $state('');
 	const current = $derived(choices.find((c) => c.creatureId === selectedId) ?? choices[0]);
+	// A plain string: `current` is rebuilt on every server update, but the id only changes when
+	// another character is shown. Effects that must ignore unrelated updates read this.
+	const currentId = $derived(current?.creatureId ?? '');
+	// Which token acts, when the character has more than one on this map.
+	let chosenTokenId = $state('');
+	const actingId = $derived(current ? actingTokenId(current, chosenTokenId) : null);
 	const creature = $derived(current ? $panelState.creatures[current.creatureId] : undefined);
 	const block = $derived(creature ? statBlockView(creature) : null);
 	const groups = $derived(creature ? abilityGroups(creature) : []);
-	const canAct = $derived(current?.sourceTokenId != null);
+	const canAct = $derived(actingId !== null);
 
 	// ---- targeting ----
 	let targeting = $state<TargetingState | null>(null);
 	let startedFrom = '';
+	let targetingFor = '';
 	let sentId = $state<string | null>(null);
 	let sentName = $state('');
 	let sendNote = $state('');
@@ -57,6 +66,7 @@
 
 	async function start(ability: AbilityView) {
 		targeting = startTargeting(ability);
+		targetingFor = currentId;
 		startedFrom = `ability-${ability.abilityId}`;
 		sentId = null;
 		sendNote = '';
@@ -71,8 +81,8 @@
 	}
 
 	function confirm() {
-		if (!targeting || !current?.sourceTokenId) return;
-		const id = client.send(buildUseAbilityKind(current.sourceTokenId, targeting));
+		if (!targeting || !actingId) return;
+		const id = client.send(buildUseAbilityKind(actingId, targeting));
 		if (id === null) {
 			sendNote = 'Not connected, so that was not sent.';
 			return;
@@ -93,11 +103,20 @@
 		}
 	}
 
-	// Leave targeting if the person switches character, or the character goes away.
+	// Leave targeting if the person switches character, or the character goes away. Reads only
+	// the id, so an unrelated server update (a roll, a move) does not end it mid-pick.
 	$effect(() => {
-		void current?.creatureId;
+		const shown = currentId;
 		untrack(() => {
-			targeting = null;
+			if (targeting && !keepTargeting(targetingFor, shown)) void stop();
+		});
+	});
+
+	// A different character has different tokens: forget the choice.
+	$effect(() => {
+		void currentId;
+		untrack(() => {
+			chosenTokenId = '';
 		});
 	});
 
@@ -135,6 +154,25 @@
 			{#if block.summary}<p class="summary">{block.summary}</p>{/if}
 		</header>
 
+		{#if current.tokens.length > 1}
+			<label class="picker">
+				<span>Act as</span>
+				<select
+					value={chosenTokenId}
+					onchange={(e) => (chosenTokenId = e.currentTarget.value)}
+					disabled={targeting !== null}
+				>
+					<option value="">Choose a token</option>
+					{#each current.tokens as token (token.tokenId)}
+						<option value={token.tokenId}>{token.name}</option>
+					{/each}
+				</select>
+			</label>
+			{#if !canAct}
+				<p class="note">This character has more than one token on the map. Choose which one acts.</p>
+			{/if}
+		{/if}
+
 		{#if targeting}
 			<section
 				class="targeting"
@@ -149,6 +187,7 @@
 						{targeting.ordered
 							? `Pick a target for each attack, in order. The same target can be picked again.`
 							: 'Pick one or more targets.'}
+						{targeting.targetText ? `${targeting.targetText}.` : ''}
 					</p>
 					<ul class="tokens" aria-label="Tokens on this map">
 						{#each sceneTokens as token (token.tokenId)}
@@ -160,7 +199,7 @@
 									class:picked={count > 0}
 									onclick={() => (targeting = pickToken(targeting!, token.tokenId))}
 								>
-									{token.name.trim() || 'Unknown'}{token.tokenId === current.sourceTokenId ? ' (you)' : ''}{targeting.ordered && count > 0 ? ` ×${count}` : ''}
+									{token.name.trim() || 'Unknown'}{token.tokenId === actingId ? ' (you)' : ''}{targeting.ordered && count > 0 ? ` ×${count}` : ''}
 								</button>
 							</li>
 						{:else}
@@ -240,7 +279,7 @@
 			</p>
 		{/if}
 
-		{#if !canAct}
+		{#if current.tokens.length === 0}
 			<p class="note">This character has no token on the map yet, so its abilities cannot be used.</p>
 		{/if}
 
@@ -265,6 +304,7 @@
 							<p class="info" id="ability-{ability.abilityId}-info">
 								{[
 									ability.rangeText !== 'Unknown' ? ability.rangeText : '',
+									ability.targetText,
 									ability.resourceText,
 									ability.recharging ? 'Recharging' : '',
 									ability.note,
@@ -307,10 +347,12 @@
 	.name {
 		margin: 0;
 		font-size: 1.1rem;
+		overflow-wrap: anywhere;
 	}
 	.summary {
 		margin: 0;
 		color: var(--muted);
+		overflow-wrap: anywhere;
 	}
 	.picker {
 		display: flex;
@@ -321,6 +363,7 @@
 	}
 	.picker select {
 		min-height: 44px;
+		max-width: 100%;
 	}
 	.stats {
 		display: flex;
@@ -432,6 +475,7 @@
 	}
 	.targeting h3 {
 		margin: 0;
+		overflow-wrap: anywhere;
 	}
 	.tokens,
 	.picks {
@@ -445,6 +489,8 @@
 	.tokens button {
 		min-height: 44px;
 		padding: 0 0.8rem;
+		max-width: 100%;
+		overflow-wrap: anywhere;
 	}
 	.tokens button.picked {
 		border-color: var(--accent);
@@ -457,6 +503,8 @@
 		padding: 0.15rem 0.2rem 0.15rem 0.6rem;
 		border: 1px solid var(--border);
 		border-radius: 999px;
+		max-width: 100%;
+		overflow-wrap: anywhere;
 	}
 	.small {
 		min-height: 32px;
