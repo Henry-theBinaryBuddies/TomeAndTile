@@ -44,4 +44,25 @@ describe('track action', () => {
 		action.update({ media, participantId: 'p1', kind: 'video', version: 1 });
 		expect(calls).toEqual(['attach p1 video']);
 	});
+
+	it('attaches a track that was not there at mount once the participant info is refreshed', () => {
+		// The media module rebuilds the participant list (new objects) on every refresh, and
+		// the tiles pass the participant object as the version. At mount a remote track often
+		// does not exist yet, so the first attach finds nothing; the refresh must try again.
+		const found = new Set<string>();
+		const calls: string[] = [];
+		const media = {
+			attachTrack: (id: string, kind: string) => void calls.push(`${id} ${kind} ${found.has(id) ? 'found' : 'nothing'}`),
+			detachTrack: () => {}
+		} as TrackParams['media'];
+		const first = { id: 'p1', cameraEnabled: false };
+		const action = track(element, { media, participantId: 'p1', kind: 'video', version: first });
+		found.add('p1');
+		// The same object again: nothing to do.
+		action.update({ media, participantId: 'p1', kind: 'video', version: first });
+		expect(calls).toEqual(['p1 video nothing']);
+		// A new participant object with the same content (a refresh): attach again, now found.
+		action.update({ media, participantId: 'p1', kind: 'video', version: { ...first } });
+		expect(calls).toEqual(['p1 video nothing', 'p1 video found']);
+	});
 });
