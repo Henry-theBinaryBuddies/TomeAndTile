@@ -28,7 +28,7 @@ use crate::auth::authenticate;
 use crate::campaign::{Campaign, Rejection};
 use crate::ids::Uuid7Ids;
 use crate::media::{self, MediaConfig, MediaDenied};
-use crate::rng::OsRolls;
+use crate::rng::{OsRolls, RollSource};
 use crate::upload::{self, AssetState};
 use crate::view::Viewer;
 
@@ -49,11 +49,14 @@ pub struct Config {
     pub media: Option<MediaConfig>,
     /// Asset upload (ADR 0014); None turns uploads off.
     pub assets: Option<AssetConfig>,
+    /// Source of dice randomness; None uses the operating system
+    /// ([`OsRolls`]). Tests inject a scripted one.
+    pub rolls: Option<Box<dyn RollSource + Send>>,
 }
 
 pub(crate) struct State {
     pub(crate) campaign: Campaign,
-    rng: OsRolls,
+    rng: Box<dyn RollSource + Send>,
     ids: Uuid7Ids,
     tx: broadcast::Sender<Arc<Event>>,
     /// Assets found at start-up whose link is only a guess (no
@@ -93,7 +96,7 @@ pub async fn serve(listener: TcpListener, config: Config) -> std::io::Result<()>
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
             campaign,
-            rng: OsRolls::new(),
+            rng: config.rolls.unwrap_or_else(|| Box::new(OsRolls::new())),
             ids: Uuid7Ids::new(),
             tx,
             provisional_assets,
@@ -321,7 +324,7 @@ fn handle_intent(shared: &Shared, viewer: &Viewer, intent: Intent) -> Option<Byt
         &viewer.user_id,
         intent,
         now_ms(),
-        &mut state.rng,
+        &mut *state.rng,
         &mut state.ids,
     ) {
         Ok(events) => {

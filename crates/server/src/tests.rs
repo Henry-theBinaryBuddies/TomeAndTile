@@ -567,7 +567,6 @@ fn unimplemented_intents_are_rejected() {
     use tt_contracts::v1 as pb;
     let mut c = campaign();
     let all = vec![
-        intent::Kind::UseAbility(pb::UseAbilityIntent::default()),
         intent::Kind::StartEncounter(pb::StartEncounterIntent::default()),
         intent::Kind::EndTurn(pb::EndTurnIntent::default()),
         intent::Kind::SetInitiative(pb::SetInitiativeIntent::default()),
@@ -1003,4 +1002,708 @@ fn registering_an_asset_twice_keeps_the_first_record() {
     c.register_asset(other);
     assert_eq!(c.assets.get("a1"), Some(&asset("a1")));
     assert_eq!(c.assets.len(), 1);
+}
+
+// -------------------------------------------------------------- use_ability
+
+mod use_ability {
+    use super::*;
+    use tt_contracts::v1 as pb;
+
+    fn attack_step(bonus: i32, dice: &str) -> pb::EffectStep {
+        pb::EffectStep {
+            step: Some(pb::effect_step::Step::Attack(pb::AttackStep {
+                to_hit_bonus: bonus,
+                damage: vec![pb::DamagePart {
+                    dice: dice.into(),
+                    r#type: pb::DamageType::Slashing as i32,
+                }],
+            })),
+        }
+    }
+
+    fn ability(id: &str, shape: pb::TargetShape, steps: Vec<pb::EffectStep>) -> pb::Ability {
+        pb::Ability {
+            ability_id: id.into(),
+            name: id.into(),
+            targeting: Some(pb::Targeting {
+                shape: shape as i32,
+                range_feet: 30.0,
+                max_targets: 1,
+                ..Default::default()
+            }),
+            steps,
+            ..Default::default()
+        }
+    }
+
+    /// The test campaign plus abilities. c-alice: `sword` (free), `smite`
+    /// (spends 1 of 2 `slots`), `empty` (needs 1 of 0 `none`), `fireball`
+    /// (cone, not implemented), `save` (a save step), `bad-dice` (unparsable
+    /// damage dice). c-goblin: `claw`. Plus a token with no creature.
+    fn armed() -> Campaign {
+        let mut c = campaign();
+        let attack = |id| {
+            ability(
+                id,
+                pb::TargetShape::Creatures,
+                vec![attack_step(5, "1d8+3")],
+            )
+        };
+        let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
+        let alice = alice.expect("c-alice");
+        let mut smite = attack("smite");
+        smite.resource_key = "slots".into();
+        smite.resource_amount = 1;
+        let mut empty = attack("empty");
+        empty.resource_key = "none".into();
+        empty.resource_amount = 1;
+        alice.abilities = vec![
+            attack("sword"),
+            smite,
+            empty,
+            ability(
+                "fireball",
+                pb::TargetShape::Cone,
+                vec![attack_step(5, "1d8")],
+            ),
+            ability(
+                "save",
+                pb::TargetShape::Creatures,
+                vec![pb::EffectStep {
+                    step: Some(pb::effect_step::Step::Save(pb::SaveStep::default())),
+                }],
+            ),
+            ability(
+                "bad-dice",
+                pb::TargetShape::Creatures,
+                vec![attack_step(5, "banana")],
+            ),
+        ];
+        alice.resources = vec![pb::Resource {
+            key: "slots".into(),
+            label: "slots".into(),
+            current: 2,
+            max: 2,
+        }];
+        let goblin = c.creatures.iter_mut().find(|x| x.creature_id == "c-goblin");
+        goblin.expect("c-goblin").abilities = vec![ability(
+            "claw",
+            pb::TargetShape::Creatures,
+            vec![attack_step(4, "1d6")],
+        )];
+        c.tokens.push(token("t-bare", "", &["alice"], false, 175.0));
+        c
+    }
+
+    fn use_ab(source: &str, ability: &str, targets: &[&str]) -> Intent {
+        intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+            source_token_id: source.into(),
+            ability_id: ability.into(),
+            target_token_ids: targets.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }))
+    }
+
+    fn resolution_of(e: &Event) -> &pb::Resolution {
+        match e.kind.as_ref() {
+            Some(event::Kind::ResolutionUpdated(u)) => u.resolution.as_ref().expect("resolution"),
+            other => panic!("not a resolution event: {other:?}"),
+        }
+    }
+
+    /// Attack roll 15 (+5 = 20, a hit on AC 15), damage 4 (+3).
+    fn hit_script() -> Scripted {
+        Scripted::new(&[14, 3])
+    }
+
+    fn slots(c: &Campaign) -> i32 {
+        c.creatures
+            .iter()
+            .find(|x| x.creature_id == "c-alice")
+            .and_then(|x| x.resources.first())
+            .map(|r| r.current)
+            .expect("slots")
+    }
+
+    #[test]
+    fn controller_attack_appends_one_resolution_event() {
+        let mut c = armed();
+        let hp_before: Vec<(i32, i32)> = c
+            .creatures
+            .iter()
+            .map(|x| (x.hp_current, x.hp_max))
+            .collect();
+        let tokens_before = c.tokens.clone();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        // No resource spent: exactly one event, nothing else.
+        assert_eq!(events.len(), 1);
+        let e = &events[0];
+        assert_eq!((e.seq, e.scene_id.as_str()), (1, "s1"));
+        assert_eq!(e.actor_user_id, "alice");
+        assert_eq!(e.client_intent_id, "ci-1");
+        assert!(e.warnings.is_empty());
+        let r = resolution_of(e);
+        assert_eq!(r.state, pb::ResolutionState::Done as i32);
+        assert_eq!(r.source_token_id, "t-alice");
+        assert_eq!(r.ability_id, "sword");
+        assert_eq!(r.outcomes.len(), 1);
+        let o = &r.outcomes[0];
+        assert_eq!(o.token_id, "t-goblin");
+        assert_eq!(o.outcome, pb::HitOutcome::Hit as i32);
+        assert_eq!(o.roll.as_ref().expect("attack").total, 20);
+        assert_eq!(o.damage_rolls.len(), 1);
+        assert_eq!(o.damage_rolls[0].total, 7);
+        // Nothing but the log changed: no hit points, no tokens.
+        let hp_after: Vec<(i32, i32)> = c
+            .creatures
+            .iter()
+            .map(|x| (x.hp_current, x.hp_max))
+            .collect();
+        assert_eq!(hp_before, hp_after);
+        assert_eq!(c.tokens, tokens_before);
+        assert!(o.damage.is_empty() && !o.dropped_to_zero);
+    }
+
+    #[test]
+    fn gm_can_use_any_creatures_ability() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-goblin", "claw", &["t-alice"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(resolution_of(&events[0]).ability_id, "claw");
+        assert_eq!(events[0].actor_user_id, "gm");
+    }
+
+    #[test]
+    fn spent_resource_adds_a_creature_upserted_after_the_resolution() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "smite", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            [1, 2],
+            "consecutive seq"
+        );
+        assert!(events.iter().all(|e| e.client_intent_id == "ci-1"));
+        assert!(matches!(
+            events[0].kind,
+            Some(event::Kind::ResolutionUpdated(_))
+        ));
+        match events[1].kind.as_ref() {
+            Some(event::Kind::CreatureUpserted(u)) => {
+                let cr = u.creature.as_ref().expect("creature");
+                assert_eq!(cr.creature_id, "c-alice");
+                assert_eq!(cr.resources[0].current, 1);
+            }
+            other => panic!("expected CreatureUpserted, got {other:?}"),
+        }
+        assert_eq!(slots(&c), 1, "campaign state updated");
+    }
+
+    #[test]
+    fn warnings_ride_on_the_resolution_event_and_never_stop_the_action() {
+        let mut c = armed();
+        // `smite` now costs 3 of the 2 slots: it warns, still spends (the
+        // slots floor at 0) and so emits a CreatureUpserted too. The goblin
+        // is also moved beyond the 30 ft range (t-alice at x=105, 8 cells =
+        // 40 ft).
+        c.creatures
+            .iter_mut()
+            .find(|x| x.creature_id == "c-alice")
+            .expect("c-alice")
+            .abilities
+            .iter_mut()
+            .find(|a| a.ability_id == "smite")
+            .expect("smite")
+            .resource_amount = 3;
+        c.scenes[0].grid.as_mut().expect("grid").kind = pb::GridKind::Square as i32;
+        c.tokens
+            .iter_mut()
+            .find(|t| t.token_id == "t-goblin")
+            .expect("goblin")
+            .position = Some(p(385.0 + 280.0, 105.0));
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "smite", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2, "resolution then creature upsert");
+        assert!(matches!(
+            events[1].kind,
+            Some(event::Kind::CreatureUpserted(_))
+        ));
+        assert_eq!(slots(&c), 0, "slots floor at zero");
+        let r = resolution_of(&events[0]);
+        let codes: Vec<&str> = r.warnings.iter().map(|w| w.code.as_str()).collect();
+        assert_eq!(codes, ["not_enough_resource", "out_of_range"]);
+        assert_eq!(events[0].warnings, r.warnings);
+        // Only the first event carries them.
+        assert!(events[1].warnings.is_empty());
+        assert_eq!(r.outcomes.len(), 1, "still rolled");
+    }
+
+    #[test]
+    fn plain_intents_carry_no_warnings() {
+        let mut c = armed();
+        let e = run(&mut c, "alice", chat("hi")).unwrap();
+        assert!(e[0].warnings.is_empty());
+    }
+
+    #[test]
+    fn ids_are_filled_non_empty_and_unique_and_rolls_are_public() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        let r = resolution_of(&events[0]);
+        let o = &r.outcomes[0];
+        let rolls: Vec<&pb::RollResult> = o.roll.iter().chain(o.damage_rolls.iter()).collect();
+        assert_eq!(rolls.len(), 2);
+        let mut ids: Vec<&str> = rolls.iter().map(|x| x.roll_id.as_str()).collect();
+        ids.push(&r.resolution_id);
+        assert!(ids.iter().all(|i| !i.is_empty()));
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "ids unique: {ids:?}");
+        for roll in rolls {
+            assert_eq!(roll.roller_user_id, "alice");
+            assert_eq!(roll.visibility, RollVisibility::Public as i32);
+        }
+    }
+
+    #[test]
+    fn gm_rolls_are_attributed_to_the_gm_and_public() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-goblin", "claw", &["t-alice"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        let o = &resolution_of(&events[0]).outcomes[0];
+        let roll = o.roll.as_ref().expect("attack");
+        assert_eq!(roll.roller_user_id, "gm");
+        assert_eq!(roll.visibility, RollVisibility::Public as i32);
+    }
+
+    #[test]
+    fn log_keeps_every_event_unredacted_in_order() {
+        let mut c = armed();
+        let mut all = Vec::new();
+        all.extend(run(&mut c, "alice", chat("a")).unwrap());
+        all.extend(
+            run_with(
+                &mut c,
+                "alice",
+                use_ab("t-alice", "smite", &["t-goblin"]),
+                &mut hit_script(),
+            )
+            .unwrap(),
+        );
+        // A hidden target: only the GM may receive it, but the log keeps it.
+        all.extend(
+            run_with(
+                &mut c,
+                "gm",
+                use_ab("t-alice", "sword", &["t-hidden"]),
+                &mut hit_script(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(all.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 2, 3, 4]);
+        assert_eq!(c.log, all);
+        assert_eq!(c.seq, 4);
+        let kept = resolution_of(&c.log[1]);
+        assert_eq!(kept.outcomes[0].damage_rolls.len(), 1);
+        assert!(matches!(
+            c.log[2].kind,
+            Some(event::Kind::CreatureUpserted(_))
+        ));
+        assert_eq!(resolution_of(&c.log[3]).outcomes[0].token_id, "t-hidden");
+    }
+
+    /// A rejected use leaves seq, log, tokens and creatures untouched.
+    fn assert_rejected(c: &mut Campaign, actor: &str, i: Intent, expect: &str) {
+        let (seq, log, tokens, creatures) =
+            (c.seq, c.log.len(), c.tokens.clone(), c.creatures.clone());
+        let r = run_with(c, actor, i, &mut hit_script());
+        assert_eq!(code(r), expect);
+        assert_untouched(c, seq, log, &tokens);
+        assert_eq!(c.creatures, creatures);
+    }
+
+    #[test]
+    fn permission_failures_are_not_permitted_and_leak_nothing() {
+        let mut c = armed();
+        // Not a controller; hidden; missing.
+        for source in ["t-goblin", "t-hidden", "t-nobody"] {
+            assert_rejected(
+                &mut c,
+                "alice",
+                use_ab(source, "claw", &["t-alice"]),
+                "not_permitted",
+            );
+        }
+        // Another player's token; a spectator.
+        assert_rejected(
+            &mut c,
+            "bob",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            "not_permitted",
+        );
+        assert_rejected(
+            &mut c,
+            "spec",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            "not_permitted",
+        );
+        // A hidden source token the player controls is still invisible.
+        c.tokens
+            .iter_mut()
+            .find(|t| t.token_id == "t-alice")
+            .expect("alice token")
+            .hidden = true;
+        assert_rejected(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            "not_permitted",
+        );
+    }
+
+    #[test]
+    fn gm_naming_a_missing_source_gets_unknown_token() {
+        let mut c = armed();
+        assert_rejected(
+            &mut c,
+            "gm",
+            use_ab("t-nobody", "sword", &["t-goblin"]),
+            "unknown_token",
+        );
+    }
+
+    #[test]
+    fn source_without_a_creature_is_no_creature() {
+        let mut c = armed();
+        assert_rejected(
+            &mut c,
+            "alice",
+            use_ab("t-bare", "sword", &["t-goblin"]),
+            "no_creature",
+        );
+        // A token whose creature id points nowhere is the same.
+        c.tokens
+            .push(token("t-ghost", "c-gone", &["alice"], false, 175.0));
+        assert_rejected(
+            &mut c,
+            "alice",
+            use_ab("t-ghost", "sword", &["t-goblin"]),
+            "no_creature",
+        );
+    }
+
+    #[test]
+    fn unknown_ability_is_rejected() {
+        let mut c = armed();
+        assert_rejected(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "no-such", &["t-goblin"]),
+            "unknown_ability",
+        );
+        assert_rejected(&mut c, "gm", use_ab("t-alice", "", &[]), "unknown_ability");
+    }
+
+    #[test]
+    fn creature_ability_without_targets_is_no_targets() {
+        let mut c = armed();
+        assert_rejected(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "smite", &[]),
+            "no_targets",
+        );
+        assert_eq!(slots(&c), 2, "nothing spent");
+    }
+
+    #[test]
+    fn bad_targets_are_unknown_target() {
+        let mut c = armed();
+        // Missing; hidden from a player; no creature.
+        for target in ["t-nobody", "t-hidden", "t-bare"] {
+            assert_rejected(
+                &mut c,
+                "alice",
+                use_ab("t-alice", "sword", &["t-goblin", target]),
+                "unknown_target",
+            );
+        }
+        // The GM may target a hidden token, but not a missing one.
+        assert_rejected(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "sword", &["t-nobody"]),
+            "unknown_target",
+        );
+        assert_rejected(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "sword", &["t-bare"]),
+            "unknown_target",
+        );
+        run(&mut c, "gm", use_ab("t-alice", "sword", &["t-hidden"])).unwrap();
+    }
+
+    #[test]
+    fn unsupported_abilities_are_not_implemented() {
+        let mut c = armed();
+        for id in ["fireball", "save", "bad-dice"] {
+            assert_rejected(
+                &mut c,
+                "alice",
+                use_ab("t-alice", id, &["t-goblin"]),
+                "not_implemented",
+            );
+        }
+        assert_eq!(slots(&c), 2);
+    }
+
+    #[test]
+    fn entropy_failure_rejects_and_spends_nothing() {
+        let mut c = armed();
+        let mut rng = hit_script();
+        rng.fail = true;
+        let r = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "smite", &["t-goblin"]),
+            &mut rng,
+        );
+        assert_eq!(code(r), "rng_unavailable");
+        assert_eq!((c.seq, c.log.len(), slots(&c)), (0, 0, 2));
+    }
+
+    // ------------------------------------------------------------ visibility
+
+    #[test]
+    fn public_resolution_reaches_every_viewer() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        for who in ["gm", "alice", "bob", "spec"] {
+            let got = c.event_for(&events[0], &viewer(&c, who));
+            assert_eq!(got.as_ref(), Some(&events[0]), "{who} sees it");
+        }
+    }
+
+    #[test]
+    fn resolution_with_a_hidden_token_is_gm_only() {
+        let mut c = armed();
+        // Hidden target, GM attacker.
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "sword", &["t-hidden"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        assert!(c.event_for(&events[0], &viewer(&c, "gm")).is_some());
+        for who in ["alice", "bob", "spec"] {
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_none());
+        }
+        // Hidden source (a monster in hiding attacks a player).
+        c.creatures
+            .iter_mut()
+            .find(|x| x.creature_id == "c-hidden")
+            .expect("hidden creature")
+            .abilities = vec![ability(
+            "stab",
+            pb::TargetShape::Creatures,
+            vec![attack_step(4, "1d6")],
+        )];
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-hidden", "stab", &["t-alice"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        assert!(c.event_for(&events[0], &viewer(&c, "alice")).is_none());
+        assert!(c.event_for(&events[0], &viewer(&c, "gm")).is_some());
+    }
+
+    #[test]
+    fn a_monsters_resource_warning_reaches_only_those_who_see_its_sheet() {
+        let mut c = armed();
+        // The goblin's claw needs a use it does not have: the engine warns
+        // not_enough_resource, naming the goblin's resource and uses left.
+        let goblin = c
+            .creatures
+            .iter_mut()
+            .find(|x| x.creature_id == "c-goblin")
+            .expect("c-goblin");
+        goblin.resources = vec![pb::Resource {
+            key: "uses".into(),
+            label: "uses".into(),
+            current: 0,
+            max: 1,
+        }];
+        goblin.abilities[0].resource_key = "uses".into();
+        goblin.abilities[0].resource_amount = 1;
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-goblin", "claw", &["t-alice"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        let has_warning = |e: &Event| {
+            e.warnings.iter().any(|w| w.code == "not_enough_resource")
+                || resolution_of(e)
+                    .warnings
+                    .iter()
+                    .any(|w| w.code == "not_enough_resource")
+        };
+        assert!(has_warning(&events[0]), "the log keeps the warning");
+        let gm_copy = c.event_for(&events[0], &viewer(&c, "gm")).expect("gm");
+        assert!(has_warning(&gm_copy), "the GM sees it");
+        for who in ["alice", "bob", "spec"] {
+            let copy = c
+                .event_for(&events[0], &viewer(&c, who))
+                .unwrap_or_else(|| panic!("{who} still gets the public resolution"));
+            assert!(
+                !has_warning(&copy),
+                "{who} must not learn the goblin's uses"
+            );
+            assert_eq!(
+                resolution_of(&copy).outcomes,
+                resolution_of(&events[0]).outcomes,
+                "{who} still sees the rolls"
+            );
+        }
+    }
+
+    #[test]
+    fn a_player_never_receives_a_monsters_creature() {
+        let mut c = armed();
+        // Give the goblin a spendable resource so its claw emits a monster
+        // CreatureUpserted for the event filter to hold back.
+        let goblin = c
+            .creatures
+            .iter_mut()
+            .find(|x| x.creature_id == "c-goblin")
+            .expect("c-goblin");
+        goblin.resources = vec![pb::Resource {
+            key: "uses".into(),
+            label: "uses".into(),
+            current: 1,
+            max: 1,
+        }];
+        goblin.abilities[0].resource_key = "uses".into();
+        goblin.abilities[0].resource_amount = 1;
+        let mut all = Vec::new();
+        all.extend(
+            run_with(
+                &mut c,
+                "alice",
+                use_ab("t-alice", "smite", &["t-goblin"]),
+                &mut hit_script(),
+            )
+            .unwrap(),
+        );
+        all.extend(
+            run_with(
+                &mut c,
+                "gm",
+                use_ab("t-goblin", "claw", &["t-alice"]),
+                &mut hit_script(),
+            )
+            .unwrap(),
+        );
+        let monsters = ["c-goblin", "c-hidden"];
+        let monster_upsert = all
+            .iter()
+            .find(|e| {
+                matches!(&e.kind, Some(event::Kind::CreatureUpserted(u))
+                    if u.creature.as_ref().is_some_and(|x| x.creature_id == "c-goblin"))
+            })
+            .expect("the claw emits a goblin CreatureUpserted");
+        assert!(c.event_for(monster_upsert, &viewer(&c, "gm")).is_some());
+        for who in ["alice", "bob", "spec"] {
+            assert!(
+                c.event_for(monster_upsert, &viewer(&c, who)).is_none(),
+                "{who} must not get the goblin upsert"
+            );
+            let v = viewer(&c, who);
+            let snap = c.snapshot_for(&v);
+            assert!(
+                snap.creatures
+                    .iter()
+                    .all(|x| !monsters.contains(&x.creature_id.as_str())),
+                "{who} snapshot"
+            );
+            for e in &all {
+                if let Some(out) = c.event_for(e, &v) {
+                    if let Some(event::Kind::CreatureUpserted(u)) = out.kind {
+                        let id = u.creature.expect("creature").creature_id;
+                        assert!(!monsters.contains(&id.as_str()), "{who} got {id}");
+                    }
+                }
+            }
+        }
+        // The goblin's own sheet is still the GM's.
+        assert!(c
+            .snapshot_for(&viewer(&c, "gm"))
+            .creatures
+            .iter()
+            .any(|x| x.creature_id == "c-goblin"));
+    }
+
+    #[test]
+    fn creature_upserted_keeps_its_own_visibility() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "smite", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        // alice's sheet: GM and alice (owner and controller) only.
+        assert!(c.event_for(&events[1], &viewer(&c, "gm")).is_some());
+        assert!(c.event_for(&events[1], &viewer(&c, "alice")).is_some());
+        assert!(c.event_for(&events[1], &viewer(&c, "bob")).is_none());
+        assert!(c.event_for(&events[1], &viewer(&c, "spec")).is_none());
+    }
 }

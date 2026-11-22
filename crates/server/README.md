@@ -14,7 +14,7 @@ TT_DEV_AUTH=1 cargo run -p tt-server
 |---|---|---|
 | `TT_PORT` | listen port | 8788 (the mock uses 8787) |
 | `TT_BIND` | bind address | 127.0.0.1 |
-| `TT_SEED` | path to a `Snapshot` JSON file | embedded `contracts/fixtures/mock/snapshot.json` (a note is logged to stderr) |
+| `TT_SEED` | path to a `Snapshot` JSON file | embedded `contracts/fixtures/seeds/pregen-table.json`, the pregenerated table (a note is logged to stderr) |
 | `TT_DEV_AUTH` | `1` enables dev sign-in | off: every Hello is refused, and a stderr line says so |
 | `TT_LIVEKIT_URL` | LiveKit server URL, `wss://...` or `ws://...` | unset |
 | `TT_LIVEKIT_API_KEY` | LiveKit API key | unset |
@@ -32,6 +32,24 @@ There are no accounts yet (ADR 0008). With `TT_DEV_AUTH=1` a `Hello.session_toke
 - Events are broadcast unfiltered inside the process; each connection filters for its own viewer (using current state, under a brief lock) before encoding. Rejections go only to the sender.
 - The event log is in memory only and never trimmed. Nothing is persisted.
 - Visibility: only a GM's `GM_ONLY` roll is hidden; every other roll is forced `PUBLIC`.
+- Dice come from `Config.rolls` (an optional boxed `RollSource`); `None` uses the operating system. Tests inject a scripted one.
+
+## Using an ability (`UseAbilityIntent`)
+
+A GM, or a player who controls the (visible) source token, sends `use_ability` with `source_token_id`, `ability_id`, `target_token_ids` and optionally `mode`. The server finds the creatures behind the tokens, runs `tt-rules` (`resolve_attacks`, attack steps only) and appends, in this order, with consecutive `seq` and the intent's `client_intent_id`:
+
+1. one `ResolutionUpdated` in state `DONE`;
+2. a `CreatureUpserted` for the source creature, only if the ability spent a resource.
+
+Nothing else changes: **no hit points, temporary hit points or health states change in M2** (applying damage is M3, ADR 0013). `TargetOutcome.damage` stays empty and no target creature is modified.
+
+- Ids and attribution: the server fills `Resolution.resolution_id` and every `RollResult.roll_id` (attack and damage) from its id source, sets `roller_user_id` to the sender and `visibility` to `PUBLIC` (the intent has no visibility field; hiding a GM's ability roll is later).
+- Scene grid: taken from the scene of the source token. Without a grid, range is not checked.
+- Warnings never stop the action. The engine's warnings are in `Resolution.warnings` and also in `Event.warnings` of the `ResolutionUpdated` event (only that event). Codes: `out_of_range`, `too_many_targets`, `not_enough_resource`, `extra_targets_ignored` (see `common.proto`). A viewer who may not see the source creature's sheet (a player, for a monster) gets the resolution without `not_enough_resource`, because that warning names the creature's resource and how many uses are left.
+- Refusals go to the sender only and append nothing. Order of checks: permission, `unknown_token`, `no_creature`, `unknown_ability`, `unknown_target`, then the engine (`no_targets`, `not_implemented`), then `rng_unavailable`. Codes are in the table below.
+- A player naming a source token that is missing, hidden or not theirs always gets `not_permitted`, so a player can never learn what abilities a GM creature has.
+- Dice that do not parse in the ability's own data (not the client's request) are reported as `not_implemented`.
+- Visibility: `ResolutionUpdated` goes to every viewer (spectators included, like public chat) when neither the source token nor any target token is hidden; otherwise to the GM only. `CreatureUpserted` keeps the normal sheet rule, so a player never receives a monster's `Creature` (AC, HP) in a snapshot or an event. The log keeps every event unredacted.
 
 ## Video and voice (join tokens, ADR 0007)
 
@@ -83,10 +101,14 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 
 | Code | When |
 |---|---|
-| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token they do not control, that is hidden, or that does not exist; non-GM `set_controllers` or `set_level_background` |
+| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token) they do not control, that is hidden, or that does not exist; non-GM `set_controllers` or `set_level_background` |
 | `malformed_intent` | the intent has no kind |
-| `not_implemented` | any intent kind other than move, chat, roll, set_controllers, set_level_background |
-| `unknown_token` | GM names a token that does not exist (move, set_controllers) |
+| `not_implemented` | any intent kind other than move, chat, roll, use_ability, set_controllers, set_level_background; for `use_ability`, an area shape, a non-attack step, or ability data the engine cannot use (including dice that do not parse) |
+| `unknown_token` | GM names a token that does not exist (move, set_controllers, the source of use_ability) |
+| `no_creature` | `use_ability`: the source token has no creature |
+| `unknown_ability` | `use_ability`: the ability id is not on the source creature |
+| `no_targets` | `use_ability`: a creature-targeting ability with no targets |
+| `unknown_target` | `use_ability`: a target token that does not exist, is hidden from a player sender, or has no creature |
 | `empty_path` | move with no waypoints |
 | `path_too_long` | more than 256 waypoints |
 | `bad_coordinate` | NaN, infinite, or beyond 1,000,000 units |
@@ -110,7 +132,7 @@ See ADR 0006 and `view.rs`. Where the contract is silent the more restrictive be
 - Full creature sheets go to the GM, to the owner, and to controllers of a visible linked token. Not to spectators.
 - `set_controllers` also emits a `CreatureUpserted` for the token's creature, so a newly added controller receives the sheet. The filter decides who actually gets it. A controller who is removed keeps what they were already sent.
 - Unspecified roll visibility is treated as not public (GM only) when filtering.
-- `TokenRemoved`, `ResolutionUpdated`, `EventUndone` and events with no kind go to the GM only until a feature emits them with enough information to filter.
+- `TokenRemoved`, `EventUndone` and events with no kind go to the GM only until a feature emits them with enough information to filter.
 - An encounter reaches a non-GM only if every combatant is a known, non-hidden token.
 - All scenes and members go to every viewer; chat and public rolls go to everyone including spectators.
 - Also stricter than the mock: unknown `level_id` is rejected; a non-GM gets `not_permitted` for a missing token; coordinates are bounded.
@@ -122,6 +144,7 @@ The core is tested in `src/tests.rs`. `tests/serve.rs` checks `/healthz` and `/`
 - join: Snapshot identity and role; dev auth off; unknown user, malformed token, wrong campaign id; first frame not a Hello (an intent, garbage, empty); a text frame before the Hello; the 10 second Hello timeout (run on a paused tokio clock, so it takes no real time);
 - broadcast: chat reaches everyone with the same `seq`; a rejection goes only to the sender, with its `client_intent_id` and code, and uses no `seq`; `seq` strictly increases;
 - filtering over the wire: hidden tokens and hp in the Snapshot; a `GM_ONLY` roll and a hidden-token move reach the GM only; `set_controllers` delivers the token and creature to the new controller, who can then move it;
+- use_ability: with the pregen seed and a scripted roller, a player's attack reaches the GM and the player as the same `ResolutionUpdated` and nothing else (no token or creature event, no goblin sheet);
 - media: a player and a spectator get tokens with the right URL, room and grants (payload decoded in the test) and nobody else sees anything; no `seq` used; repeated requests; media off gives `media_not_configured` to the requester only; a request before Hello closes the socket;
 - hostile input: a message over 64 KiB (before and after joining), garbage after joining, text frames and a second Hello (ignored);
 - a client that stops reading is dropped (broadcast lag, found by flooding until the socket buffers fill; 12000 chats of 2000 characters).

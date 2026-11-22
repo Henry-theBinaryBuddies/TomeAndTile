@@ -107,6 +107,7 @@ async fn start_bound(bind: &str, dev_auth: bool, assets: Option<AssetConfig>) ->
             dev_auth,
             media: None,
             assets,
+            rolls: None,
         },
     ));
     Server { addr, handle }
