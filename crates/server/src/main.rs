@@ -2,6 +2,7 @@
 //!
 //! * `TT_PORT` (default 8788), `TT_BIND` (default 127.0.0.1)
 //! * `TT_SEED`: path to a Snapshot JSON file; unset uses the embedded dev seed
+//!   (`contracts/fixtures/seeds/pregen-table.json`)
 //! * `TT_DEV_AUTH=1`: enable `dev:<user_id>` login. DEV ONLY, NOT SECURITY.
 //! * `TT_LIVEKIT_URL`, `TT_LIVEKIT_API_KEY`, `TT_LIVEKIT_API_SECRET`: all
 //!   three enable video and voice, none leaves it off, anything in between
@@ -19,7 +20,7 @@ use tt_server::media::MediaConfig;
 use tt_server::{serve, Config};
 
 /// The dev seed, used when `TT_SEED` is unset.
-const DEV_SEED: &str = include_str!("../../../contracts/fixtures/mock/snapshot.json");
+const DEV_SEED: &str = include_str!("../../../contracts/fixtures/seeds/pregen-table.json");
 
 fn load_seed() -> Result<Snapshot, String> {
     let text = match std::env::var("TT_SEED") {
@@ -177,6 +178,7 @@ async fn main() -> ExitCode {
             dev_auth,
             media,
             assets,
+            rolls: None,
         },
     )
     .await
