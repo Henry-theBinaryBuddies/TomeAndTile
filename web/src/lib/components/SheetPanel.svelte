@@ -6,7 +6,9 @@
 	import {
 		abilityGroups,
 		actingTokenId,
+		beginTargeting,
 		buildUseAbilityKind,
+		endTargeting,
 		keepTargeting,
 		limitWarning,
 		pickCount,
@@ -17,8 +19,9 @@
 		sheetChoices,
 		startTargeting,
 		statBlockView,
-		type AbilityView,
-		type TargetingState
+		targetingSession,
+		updateTargeting,
+		type AbilityView
 	} from '../sheet';
 
 	const client = getGameClient();
@@ -40,9 +43,11 @@
 	const canAct = $derived(actingId !== null);
 
 	// ---- targeting ----
-	let targeting = $state<TargetingState | null>(null);
+	// Kept in a shared store, not here: the map adds picks too, and on a phone this panel is
+	// closed (unmounted) while the person taps the map.
+	const targeting = $derived($targetingSession?.state ?? null);
 	let startedFrom = '';
-	let targetingFor = '';
+	let wasTargeting = false;
 	let sentId = $state<string | null>(null);
 	let sentName = $state('');
 	let sendNote = $state('');
@@ -65,8 +70,8 @@
 	}
 
 	async function start(ability: AbilityView) {
-		targeting = startTargeting(ability);
-		targetingFor = currentId;
+		if (!current) return;
+		beginTargeting(currentId, startTargeting(ability));
 		startedFrom = `ability-${ability.abilityId}`;
 		sentId = null;
 		sendNote = '';
@@ -74,11 +79,19 @@
 		targetingEl?.focus();
 	}
 
-	async function stop() {
-		targeting = null;
-		await tick();
-		document.getElementById(startedFrom)?.focus();
+	function stop() {
+		endTargeting();
 	}
+
+	// However picking ended (Confirm, Cancel, Escape, another character), put focus back on the
+	// ability's button if this panel is on screen.
+	$effect(() => {
+		const active = targeting !== null;
+		if (wasTargeting && !active) {
+			void tick().then(() => document.getElementById(startedFrom)?.focus());
+		}
+		wasTargeting = active;
+	});
 
 	function confirm() {
 		if (!targeting || !actingId) return;
@@ -90,25 +103,18 @@
 		sendNote = '';
 		sentId = id;
 		sentName = targeting.abilityName;
-		void stop();
+		stop();
 	}
 
-	// Runs before the phone layout's own Escape handler (which closes the sheet), so the first
-	// Escape only ends targeting and a second one closes the sheet.
-	function onKey(e: KeyboardEvent) {
-		if (targeting && e.key === 'Escape') {
-			e.preventDefault();
-			e.stopPropagation();
-			void stop();
-		}
-	}
+	// Escape is handled for the whole page by the map (the Sheet may be closed), and it runs
+	// before the phone layout's own Escape handler, so the first Escape only ends picking.
 
 	// Leave targeting if the person switches character, or the character goes away. Reads only
 	// the id, so an unrelated server update (a roll, a move) does not end it mid-pick.
 	$effect(() => {
 		const shown = currentId;
 		untrack(() => {
-			if (targeting && !keepTargeting(targetingFor, shown)) void stop();
+			if ($targetingSession && !keepTargeting($targetingSession.creatureId, shown)) endTargeting();
 		});
 	});
 
@@ -126,8 +132,6 @@
 		[RollMode.DISADVANTAGE, 'Disadvantage']
 	];
 </script>
-
-<svelte:window onkeydowncapture={onKey} />
 
 {#if !$panelState.joined}
 	<p class="empty">Connecting…</p>
@@ -197,7 +201,7 @@
 									type="button"
 									aria-pressed={targeting.ordered ? undefined : count > 0}
 									class:picked={count > 0}
-									onclick={() => (targeting = pickToken(targeting!, token.tokenId))}
+									onclick={() => updateTargeting((t) => pickToken(t, token.tokenId))}
 								>
 									{token.name.trim() || 'Unknown'}{token.tokenId === actingId ? ' (you)' : ''}{targeting.ordered && count > 0 ? ` ×${count}` : ''}
 								</button>
@@ -214,7 +218,7 @@
 									type="button"
 									class="small"
 									aria-label="Remove {tokenName(id)}, pick {i + 1}"
-									onclick={() => (targeting = removePick(targeting!, i))}>Remove</button
+									onclick={() => updateTargeting((t) => removePick(t, i))}>Remove</button
 								>
 							</li>
 						{/each}
@@ -231,7 +235,7 @@
 								type="radio"
 								name="roll-mode"
 								checked={targeting.mode === value}
-								onchange={() => (targeting = setMode(targeting!, value))}
+								onchange={() => updateTargeting((t) => setMode(t, value))}
 							/>
 							<span>{label}</span>
 						</label>
@@ -242,7 +246,7 @@
 
 				<div class="actions">
 					<button type="button" class="primary" onclick={confirm}>Confirm</button>
-					<button type="button" onclick={() => void stop()}>Cancel</button>
+					<button type="button" onclick={stop}>Cancel</button>
 				</div>
 				<p class="hint small-print">Press Escape to cancel.</p>
 			</section>

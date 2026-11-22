@@ -14,6 +14,12 @@ export interface MapRenderer {
 	applyServerMessage(bytes: Uint8Array): void;
 	setIntentHandler(handler: (bytes: Uint8Array) => void): void;
 	setRejectionHandler(handler: (code: string, message: string, clientIntentId: string) => void): void;
+	/** Picking mode (crates/renderer/README.md, "Picking targets"). Off by default. */
+	setPicking(enabled: boolean): void;
+	/** Called with a token's id when it is clicked while picking is on. */
+	onPick(callback: (tokenId: string) => void): void;
+	/** Rings exactly these tokens; replaces the earlier set. */
+	setHighlights(tokenIds: string[]): void;
 	resize(cssWidth: number, cssHeight: number, devicePixelRatio: number): void;
 	render(): void;
 	destroy(): void;
@@ -45,11 +51,20 @@ export interface MapControllerOptions {
 	onRejection: (code: string) => void;
 	/** One frame could not be used. The map carries on with the next one. */
 	onFrameProblem?: (message: string) => void;
+	/** A token was clicked on the map while picking is on. Only the id is reported. */
+	onPick?: (tokenId: string) => void;
 }
 
 export interface MapController {
 	/** Call when the map's size or the device pixel ratio changes. */
 	resize(): void;
+	/**
+	 * Picking on or off. Remembered if the renderer is still starting, and ignored if it is
+	 * not available (picking from the Sheet's list does not need the map).
+	 */
+	setPicking(enabled: boolean): void;
+	/** Rings exactly these tokens. Remembered and ignored the same way. */
+	setHighlights(tokenIds: string[]): void;
 	/** Stop drawing, stop listening and destroy the renderer. Safe to call twice. */
 	destroy(): void;
 }
@@ -81,6 +96,18 @@ export function createMapController(options: MapControllerOptions): MapControlle
 	// Set when too many frames came after the newest Snapshot: later frames are dropped (there is
 	// nothing to apply them to) until the next Snapshot arrives.
 	let waitingForSnapshot = false;
+	// The latest picking settings, applied when the renderer is ready and kept across a restart.
+	let picking = false;
+	let highlights: string[] = [];
+
+	function sendPicking(target: MapRenderer): void {
+		try {
+			target.setPicking(picking);
+			target.setHighlights(highlights);
+		} catch {
+			options.onFrameProblem?.('The map could not update the picked targets.');
+		}
+	}
 
 	function deliver(frame: Uint8Array): void {
 		if (!renderer) return;
@@ -158,6 +185,10 @@ export function createMapController(options: MapControllerOptions): MapControlle
 			created.setRejectionHandler((code) => {
 				options.onRejection(code);
 			});
+			created.onPick((tokenId) => {
+				options.onPick?.(tokenId);
+			});
+			sendPicking(created);
 			applySize(created);
 		} catch {
 			failed = true;
@@ -182,6 +213,14 @@ export function createMapController(options: MapControllerOptions): MapControlle
 	});
 
 	return {
+		setPicking(enabled) {
+			picking = enabled;
+			if (!destroyed && renderer && !failed) sendPicking(renderer);
+		},
+		setHighlights(tokenIds) {
+			highlights = [...tokenIds];
+			if (!destroyed && renderer && !failed) sendPicking(renderer);
+		},
 		resize() {
 			if (!destroyed && renderer && !failed) applySize(renderer);
 		},
