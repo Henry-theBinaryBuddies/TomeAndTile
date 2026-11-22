@@ -22,7 +22,14 @@ const TEXT: Record<string, string> = {
 	dice_too_many_terms: 'That roll has too many parts.',
 	dice_bad_keep: 'The keep or drop part of that roll is not valid.',
 	dice_number_too_large: 'One of the numbers in that roll is too large.',
-	dice_too_long: 'That dice notation is too long.'
+	dice_too_long: 'That dice notation is too long.',
+	// Using an ability (UseAbilityIntent).
+	unknown_token: 'That token is not on the map any more.',
+	no_creature: 'That token has no character sheet, so it cannot use abilities.',
+	unknown_ability: 'That character does not have that ability. Reload the page and try again.',
+	no_targets: 'Pick at least one target first.',
+	unknown_target: 'One of those targets is gone or cannot be targeted. Pick again.',
+	rng_unavailable: 'The server could not roll the dice just now. Try again.'
 };
 
 export function rejectionText(code: string): string {

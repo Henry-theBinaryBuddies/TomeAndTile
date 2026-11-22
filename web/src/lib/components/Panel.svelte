@@ -14,6 +14,7 @@
 	import InitiativePanel from './InitiativePanel.svelte';
 	import MapImageControl from './MapImageControl.svelte';
 	import VideoPanel from './VideoPanel.svelte';
+	import SheetPanel from './SheetPanel.svelte';
 
 	type Mode = 'docked' | 'floating' | 'sheet';
 
@@ -22,8 +23,7 @@
 	const { state: gameState } = getGameClient();
 	const isGm = $derived($gameState.role === Role.GM);
 
-	const HINTS: Record<Exclude<PanelId, 'chat' | 'initiative' | 'video'>, string> = {
-		sheet: 'Your character sheet will appear here.',
+	const HINTS: Record<Exclude<PanelId, 'chat' | 'initiative' | 'video' | 'sheet'>, string> = {
 		tools: 'GM tools will appear here.'
 	};
 
@@ -126,6 +126,8 @@
 				<MapImageControl />
 			{:else if id === 'video'}
 				<VideoPanel />
+			{:else if id === 'sheet'}
+				<SheetPanel />
 			{:else}
 				<p class="empty">{HINTS[id]}</p>
 			{/if}
