@@ -70,6 +70,22 @@ impl Notation {
         }
     }
 
+    /// The expression for a single d20 plus `bonus`, as an attack roll.
+    pub fn attack(bonus: i32) -> Self {
+        Self {
+            count: 1,
+            sides: 20,
+            modifier: Some(bonus),
+        }
+    }
+
+    /// The critical-hit form: the dice count doubled, the modifier untouched.
+    /// `None` when that would exceed the 100-dice limit.
+    pub fn doubled_dice(&self) -> Option<Self> {
+        let count = self.count.checked_mul(2).filter(|c| *c <= 100)?;
+        Some(Self { count, ..*self })
+    }
+
     fn is_single_d20(&self) -> bool {
         self.count == 1 && self.sides == 20
     }
@@ -264,6 +280,24 @@ mod tests {
         assert_eq!(parse_notation(" 2 D 6 - 1 ").unwrap().canonical(), "2d6-1");
         assert_eq!(parse_notation("1d20+0").unwrap().canonical(), "1d20+0");
         assert_eq!(parse_notation("3d4").unwrap().canonical(), "3d4");
+    }
+
+    #[test]
+    fn attack_and_doubled_forms() {
+        assert_eq!(Notation::attack(5).canonical(), "1d20+5");
+        assert_eq!(Notation::attack(-1).canonical(), "1d20-1");
+        let dmg = parse_notation("1d8+3").unwrap();
+        assert_eq!(dmg.doubled_dice().unwrap().canonical(), "2d8+3");
+        let big = parse_notation("51d6").unwrap();
+        assert_eq!(big.doubled_dice(), None);
+        assert_eq!(
+            parse_notation("50d6")
+                .unwrap()
+                .doubled_dice()
+                .unwrap()
+                .count,
+            100
+        );
     }
 
     #[test]
