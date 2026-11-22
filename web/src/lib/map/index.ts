@@ -1,5 +1,6 @@
 export {
 	createMapController,
+	MISSED_UPDATES_MESSAGE,
 	NO_GRAPHICS_MESSAGE,
 	type FrameScheduler,
 	type MapController,

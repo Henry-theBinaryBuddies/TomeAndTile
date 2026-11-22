@@ -20,7 +20,12 @@
 	let refusalTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function showRefusal(code: string): void {
-		refusal = rejectionText(code);
+		showNotice(rejectionText(code));
+	}
+
+	// One short notice at a time, in the page's existing status region.
+	function showNotice(text: string): void {
+		refusal = text;
 		if (refusalTimer) clearTimeout(refusalTimer);
 		refusalTimer = setTimeout(() => {
 			refusal = null;
@@ -51,7 +56,8 @@
 				ready = false;
 				unavailable = message;
 			},
-			onRejection: showRefusal
+			onRejection: showRefusal,
+			onFrameProblem: showNotice
 		});
 		const observer = new ResizeObserver(() => controller.resize());
 		observer.observe(box);
