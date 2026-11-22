@@ -2,8 +2,13 @@
 // in a store, not in the panel, because on a phone the Sheet is closed (and so unmounted)
 // while the person taps tokens on the map. The picks and every rule about them stay in
 // targeting.ts; this file only holds the current state and connects it to the map.
-import { writable, type Readable } from 'svelte/store';
+//
+// The Sheet's own choices (which character, which token acts) are kept here too, for the same
+// reason: the Sheet's body is unmounted when the panel is collapsed or, on a phone, closed, and
+// picking must not end or change character when it comes back.
+import { get, writable, type Readable } from 'svelte/store';
 import { picksTargets, pickToken, type TargetingState } from './targeting';
+import { sheetChoices, type SheetChoice } from './view';
 
 export interface TargetingSession {
 	/** The character the ability belongs to. Picking ends if another character is shown. */
@@ -12,6 +17,37 @@ export interface TargetingSession {
 }
 
 const store = writable<TargetingSession | null>(null);
+
+/** Whose sheet is shown, and which of that character's tokens acts. */
+export interface SheetSelection {
+	creatureId: string;
+	/** The token chosen for `creatureId` when it has more than one; '' if none was chosen. */
+	tokenId: string;
+}
+
+const selection = writable<SheetSelection>({ creatureId: '', tokenId: '' });
+
+export const sheetSelection: Readable<SheetSelection> = { subscribe: selection.subscribe };
+
+/** Show another character's sheet. The token choice belongs to a character, so it is cleared. */
+export function selectCreature(creatureId: string): void {
+	selection.update((s) => (s.creatureId === creatureId ? s : { creatureId, tokenId: '' }));
+}
+
+/** Choose which of a character's tokens acts. */
+export function selectActingToken(creatureId: string, tokenId: string): void {
+	selection.set({ creatureId, tokenId });
+}
+
+/** The character to show: the selected one, or the first when none is selected or it is gone. */
+export function selectedChoice(choices: readonly SheetChoice[], sel: SheetSelection): SheetChoice | undefined {
+	return choices.find((c) => c.creatureId === sel.creatureId) ?? choices[0];
+}
+
+/** The token choice for the character on screen; a choice made for another character is ignored. */
+export function chosenTokenFor(sel: SheetSelection, creatureId: string): string {
+	return sel.creatureId === creatureId ? sel.tokenId : '';
+}
 
 /** The picking in progress, or null. */
 export const targetingSession: Readable<TargetingSession | null> = { subscribe: store.subscribe };
@@ -46,8 +82,36 @@ export function mapPickingFor(session: TargetingSession | null): { enabled: bool
 	return { enabled: true, highlights: highlightIds(session.state) };
 }
 
+/**
+ * Picking ends if its character is no longer one the viewer can use (a Snapshot removed it, or
+ * the connection restarted). The Sheet checks this too, but only while it is mounted; this one
+ * also covers a closed Sheet, which would otherwise leave the map in picking mode with stale
+ * rings until Escape. Returns the function that stops watching.
+ */
+export function endTargetingWhenGone(game: Readable<Parameters<typeof sheetChoices>[0]>): () => void {
+	return game.subscribe((gameState) => {
+		const session = get(store);
+		if (!session) return;
+		if (!sheetChoices(gameState).some((c) => c.creatureId === session.creatureId)) endTargeting();
+	});
+}
+
+/** Keeps a map in step with the session: picking on or off, and which tokens are ringed. */
+export function followTargeting(
+	map: { setPicking(enabled: boolean): void; setHighlights(tokenIds: string[]): void },
+	source: Readable<TargetingSession | null> = targetingSession
+): () => void {
+	return source.subscribe((session) => {
+		const { enabled, highlights } = mapPickingFor(session);
+		map.setPicking(enabled);
+		map.setHighlights(highlights);
+	});
+}
+
 interface EscapeEvent {
 	key: string;
+	/** True while an input method (IME) is composing text; Escape then belongs to the IME. */
+	isComposing?: boolean;
 	preventDefault(): void;
 	stopPropagation(): void;
 }
@@ -58,12 +122,7 @@ interface EscapeEvent {
  * closes the panel. Returns true if it handled the key.
  */
 export function endTargetingOnEscape(e: EscapeEvent): boolean {
-	let active = false;
-	store.update((s) => {
-		active = s !== null;
-		return s;
-	});
-	if (!active || e.key !== 'Escape') return false;
+	if (e.key !== 'Escape' || e.isComposing || get(store) === null) return false;
 	e.preventDefault();
 	e.stopPropagation();
 	endTargeting();

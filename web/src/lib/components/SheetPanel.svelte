@@ -8,6 +8,7 @@
 		actingTokenId,
 		beginTargeting,
 		buildUseAbilityKind,
+		chosenTokenFor,
 		endTargeting,
 		keepTargeting,
 		limitWarning,
@@ -15,8 +16,12 @@
 		pickToken,
 		picksTargets,
 		removePick,
+		selectActingToken,
+		selectCreature,
+		selectedChoice,
 		setMode,
 		sheetChoices,
+		sheetSelection,
 		startTargeting,
 		statBlockView,
 		targetingSession,
@@ -29,13 +34,14 @@
 
 	// ---- whose sheet ----
 	const choices = $derived(sheetChoices($panelState));
-	let selectedId = $state('');
-	const current = $derived(choices.find((c) => c.creatureId === selectedId) ?? choices[0]);
+	// Which character, and which token acts, are kept in a shared store (sheet/session.ts): this
+	// panel's body is unmounted when it is collapsed or closed, and picking must survive that.
+	const current = $derived(selectedChoice(choices, $sheetSelection));
 	// A plain string: `current` is rebuilt on every server update, but the id only changes when
 	// another character is shown. Effects that must ignore unrelated updates read this.
 	const currentId = $derived(current?.creatureId ?? '');
 	// Which token acts, when the character has more than one on this map.
-	let chosenTokenId = $state('');
+	const chosenTokenId = $derived(chosenTokenFor($sheetSelection, currentId));
 	const actingId = $derived(current ? actingTokenId(current, chosenTokenId) : null);
 	const creature = $derived(current ? $panelState.creatures[current.creatureId] : undefined);
 	const block = $derived(creature ? statBlockView(creature) : null);
@@ -118,14 +124,6 @@
 		});
 	});
 
-	// A different character has different tokens: forget the choice.
-	$effect(() => {
-		void currentId;
-		untrack(() => {
-			chosenTokenId = '';
-		});
-	});
-
 	const MODES: [RollMode, string][] = [
 		[RollMode.NORMAL, 'Normal'],
 		[RollMode.ADVANTAGE, 'Advantage'],
@@ -145,7 +143,7 @@
 					<span>Character</span>
 					<select
 						value={current.creatureId}
-						onchange={(e) => (selectedId = e.currentTarget.value)}
+						onchange={(e) => selectCreature(e.currentTarget.value)}
 					>
 						{#each choices as choice (choice.creatureId)}
 							<option value={choice.creatureId}>{choice.name}</option>
@@ -163,7 +161,7 @@
 				<span>Act as</span>
 				<select
 					value={chosenTokenId}
-					onchange={(e) => (chosenTokenId = e.currentTarget.value)}
+					onchange={(e) => selectActingToken(currentId, e.currentTarget.value)}
 					disabled={targeting !== null}
 				>
 					<option value="">Choose a token</option>

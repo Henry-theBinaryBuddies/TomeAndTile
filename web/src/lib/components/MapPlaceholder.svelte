@@ -9,7 +9,14 @@
 	import { rejectionText } from '../chat';
 	import { createMapController, startRenderer } from '../map';
 	import { getGameClient } from '../net';
-	import { endTargetingOnEscape, mapPickingFor, pickOnMap, targetingSession } from '../sheet';
+	import {
+		endTargetingOnEscape,
+		endTargetingWhenGone,
+		followTargeting,
+		mapPickingFor,
+		pickOnMap,
+		targetingSession
+	} from '../sheet';
 
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let slot: HTMLDivElement | undefined = $state();
@@ -63,12 +70,10 @@
 			onFrameProblem: showNotice,
 			onPick: pickOnMap
 		});
-		// Follows the Sheet's picks: picking on or off, and which tokens are ringed.
-		const stopPicking = targetingSession.subscribe((session) => {
-			const { enabled, highlights } = mapPickingFor(session);
-			controller.setPicking(enabled);
-			controller.setHighlights(highlights);
-		});
+		// Follows the Sheet's picks: picking on or off, and which tokens are ringed. Also ends
+		// picking if its character goes away while the Sheet is closed.
+		const stopPicking = followTargeting(controller);
+		const stopWatching = endTargetingWhenGone(getGameClient().state);
 		const observer = new ResizeObserver(() => controller.resize());
 		observer.observe(box);
 		// Browser zoom changes the pixel ratio without always changing the box size.
@@ -76,6 +81,7 @@
 		window.addEventListener('resize', onWindowResize);
 		return () => {
 			stopPicking();
+			stopWatching();
 			window.removeEventListener('resize', onWindowResize);
 			observer.disconnect();
 			if (refusalTimer) clearTimeout(refusalTimer);
