@@ -1,9 +1,13 @@
 // Wires the map renderer (crates/renderer, a WASM module) to the game socket. The
-// renderer owns the canvas and everything drawn on it (ADR 0011); this file only
-// passes bytes in and out, so it never decodes a message or draws anything.
+// renderer owns the canvas and everything drawn on it (ADR 0011); this file only passes
+// bytes in and out and draws nothing. While the renderer is starting it also looks at the
+// kind of each waiting frame (is it a Snapshot?), so it can drop what a Snapshot replaces;
+// it never reads a frame's contents beyond that.
 //
 // The controller is plain TypeScript with the renderer, the frame scheduler and the
 // socket passed in, so tests run it without a browser or a GPU.
+
+import { decodeServerMessage } from '../net/codec';
 
 /** The part of the renderer's published WASM interface that web/ uses (crates/renderer/README.md). */
 export interface MapRenderer {
@@ -51,14 +55,17 @@ export interface MapController {
 }
 
 /**
- * Frames received while the renderer is still starting are all kept, up to this many.
- * Past that the map stops and says so: dropping the oldest frame could drop the
- * Snapshot, and the later updates would then be drawn onto an empty map.
+ * Frames received while the renderer is still starting are kept, because the server does not
+ * replay the first Snapshot. A Snapshot replaces the whole state, so everything before the
+ * newest Snapshot is not needed and is dropped. If this many frames come after the newest
+ * Snapshot, the controller stops keeping them and waits for the next Snapshot (the client
+ * asks for a full one on every reconnect); it never drops a frame in the middle.
  */
-const MAX_WAITING_FRAMES = 200;
+const MAX_WAITING_FRAMES = 1000;
 
-export const TOO_MANY_WAITING_MESSAGE =
-	'The map stopped because too many updates arrived while it was starting. Reload the page to try again. Chat, dice and the other panels still work.';
+/** Shown if the map had to give up waiting frames and is waiting for a fresh Snapshot. */
+export const MISSED_UPDATES_MESSAGE =
+	'The map missed some updates while it was starting. It will catch up at the next full update from the server.';
 
 export const NO_GRAPHICS_MESSAGE =
 	'The map cannot start: this browser has no working graphics support (WebGPU or WebGL2). Chat, dice and the other panels still work.';
@@ -71,6 +78,9 @@ export function createMapController(options: MapControllerOptions): MapControlle
 	// Frames that arrive while the GPU is starting. A Snapshot sent right after Hello
 	// would otherwise be lost, because the server does not replay it.
 	let waiting: Uint8Array[] = [];
+	// Set when too many frames came after the newest Snapshot: later frames are dropped (there is
+	// nothing to apply them to) until the next Snapshot arrives.
+	let waitingForSnapshot = false;
 
 	function deliver(frame: Uint8Array): void {
 		if (!renderer) return;
@@ -83,17 +93,28 @@ export function createMapController(options: MapControllerOptions): MapControlle
 		}
 	}
 
+	function keepWhileStarting(frame: Uint8Array): void {
+		if (decodeServerMessage(frame)?.kind.case === 'snapshot') {
+			// Everything earlier is replaced by this Snapshot.
+			waiting = [frame];
+			waitingForSnapshot = false;
+			return;
+		}
+		if (waitingForSnapshot) return;
+		waiting.push(frame);
+		if (waiting.length > MAX_WAITING_FRAMES) {
+			waiting = [];
+			waitingForSnapshot = true;
+			options.onFrameProblem?.(MISSED_UPDATES_MESSAGE);
+		}
+	}
+
 	const unsubscribe = options.socket.onFrame((frame) => {
 		if (destroyed || failed) return;
 		if (renderer) {
 			deliver(frame);
 		} else {
-			waiting.push(frame);
-			if (waiting.length > MAX_WAITING_FRAMES) {
-				failed = true;
-				waiting = [];
-				options.onUnavailable(TOO_MANY_WAITING_MESSAGE);
-			}
+			keepWhileStarting(frame);
 		}
 	});
 
@@ -125,7 +146,7 @@ export function createMapController(options: MapControllerOptions): MapControlle
 	}
 
 	function start(created: MapRenderer): void {
-		if (destroyed || failed) {
+		if (destroyed) {
 			created.destroy();
 			return;
 		}
