@@ -3,6 +3,7 @@
 // microphone and opens no connection: that happens only when the user presses Join.
 import { createMediaClient, type MediaClient } from '../../../media/index';
 import { getGameClient } from '../net';
+import { createDeviceChoices, type DeviceChoiceStore } from './devices';
 
 let instance: MediaClient | null = null;
 
@@ -15,4 +16,12 @@ export function getMediaClient(): MediaClient {
 		instance = createMediaClient({ requestToken: () => getGameClient().requestMediaToken() });
 	}
 	return instance;
+}
+
+let devices: DeviceChoiceStore | null = null;
+
+/** The devices last picked in this call. Like the client, it outlives the Video panel. */
+export function getDeviceChoices(): DeviceChoiceStore {
+	if (!devices) devices = createDeviceChoices(getMediaClient().state);
+	return devices;
 }

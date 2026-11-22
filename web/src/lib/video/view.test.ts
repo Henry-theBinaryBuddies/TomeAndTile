@@ -9,6 +9,7 @@ import {
 	joinDisabled,
 	joinLabel,
 	micButtonLabel,
+	shownParticipant,
 	statusText,
 	tileView
 } from './view';
@@ -111,6 +112,29 @@ describe('tileView', () => {
 	it('keeps markup as plain text', () => {
 		const v = tileView(person({ name: '<img src=x onerror=alert(1)>' }));
 		expect(v.name).toBe('<img src=x onerror=alert(1)>');
+	});
+});
+
+describe('shownParticipant', () => {
+	const call = { micEnabled: true, cameraEnabled: true };
+
+	it('shows yourself as the call reports it, not as the last participant list said', () => {
+		const stale = person({ isLocal: true, micEnabled: false, cameraEnabled: false });
+		const shown = shownParticipant(stale, call);
+		expect(shown.micEnabled).toBe(true);
+		expect(shown.cameraEnabled).toBe(true);
+		expect(tileView(shown).summary).toBe('Gale (you). Microphone on. Camera on.');
+	});
+
+	it('shows other people exactly as reported', () => {
+		const other = person({ micEnabled: false, cameraEnabled: false });
+		expect(shownParticipant(other, call)).toBe(other);
+	});
+
+	it('does not change the participant it was given', () => {
+		const stale = person({ isLocal: true, micEnabled: false });
+		shownParticipant(stale, call);
+		expect(stale.micEnabled).toBe(false);
 	});
 });
 
