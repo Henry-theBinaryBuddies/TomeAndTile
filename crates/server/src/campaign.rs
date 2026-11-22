@@ -8,10 +8,12 @@ use std::collections::HashMap;
 
 use tt_contracts::v1::{
     event, intent, AssetRef, ChatPosted, Creature, CreatureUpserted, DiceRolled, Encounter, Event,
-    Intent, Member, MoveTokenIntent, Role, RollDiceIntent, RollMode, RollPurpose, RollResult,
-    RollVisibility, Scene, SceneUpserted, SetControllersIntent, SetLevelBackgroundIntent, Snapshot,
-    Token, TokenMoved, TokenUpserted, Vec2,
+    Intent, Member, MoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent,
+    RollMode, RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetControllersIntent,
+    SetLevelBackgroundIntent, Snapshot, Token, TokenMoved, TokenUpserted, UseAbilityIntent, Vec2,
+    Warning,
 };
+use tt_rules::attack::{resolve_attacks, AttackError};
 use tt_rules::dice::{self, Expr};
 
 use crate::ids::IdSource;
@@ -68,6 +70,10 @@ pub struct Campaign {
 
 /// A handler's result: the scene the events belong to and the event bodies.
 type Outcome = Result<(String, Vec<event::Kind>), Rejection>;
+
+/// Like [`Outcome`], plus warnings to attach to the FIRST event (a warning
+/// never stops the action).
+type WarnedOutcome = Result<(String, Vec<event::Kind>, Vec<Warning>), Rejection>;
 
 impl Campaign {
     /// Build a campaign from a full (unfiltered) snapshot.
@@ -128,14 +134,17 @@ impl Campaign {
         let Some(kind) = intent.kind else {
             return Err(Rejection::new("malformed_intent", "the intent has no kind"));
         };
-        let (scene_id, kinds) = match kind {
-            intent::Kind::MoveToken(m) => self.move_token(actor_user_id, is_gm, m)?,
-            intent::Kind::Chat(c) => self.chat(actor_user_id, &c.text)?,
+        let (scene_id, kinds, warnings) = match kind {
+            intent::Kind::MoveToken(m) => plain(self.move_token(actor_user_id, is_gm, m))?,
+            intent::Kind::Chat(c) => plain(self.chat(actor_user_id, &c.text))?,
             intent::Kind::RollDice(r) => {
-                self.roll_dice(actor_user_id, is_gm, r, now_ms, rng, ids)?
+                plain(self.roll_dice(actor_user_id, is_gm, r, now_ms, rng, ids))?
             }
-            intent::Kind::SetControllers(s) => self.set_controllers(is_gm, s)?,
-            intent::Kind::SetLevelBackground(b) => self.set_level_background(is_gm, b)?,
+            intent::Kind::SetControllers(s) => plain(self.set_controllers(is_gm, s))?,
+            intent::Kind::SetLevelBackground(b) => plain(self.set_level_background(is_gm, b))?,
+            intent::Kind::UseAbility(u) => {
+                self.use_ability(actor_user_id, is_gm, u, now_ms, rng, ids)?
+            }
             _ => {
                 return Err(Rejection::new(
                     "not_implemented",
@@ -144,6 +153,7 @@ impl Campaign {
             }
         };
         let mut events = Vec::with_capacity(kinds.len());
+        let mut warnings = Some(warnings);
         for kind in kinds {
             self.seq += 1;
             let event = Event {
@@ -152,13 +162,145 @@ impl Campaign {
                 scene_id: scene_id.clone(),
                 actor_user_id: actor_user_id.to_string(),
                 client_intent_id: client_intent_id.clone(),
-                warnings: Vec::new(),
+                warnings: warnings.take().unwrap_or_default(),
                 kind: Some(kind),
             };
             self.log.push(event.clone());
             events.push(event);
         }
         Ok(events)
+    }
+
+    /// `UseAbilityIntent`: resolve an attack ability with the rules engine.
+    /// Order of refusals: permission (a player naming a missing, hidden or
+    /// uncontrolled source gets `not_permitted`, so no GM creature's abilities
+    /// leak), `unknown_token` (GM), `no_creature`, `unknown_ability`,
+    /// `unknown_target`, then the engine's `no_targets` / `not_implemented`,
+    /// then `rng_unavailable`. A dice error in the ability's own data is
+    /// reported as `not_implemented`: the client's request was fine.
+    fn use_ability(
+        &mut self,
+        actor: &str,
+        is_gm: bool,
+        u: UseAbilityIntent,
+        now_ms: i64,
+        rng: &mut dyn RollSource,
+        ids: &mut dyn IdSource,
+    ) -> WarnedOutcome {
+        let source_token = match self.tokens.iter().find(|t| t.token_id == u.source_token_id) {
+            Some(t) if is_gm || (!t.hidden && t.controller_user_ids.iter().any(|c| c == actor)) => {
+                t.clone()
+            }
+            Some(_) => return Err(Rejection::not_permitted()),
+            None if is_gm => {
+                return Err(Rejection::new(
+                    "unknown_token",
+                    format!("no token {:?}", u.source_token_id),
+                ))
+            }
+            None => return Err(Rejection::not_permitted()),
+        };
+        let creature_idx = self.creatures.iter().position(|c| {
+            !source_token.creature_id.is_empty() && c.creature_id == source_token.creature_id
+        });
+        let Some(creature_idx) = creature_idx else {
+            return Err(Rejection::new(
+                "no_creature",
+                "the source token has no creature",
+            ));
+        };
+        let source = self.creatures[creature_idx].clone();
+        if !source
+            .abilities
+            .iter()
+            .any(|a| a.ability_id == u.ability_id)
+        {
+            return Err(Rejection::new(
+                "unknown_ability",
+                format!("the creature has no ability {:?}", u.ability_id),
+            ));
+        }
+        // Targets, in the order listed. A hidden token is unknown to a player.
+        let mut targets: Vec<(Token, Creature)> = Vec::with_capacity(u.target_token_ids.len());
+        for id in &u.target_token_ids {
+            let pair = self
+                .tokens
+                .iter()
+                .find(|t| &t.token_id == id && (is_gm || !t.hidden))
+                .filter(|t| !t.creature_id.is_empty())
+                .and_then(|t| {
+                    let c = self
+                        .creatures
+                        .iter()
+                        .find(|c| c.creature_id == t.creature_id)?;
+                    Some((t.clone(), c.clone()))
+                });
+            let Some(pair) = pair else {
+                return Err(Rejection::new(
+                    "unknown_target",
+                    format!("token {id:?} does not exist or has no creature"),
+                ));
+            };
+            targets.push(pair);
+        }
+        let grid = self
+            .scenes
+            .iter()
+            .find(|s| s.scene_id == source_token.scene_id)
+            .and_then(|s| s.grid)
+            .unwrap_or_default();
+        let mode = RollMode::try_from(u.mode).unwrap_or(RollMode::Unspecified);
+        let resolved = resolve_attacks(
+            &source_token,
+            &source,
+            &u.ability_id,
+            &targets,
+            &grid,
+            mode,
+            rng,
+        )
+        .map_err(|e| match e {
+            AttackError::UnknownAbility => Rejection::new("unknown_ability", e.to_string()),
+            AttackError::NoTargets => Rejection::new("no_targets", e.to_string()),
+            AttackError::NotImplemented | AttackError::Dice(_) => {
+                Rejection::new("not_implemented", e.to_string())
+            }
+        })?;
+        // Checked after rolling and before any state change: a failed
+        // entropy read discards the whole use.
+        if rng.take_failure() {
+            return Err(Rejection::new(
+                "rng_unavailable",
+                "the server could not get secure randomness; try again",
+            ));
+        }
+
+        // Validated: fill ids and attribution, then mutate.
+        let mut resolution = resolved.resolution;
+        resolution.resolution_id = ids.next_id(now_ms);
+        resolution.state = ResolutionState::Done as i32;
+        for outcome in &mut resolution.outcomes {
+            for roll in outcome
+                .roll
+                .iter_mut()
+                .chain(outcome.damage_rolls.iter_mut())
+            {
+                roll.roll_id = ids.next_id(now_ms);
+                roll.roller_user_id = actor.to_string();
+                roll.visibility = RollVisibility::Public as i32;
+            }
+        }
+        let warnings = resolution.warnings.clone();
+        let mut kinds = vec![event::Kind::ResolutionUpdated(ResolutionUpdated {
+            resolution: Some(resolution),
+        })];
+        if resolved.source != source {
+            self.creatures[creature_idx] = resolved.source.clone();
+            kinds.push(event::Kind::CreatureUpserted(CreatureUpserted {
+                creature: Some(resolved.source),
+            }));
+        }
+        Ok((source_token.scene_id, kinds, warnings))
     }
 
     fn move_token(&mut self, actor: &str, is_gm: bool, m: MoveTokenIntent) -> Outcome {
@@ -402,6 +544,11 @@ impl Campaign {
         }
         Ok((scene_id, kinds))
     }
+}
+
+/// Adapt a handler with no warnings to the warned shape.
+fn plain(outcome: Outcome) -> WarnedOutcome {
+    outcome.map(|(scene_id, kinds)| (scene_id, kinds, Vec::new()))
 }
 
 /// Sum of straight-line segment lengths from `start` through `path`, in feet.

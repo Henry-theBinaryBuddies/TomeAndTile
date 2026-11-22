@@ -14,12 +14,13 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
     client_message, event, intent, server_message, ChatIntent, ClientMessage, Creature, Event,
-    Hello, Intent, Level, MediaToken, MediaTokenRequest, Member, MoveTokenIntent, Role,
-    RollDiceIntent, RollMode, RollVisibility, Scene, ServerMessage, SetControllersIntent, Snapshot,
-    Token, Vec2,
+    Hello, HitOutcome, Intent, Level, MediaToken, MediaTokenRequest, Member, MoveTokenIntent,
+    ResolutionState, Role, RollDiceIntent, RollMode, RollVisibility, Scene, ServerMessage,
+    SetControllersIntent, Snapshot, Token, UseAbilityIntent, Vec2,
 };
 use tt_server::media::MediaConfig;
 use tt_server::net::MAX_MESSAGE_BYTES;
+use tt_server::rng::RollSource;
 use tt_server::{serve, Config};
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -126,6 +127,7 @@ async fn start_with_media(dev_auth: bool, media: Option<MediaConfig>) -> Server 
             dev_auth,
             media,
             assets: None,
+            rolls: None,
         },
     ));
     Server { addr, handle }
@@ -794,4 +796,94 @@ async fn media_request_before_hello_closes_the_socket() {
     let mut c = Client::connect(server.addr).await;
     c.request_media().await;
     c.expect_closed().await;
+}
+
+// ------------------------------------------------------------- use_ability
+
+/// Fixed dice: cycles through `values`; a d-N die shows `value % N + 1`.
+struct FixedRolls {
+    values: Vec<u64>,
+    i: usize,
+}
+
+impl tt_rules::dice::Rng for FixedRolls {
+    fn next_u64(&mut self) -> u64 {
+        let v = self.values[self.i % self.values.len()];
+        self.i += 1;
+        v
+    }
+}
+
+impl RollSource for FixedRolls {
+    fn take_failure(&mut self) -> bool {
+        false
+    }
+}
+
+const PREGEN_SEED: &str = include_str!("../../../contracts/fixtures/seeds/pregen-table.json");
+
+#[tokio::test]
+async fn player_attack_is_one_public_resolution_for_everyone() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let handle = tokio::spawn(serve(
+        listener,
+        Config {
+            seed: serde_json::from_str(PREGEN_SEED).expect("pregen seed parses"),
+            dev_auth: true,
+            media: None,
+            assets: None,
+            // Attack 15 + 5 = 20 beats the goblin's AC 13; damage 4 + 3 = 7.
+            rolls: Some(Box::new(FixedRolls {
+                values: vec![14, 3],
+                i: 0,
+            })),
+        },
+    ));
+    let server = Server { addr, handle };
+    let (mut gm, _) = join(&server, "mock-gm").await;
+    let (mut player, snapshot) = join(&server, "mock-player").await;
+    assert!(
+        snapshot
+            .creatures
+            .iter()
+            .all(|c| c.creature_id != "creature-goblin"),
+        "the goblin's sheet is not in the player's snapshot"
+    );
+
+    player
+        .send_intent(
+            "atk-1",
+            intent::Kind::UseAbility(UseAbilityIntent {
+                source_token_id: "token-brannoch".into(),
+                ability_id: "longsword".into(),
+                target_token_ids: vec!["token-goblin".into()],
+                ..Default::default()
+            }),
+        )
+        .await;
+    let from_player = player.recv_event().await;
+    let from_gm = gm.recv_event().await;
+    assert_eq!(from_player, from_gm, "both see the same event");
+    assert_eq!(from_player.seq, 1);
+    assert_eq!(from_player.client_intent_id, "atk-1");
+    assert_eq!(from_player.actor_user_id, "mock-player");
+    let Some(event::Kind::ResolutionUpdated(u)) = from_player.kind else {
+        panic!("expected ResolutionUpdated, got {:?}", from_player.kind);
+    };
+    let r = u.resolution.expect("resolution");
+    assert_eq!(r.state, ResolutionState::Done as i32);
+    assert_eq!(r.outcomes.len(), 1);
+    let o = &r.outcomes[0];
+    assert_eq!(o.token_id, "token-goblin");
+    assert_eq!(o.outcome, HitOutcome::Hit as i32);
+    assert_eq!(o.roll.as_ref().expect("attack").total, 20);
+    assert_eq!(o.damage_rolls.len(), 1);
+    assert_eq!(o.damage_rolls[0].total, 7);
+    assert_eq!(o.damage_rolls[0].roller_user_id, "mock-player");
+
+    // Nothing else followed: no token or creature event reached anyone.
+    let s = sentinel(&mut player, 1).await;
+    player.expect_chat(&s).await;
+    gm.expect_chat(&s).await;
 }
