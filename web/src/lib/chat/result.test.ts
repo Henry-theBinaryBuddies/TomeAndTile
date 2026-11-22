@@ -124,6 +124,10 @@ describe('resultCardView', () => {
 		expect(view(resolution({ state: ResolutionState.CANCELLED })).stateText).toBe('Cancelled');
 	});
 
+	it('says the state is unknown when the server sent none, instead of "In progress"', () => {
+		expect(view(resolution({ state: ResolutionState.UNSPECIFIED })).stateText).toBe('State unknown');
+	});
+
 	it('keeps text from the server as plain text', () => {
 		const v = view(resolution({ abilityName: '<b>Smite</b>', outcomes: [outcome('gob2', HitOutcome.HIT)] }));
 		expect(v.abilityName).toBe('<b>Smite</b>');
