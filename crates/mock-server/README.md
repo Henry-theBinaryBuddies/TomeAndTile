@@ -2,7 +2,7 @@
 
 A stand-in for the game server. It speaks the real game-socket protocol (binary WebSocket frames, each a `ClientMessage` up or a `ServerMessage` down) from recorded data, so the web UI and importers can be built before the real server exists.
 
-> **Warning: this is not the server.** It applies no rules and no per-viewer filtering. The only permission it checks is the GM role, for asset upload and `set_level_background`, so the UI can exercise those refusal paths; that is still not security. Every client may move any token, every client sees every field, and every die is public. A UI must never rely on the mock for anything the real server will hide or refuse. Do not add rules or permission logic here; that belongs in `tt-server` and `tt-rules`.
+> **Warning: this is not the server.** It applies no rules. Its only per-viewer filtering is which creature sheets go in the Snapshot, and the only permissions it checks are the GM role (asset upload, `set_level_background`) and token control for `use_ability`, so the UI can exercise those refusal paths; that is still not security. Every client may move any token, every client sees every token field (including hit points), and every die is public. A UI must never rely on the mock for anything the real server will hide or refuse. Do not add rules or permission logic here; that belongs in `tt-server` and `tt-rules`.
 
 ## Run
 
@@ -12,13 +12,14 @@ cargo run -p tt-mock-server
 
 It prints `Tome & Tile mock server listening on ws://127.0.0.1:8787/ws`. The port defaults to 8787; set `TT_MOCK_PORT` to change it. It binds `127.0.0.1` only. `GET /` returns a one-line text description.
 
-The starting state is `contracts/fixtures/mock/snapshot.json`: one campaign, one square-grid scene (cell 70, 5 ft per cell), a player token "Aria" (token id `token-aria`, controlled by `mock-player`) and a monster "Goblin" (`token-goblin`, no hit points shown). State is shared by every connection and lives in memory; restart the process to reset it.
+The starting state is the pregen table seed, `contracts/fixtures/seeds/pregen-table.json`: one campaign, one square-grid scene (cell 70, 5 ft per cell), seven tokens and six creature sheets. The tokens are "Aria" (`token-aria`, no creature, 24 HP), a "Goblin" (`token-goblin`, creature `creature-goblin`, no hit points shown) and the five pregenerated characters (`token-brannoch`, `token-tamsin`, `token-korvath`, `token-maribel`, `token-ilvaren`, each linked to a creature). `mock-player` controls Aria and the five pregens. State is shared by every connection and lives in memory; restart the process to reset it.
 
 ## Protocol behaviour
 
 - The first binary frame must be a `ClientMessage` with `hello`. The reply is a `Snapshot` of the current state (`seq` is the last event so far). Anything else first closes the connection.
 - Identity: `session_token` of exactly `gm` is user `mock-gm` with role GM; any other token is user `mock-player` with role PLAYER. `campaign_id` and `last_seq` are ignored (there is no replay; reconnect and use the Snapshot).
 - Incoming messages are limited to 64 KiB. Text frames are ignored. A frame that does not decode as a `ClientMessage` closes that connection only. A second `hello` is ignored.
+- Creatures are per viewer, following `creature_visible` in `tt-server`: `mock-gm` gets every creature, `mock-player` only the creatures linked to a visible token it controls (or that it owns), so the five pregens and not the goblin's. Tokens are not filtered or redacted: every viewer sees every token with whatever HP the seed carries (only the tokens `mock-player` controls carry HP). Events never carry creatures; the mock sends no `creature_upserted`.
 - Every event goes to every connected client that has said hello, including the sender. Events carry a strictly increasing global `seq`, the server clock in `at_ms`, the fixture scene id, the sender as `actor_user_id` and the causing `client_intent_id`.
 - A client that falls more than 256 events behind is disconnected; it can reconnect and get a fresh Snapshot.
 
@@ -28,10 +29,25 @@ The starting state is `contracts/fixtures/mock/snapshot.json`: one campaign, one
 | `chat` | Broadcasts `chat_posted`. Rejects `empty_chat`, or `chat_too_long` above 2000 characters. |
 | `roll_dice` | Notation `NdM`, `NdM+K`, `NdM-K` (N 1-100, M one of 4, 6, 8, 10, 12, 20, 100, whitespace allowed). Advantage or disadvantage applies only to a single d20 (two dice, one `dropped`). Always PUBLIC visibility, purpose FREEFORM. Broadcasts `dice_rolled`. Rejects `bad_notation`. The random source is a clock-seeded xorshift and is not suitable for the real server. |
 | `set_level_background` | GM only. Sets the level's background to the uploaded `AssetRef` (the same one the upload returned), or clears it when `asset_id` is empty, and broadcasts `scene_upserted` with the updated scene; later Snapshots include it. Rejects `not_permitted` (sender is not `mock-gm`), `unknown_scene`, `unknown_level`, or `unknown_asset` (non-empty id that was not uploaded). |
+| `use_ability` | See below. |
 | anything else | Rejects `not_supported_by_mock`, echoing `client_intent_id`. |
 | `media_token_request` | Ignored; no reply. |
 
 Rejections go to the sender only and do not use a sequence number.
+
+## use_ability
+
+The GM, or a controller of the source token, may use an ability whose steps are all attack steps. The mock broadcasts one `resolution_updated` event with the resolution in state DONE, with:
+
+- One `TargetOutcome` per listed target for an ability with one attack step. For several attack steps (Scorching Ray), one outcome per step, in step order, pairing step *i* with target *i*; `step_index` is the index into `Ability.steps`. Targets past the last step are ignored (`extra_targets_ignored`), and steps past the last target are not rolled.
+- For each attack, a d20 + `to_hit_bonus` roll (purpose ATTACK, notation like `1d20+5`, label `<Ability> attack`) compared with the target creature's `armor_class`. A natural 20 is a critical hit, a natural 1 a miss; `mode` gives advantage or disadvantage.
+- On a hit, one DAMAGE roll per damage part (label `<Ability> damage`), with the dice doubled and the modifier unchanged on a critical hit.
+- `roller_creature_id` is the source creature, `roller_user_id` the sender, visibility PUBLIC. `resolution_id` is `res-<n>` and each `roll_id` is `roll-<n>-<k>`, unique per use; freeform rolls stay `roll-<seq>`.
+- `too_many_targets` (one attack step, `max_targets` above 0, more targets than that; every target is still resolved) and `extra_targets_ignored` go in `Resolution.warnings` and `Event.warnings`, at most once each.
+
+Rejections, checked in this order: `not_permitted` (a player naming a source token it does not control, or one that does not exist or is hidden), `unknown_token` (the GM naming a missing one), `no_creature`, `unknown_ability`, `no_targets` (a creature-targeting ability with no targets), `unknown_target` (a target token that does not exist, is hidden from a player, or has no creature), `not_supported_by_mock` (any ability that is not all attack steps, an area shape, or one with no steps).
+
+What the mock skips: range (it never sends `out_of_range`), resources (it never sends `not_enough_resource`, spends nothing and sends no `creature_upserted`), applying damage (no HP changes, no `token_upserted`, `damage` and `dropped_to_zero` stay empty), and token HP redaction.
 
 ## HTTP: asset upload
 

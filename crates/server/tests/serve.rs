@@ -31,6 +31,7 @@ async fn healthz_and_banner_answer() {
             dev_auth: false,
             media: None,
             assets: None,
+            rolls: None,
         },
     ));
     let health = get(addr, "/healthz").await;

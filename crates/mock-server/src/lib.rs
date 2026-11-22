@@ -1,9 +1,11 @@
 //! Mock game server: speaks the real game-socket protocol from recorded data.
 //!
-//! It applies NO rules and does no per-viewer filtering. The only permission it
-//! checks is the GM role, for asset upload and `set_level_background`, so the
-//! UI can exercise those refusal paths. It exists so the web UI and importers
-//! can be built before the real server does. See the crate README.
+//! It applies NO rules. It filters one thing per viewer, the creature sheets in
+//! the Snapshot, and checks permission only for asset upload,
+//! `set_level_background` and `use_ability`, so the UI can exercise those
+//! refusal paths. `use_ability` rolls attack and damage for attack abilities
+//! but changes no hit points. It exists so the web UI and importers can be
+//! built before the real server does. See the crate README.
 //!
 //! Besides the socket it serves a small HTTP asset surface (ADR 0014):
 //! `POST /campaigns/{campaign_id}/assets` stores an image in memory and
@@ -32,15 +34,17 @@ use prost::Message as _;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tt_contracts::v1::{
-    client_message, event, intent, server_message, AssetRef, ChatPosted, ClientMessage, DiceRolled,
-    Event, Hello, Intent, IntentRejected, Role, SceneUpserted, ServerMessage, Snapshot, Token,
-    TokenMoved, Vec2,
+    client_message, effect_step, event, intent, server_message, Ability, AssetRef, ChatPosted,
+    ClientMessage, Creature, DiceRolled, Event, Hello, HitOutcome, Intent, IntentRejected,
+    Resolution, ResolutionState, ResolutionUpdated, Role, RollMode, RollPurpose, RollResult,
+    SceneUpserted, ServerMessage, Snapshot, TargetOutcome, TargetShape, Token, TokenMoved,
+    UseAbilityIntent, Vec2, Warning,
 };
 
 use dice::{Rng, XorShift64Star};
 
-/// The recorded game state every connection starts from.
-const FIXTURE: &str = include_str!("../../../contracts/fixtures/mock/snapshot.json");
+/// The recorded game state every connection starts from: the pregen table seed.
+const FIXTURE: &str = include_str!("../../../contracts/fixtures/seeds/pregen-table.json");
 
 /// Largest accepted WebSocket message.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
@@ -56,7 +60,8 @@ const BROADCAST_CAPACITY: usize = 256;
 /// Parse the embedded fixture. Panics only if the committed fixture is broken,
 /// which a unit test guards against.
 pub fn fixture_snapshot() -> Snapshot {
-    serde_json::from_str(FIXTURE).expect("contracts/fixtures/mock/snapshot.json parses as Snapshot")
+    serde_json::from_str(FIXTURE)
+        .expect("contracts/fixtures/seeds/pregen-table.json parses as Snapshot")
 }
 
 /// State shared by every connection in the process.
@@ -66,6 +71,8 @@ struct Game {
     tokens: Vec<Token>,
     /// Sequence of the last event emitted; 0 before any.
     seq: u64,
+    /// Count of resolutions so far; numbers `resolution_id` and `roll_id`.
+    resolutions: u64,
     rng: Box<dyn Rng + Send>,
     /// Uploaded assets by id; memory only.
     assets: HashMap<String, StoredAsset>,
@@ -112,6 +119,7 @@ pub async fn serve_with_rng(
             tokens: template.tokens.clone(),
             template,
             seq: 0,
+            resolutions: 0,
             rng,
             assets: HashMap::new(),
         }),
@@ -462,6 +470,13 @@ fn join(shared: &Shared, hello: &Hello) -> (String, Bytes, broadcast::Receiver<B
     snapshot.user_id = user_id.to_string();
     snapshot.role = role as i32;
     snapshot.tokens = game.tokens.clone();
+    snapshot.creatures = game
+        .template
+        .creatures
+        .iter()
+        .filter(|c| game.creature_visible(c, user_id, role))
+        .cloned()
+        .collect();
     let bytes = server_bytes(server_message::Kind::Snapshot(snapshot));
     (user_id.to_string(), bytes, rx)
 }
@@ -481,17 +496,20 @@ fn handle_intent(shared: &Shared, user_id: &str, intent: Intent) -> Option<Bytes
     let id = intent.client_intent_id.as_str();
     let mut game = shared.lock();
     let result = match intent.kind.as_ref() {
-        Some(intent::Kind::MoveToken(m)) => game.move_token(m),
-        Some(intent::Kind::Chat(c)) => game.chat(user_id, c.text.as_str()),
-        Some(intent::Kind::RollDice(r)) => game.roll_dice(user_id, r),
-        Some(intent::Kind::SetLevelBackground(b)) => game.set_level_background(user_id, b),
+        Some(intent::Kind::MoveToken(m)) => game.move_token(m).map(plain),
+        Some(intent::Kind::Chat(c)) => game.chat(user_id, c.text.as_str()).map(plain),
+        Some(intent::Kind::RollDice(r)) => game.roll_dice(user_id, r).map(plain),
+        Some(intent::Kind::UseAbility(u)) => game.use_ability(user_id, u),
+        Some(intent::Kind::SetLevelBackground(b)) => {
+            game.set_level_background(user_id, b).map(plain)
+        }
         _ => Err((
             "not_supported_by_mock",
             "the mock server does not support this intent".to_string(),
         )),
     };
     match result {
-        Ok(kind) => {
+        Ok((kind, warnings)) => {
             game.seq += 1;
             let scene_id = match &kind {
                 event::Kind::SceneUpserted(u) => u
@@ -512,7 +530,7 @@ fn handle_intent(shared: &Shared, user_id: &str, intent: Intent) -> Option<Bytes
                 scene_id,
                 actor_user_id: user_id.to_string(),
                 client_intent_id: id.to_string(),
-                warnings: Vec::new(),
+                warnings,
                 kind: Some(kind),
             };
             // Sent while the lock is held so every client sees events in seq
@@ -528,7 +546,298 @@ fn handle_intent(shared: &Shared, user_id: &str, intent: Intent) -> Option<Bytes
 
 type Rejection = (&'static str, String);
 
+/// An event body plus the warnings that ride on `Event.warnings`.
+type Outcome = (event::Kind, Vec<Warning>);
+
+fn plain(kind: event::Kind) -> Outcome {
+    (kind, Vec::new())
+}
+
+/// The GM's mock user id; any other user is a player.
+const GM_USER: &str = "mock-gm";
+
+fn warning(code: &str, message: String) -> Warning {
+    Warning {
+        code: code.to_string(),
+        message,
+    }
+}
+
+/// One attack step ready to roll: its dice parsed ahead of any die thrown.
+struct PreparedAttack {
+    step_index: u32,
+    attack: dice::Notation,
+    /// Each damage part as written, and with its dice doubled for a crit.
+    damage: Vec<(dice::Notation, dice::Notation)>,
+}
+
+/// Parse an all-attack ability, or `None` if there are no steps, any step is
+/// not an attack, or the dice text is outside what the mock parses.
+fn prepare_attacks(ability: &Ability) -> Option<Vec<PreparedAttack>> {
+    if ability.steps.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(ability.steps.len());
+    for (i, step) in ability.steps.iter().enumerate() {
+        let Some(effect_step::Step::Attack(a)) = &step.step else {
+            return None;
+        };
+        let mut damage = Vec::with_capacity(a.damage.len());
+        for part in &a.damage {
+            let normal = dice::parse_notation(&part.dice)?;
+            damage.push((normal, normal.doubled_dice()?));
+        }
+        out.push(PreparedAttack {
+            step_index: u32::try_from(i).unwrap_or(u32::MAX),
+            attack: dice::Notation::attack(a.to_hit_bonus),
+            damage,
+        });
+    }
+    Some(out)
+}
+
 impl Game {
+    /// May this viewer receive the full sheet of `creature`? Mirrors
+    /// `creature_visible` in `tt-server`: the GM; the owner; and controllers of
+    /// a visible token linked to it.
+    fn creature_visible(&self, creature: &Creature, user_id: &str, role: Role) -> bool {
+        match role {
+            Role::Gm => true,
+            Role::Player => {
+                (!creature.owner_user_id.is_empty() && creature.owner_user_id == user_id)
+                    || self.tokens.iter().any(|t| {
+                        !t.hidden
+                            && !t.creature_id.is_empty()
+                            && t.creature_id == creature.creature_id
+                            && t.controller_user_ids.iter().any(|u| u == user_id)
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    /// Roll an all-attack ability: attack and damage rolls per target, no
+    /// hit point change. See the README for what is skipped.
+    fn use_ability(&mut self, user_id: &str, u: &UseAbilityIntent) -> Result<Outcome, Rejection> {
+        let is_gm = user_id == GM_USER;
+        let not_permitted = || {
+            (
+                "not_permitted",
+                "you do not control the source token".to_string(),
+            )
+        };
+        let source_token = match self.tokens.iter().find(|t| t.token_id == u.source_token_id) {
+            Some(t)
+                if is_gm || (!t.hidden && t.controller_user_ids.iter().any(|c| c == user_id)) =>
+            {
+                t.clone()
+            }
+            Some(_) => return Err(not_permitted()),
+            None if is_gm => {
+                return Err(("unknown_token", format!("no token {:?}", u.source_token_id)))
+            }
+            None => return Err(not_permitted()),
+        };
+        let source = self
+            .template
+            .creatures
+            .iter()
+            .find(|c| {
+                !source_token.creature_id.is_empty() && c.creature_id == source_token.creature_id
+            })
+            .cloned()
+            .ok_or((
+                "no_creature",
+                "the source token has no creature".to_string(),
+            ))?;
+        let ability = source
+            .abilities
+            .iter()
+            .find(|a| a.ability_id == u.ability_id)
+            .cloned()
+            .ok_or((
+                "unknown_ability",
+                format!("the creature has no ability {:?}", u.ability_id),
+            ))?;
+        let shape = ability
+            .targeting
+            .as_ref()
+            .map(|t| TargetShape::try_from(t.shape).unwrap_or(TargetShape::Unspecified));
+        if shape == Some(TargetShape::Creatures) && u.target_token_ids.is_empty() {
+            return Err((
+                "no_targets",
+                "the ability needs at least one target".to_string(),
+            ));
+        }
+        // (token id, armor class) per listed target.
+        let mut targets: Vec<(String, i32)> = Vec::with_capacity(u.target_token_ids.len());
+        for id in &u.target_token_ids {
+            let creature = self
+                .tokens
+                .iter()
+                .find(|t| &t.token_id == id && (is_gm || !t.hidden))
+                .filter(|t| !t.creature_id.is_empty())
+                .and_then(|t| {
+                    self.template
+                        .creatures
+                        .iter()
+                        .find(|c| c.creature_id == t.creature_id)
+                });
+            let Some(creature) = creature else {
+                return Err((
+                    "unknown_target",
+                    format!("token {id:?} does not exist or has no creature"),
+                ));
+            };
+            targets.push((id.clone(), creature.armor_class));
+        }
+        let area = matches!(
+            shape,
+            Some(TargetShape::Sphere | TargetShape::Cone | TargetShape::Line | TargetShape::Cube)
+        );
+        let steps = match prepare_attacks(&ability) {
+            Some(steps) if !area => steps,
+            _ => {
+                return Err((
+                    "not_supported_by_mock",
+                    "the mock resolves only creature-targeted attack abilities".to_string(),
+                ))
+            }
+        };
+
+        let mut warnings = Vec::new();
+        if steps.len() == 1 {
+            let max = ability.targeting.as_ref().map_or(0, |t| t.max_targets);
+            let limited = matches!(
+                shape,
+                Some(TargetShape::Creatures | TargetShape::Unspecified)
+            );
+            if limited && max > 0 && targets.len() > max as usize {
+                warnings.push(warning(
+                    "too_many_targets",
+                    format!("{} targets listed, at most {max} allowed", targets.len()),
+                ));
+            }
+        } else if targets.len() > steps.len() {
+            warnings.push(warning(
+                "extra_targets_ignored",
+                format!(
+                    "{} targets listed for {} attack steps; the extra are ignored",
+                    targets.len(),
+                    steps.len()
+                ),
+            ));
+        }
+
+        self.resolutions += 1;
+        let n = self.resolutions;
+        let mut roll_k = 0_u32;
+        let pairs: Vec<(&PreparedAttack, &(String, i32))> = if steps.len() == 1 {
+            targets.iter().map(|t| (&steps[0], t)).collect()
+        } else {
+            steps.iter().zip(targets.iter()).collect()
+        };
+        let mode = RollMode::try_from(u.mode).unwrap_or(RollMode::Unspecified);
+        let mut outcomes = Vec::with_capacity(pairs.len());
+        for (step, (token_id, armor_class)) in pairs {
+            let attack = self.roll_for(
+                &mut roll_k,
+                n,
+                user_id,
+                &source.creature_id,
+                &step.attack,
+                mode,
+                RollPurpose::Attack,
+                format!("{} attack", ability.name),
+            )?;
+            let outcome = if attack.critical {
+                HitOutcome::CriticalHit
+            } else if attack.fumble || attack.total < *armor_class {
+                HitOutcome::Miss
+            } else {
+                HitOutcome::Hit
+            };
+            let mut damage_rolls = Vec::new();
+            if outcome != HitOutcome::Miss {
+                for (normal, doubled) in &step.damage {
+                    let notation = if outcome == HitOutcome::CriticalHit {
+                        doubled
+                    } else {
+                        normal
+                    };
+                    damage_rolls.push(self.roll_for(
+                        &mut roll_k,
+                        n,
+                        user_id,
+                        &source.creature_id,
+                        notation,
+                        RollMode::Normal,
+                        RollPurpose::Damage,
+                        format!("{} damage", ability.name),
+                    )?);
+                }
+            }
+            outcomes.push(TargetOutcome {
+                token_id: token_id.clone(),
+                outcome: outcome as i32,
+                roll: Some(attack),
+                damage_rolls,
+                damage: Vec::new(),
+                healing: 0,
+                effects_applied: Vec::new(),
+                dropped_to_zero: false,
+                step_index: step.step_index,
+            });
+        }
+        let resolution = Resolution {
+            resolution_id: format!("res-{n}"),
+            source_token_id: source_token.token_id,
+            ability_id: ability.ability_id,
+            ability_name: ability.name,
+            state: ResolutionState::Done as i32,
+            outcomes,
+            warnings: warnings.clone(),
+        };
+        Ok((
+            event::Kind::ResolutionUpdated(ResolutionUpdated {
+                resolution: Some(resolution),
+            }),
+            warnings,
+        ))
+    }
+
+    /// One roll inside resolution `n`, id `roll-<n>-<k>` (the freeform ids are
+    /// `roll-<seq>`, so the two never collide).
+    #[allow(clippy::too_many_arguments)]
+    fn roll_for(
+        &mut self,
+        roll_k: &mut u32,
+        n: u64,
+        user_id: &str,
+        creature_id: &str,
+        notation: &dice::Notation,
+        mode: RollMode,
+        purpose: RollPurpose,
+        label: String,
+    ) -> Result<RollResult, Rejection> {
+        *roll_k += 1;
+        let mut roll = dice::roll(
+            self.rng.as_mut(),
+            notation,
+            mode,
+            format!("roll-{n}-{roll_k}"),
+            user_id,
+            label,
+        )
+        .ok_or((
+            "not_supported_by_mock",
+            "a roll total was out of range".to_string(),
+        ))?;
+        roll.purpose = purpose as i32;
+        roll.roller_creature_id = creature_id.to_string();
+        Ok(roll)
+    }
+
     fn move_token(
         &mut self,
         m: &tt_contracts::v1::MoveTokenIntent,
@@ -672,7 +981,8 @@ mod tests {
         let grid = snapshot.scenes[0].grid.as_ref().unwrap();
         assert_eq!(grid.cell_size, 70.0);
         assert_eq!(grid.feet_per_cell, 5.0);
-        assert_eq!(snapshot.tokens.len(), 2);
+        assert_eq!(snapshot.tokens.len(), 7);
+        assert_eq!(snapshot.creatures.len(), 6);
         let aria = &snapshot.tokens[0];
         assert_eq!(aria.name, "Aria");
         assert_eq!(aria.hp_current, Some(24));
