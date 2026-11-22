@@ -8,7 +8,7 @@
 //! A token is a disc of diameter `cells * Grid.cell_size`, with `cells` from
 //! its `CreatureSize`. Pointer input is in CSS pixels relative to the canvas.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use prost::Message as _;
 use tt_contracts::v1::{
@@ -25,6 +25,10 @@ pub const DEFAULT_CELL: f64 = 70.0;
 pub const PENDING_TIMEOUT_MS: f64 = 5000.0;
 /// Pointer travel (CSS px) before a press on a token becomes a drag.
 pub const DRAG_THRESHOLD_PX: f64 = 3.0;
+/// Pointer travel (CSS px) a press on a token may wander while picking and still
+/// count as a click. Wider than `DRAG_THRESHOLD_PX` because a finger tap moves
+/// more than a mouse click; the map does not move until this is exceeded.
+pub const PICK_SLOP_PX: f64 = 8.0;
 /// Below this cell size on screen the grid is not drawn at all.
 pub const MIN_GRID_CELL_PX: f64 = 6.0;
 /// At or above this cell size on screen the grid is fully opaque.
@@ -33,6 +37,9 @@ pub const FULL_GRID_CELL_PX: f64 = 14.0;
 pub const MAX_GRID_LINES: usize = 1500;
 /// Tokens are always at least this big (screen px radius) to hit-test.
 pub const MIN_HIT_RADIUS_PX: f64 = 8.0;
+/// Ring colour for a token the host has marked as picked: cyan, so it cannot be
+/// mistaken for the yellow selection ring.
+const HIGHLIGHT_COLOR: [f32; 4] = [0.3, 0.85, 1.0, 1.0];
 const BACKGROUND: [f32; 4] = [0.09, 0.09, 0.11, 1.0];
 const PLACEHOLDER: [f32; 4] = [0.15, 0.16, 0.19, 1.0];
 const PLACEHOLDER_FAILED: [f32; 4] = [0.26, 0.12, 0.12, 1.0];
@@ -95,6 +102,14 @@ enum Interaction {
         preview: Pt,
         moved: bool,
     },
+    /// Button 0 went down on a token while picking. A release here (with the
+    /// pointer still under `PICK_SLOP_PX` from the press) picks the token; travel
+    /// past the slop turns the press into a plain `Pan`. The camera stays put
+    /// until then.
+    PickPress {
+        token_id: String,
+        start_screen: Pt,
+    },
 }
 
 /// The client's whole view of one campaign.
@@ -114,6 +129,12 @@ pub struct Model {
     nonce: u64,
     next_intent: u64,
     last_rejection: Option<Rejection>,
+    /// Host-owned: clicks on tokens are picks, not selects or drags.
+    picking: bool,
+    /// Host-owned: tokens marked as picked (ring drawn). Never holds "".
+    highlights: HashSet<String>,
+    /// Picks made by the user, waiting for the host to take them.
+    picks: Vec<String>,
 }
 
 impl Model {
@@ -136,6 +157,9 @@ impl Model {
             nonce,
             next_intent: 0,
             last_rejection: None,
+            picking: false,
+            highlights: HashSet::new(),
+            picks: Vec::new(),
         }
     }
 
@@ -189,6 +213,9 @@ impl Model {
         self.selected = None;
         self.interaction = Interaction::Idle;
         self.pending.clear();
+        // `picking` and `highlights` belong to the host and survive; picks made
+        // before the snapshot refer to a world that has been replaced.
+        self.picks.clear();
         if scene_changed {
             self.needs_fit = true;
             // The viewport usually exists already (the host sizes the canvas before the
@@ -221,7 +248,7 @@ impl Model {
                 if self.selected.as_deref() == Some(r.token_id.as_str()) {
                     self.selected = None;
                 }
-                if matches!(&self.interaction, Interaction::Drag { token_id, .. } if *token_id == r.token_id)
+                if matches!(&self.interaction, Interaction::Drag { token_id, .. } | Interaction::PickPress { token_id, .. } if *token_id == r.token_id)
                 {
                     self.interaction = Interaction::Idle;
                 }
@@ -303,6 +330,16 @@ impl Model {
 
     pub fn is_dragging(&self) -> bool {
         matches!(self.interaction, Interaction::Drag { moved: true, .. })
+    }
+
+    /// Is picking mode on?
+    pub fn picking(&self) -> bool {
+        self.picking
+    }
+
+    /// Has the host marked this token as picked?
+    pub fn is_highlighted(&self, id: &str) -> bool {
+        self.highlights.contains(id)
     }
 
     /// The scene being drawn: the snapshot's active scene, else the first.
@@ -507,10 +544,41 @@ impl Model {
         self.needs_fit = false;
     }
 
+    // -------------------------------------------------------------- picking
+
+    /// Turn picking mode on or off. Turning it on abandons a drag in progress
+    /// (no intent is sent); turning it off turns a press on a token into a plain
+    /// pan, so the release picks nothing.
+    pub fn set_picking(&mut self, enabled: bool) {
+        self.picking = enabled;
+        match &self.interaction {
+            Interaction::Drag { .. } if enabled => self.interaction = Interaction::Idle,
+            Interaction::PickPress { start_screen, .. } if !enabled => {
+                self.interaction = Interaction::Pan {
+                    last: *start_screen,
+                };
+            }
+            _ => {}
+        }
+    }
+
+    /// Replace the whole set of highlighted tokens. Empty ids are dropped; ids
+    /// that are not on the map are kept but draw nothing.
+    pub fn set_highlights(&mut self, ids: impl IntoIterator<Item = String>) {
+        self.highlights = ids.into_iter().filter(|id| !id.is_empty()).collect();
+    }
+
+    /// The tokens the user has picked since the last call, oldest first.
+    pub fn take_picks(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.picks)
+    }
+
     // ---------------------------------------------------------------- input
 
     /// Pointer pressed at screen `(x, y)`. Button 0 on a token selects it and,
-    /// if the viewer may move it, starts a drag. Anything else pans.
+    /// if the viewer may move it, starts a drag. Anything else pans. While
+    /// picking, button 0 on a token starts a pick press instead (no select, no
+    /// drag) and the selection is left alone.
     pub fn pointer_down(&mut self, x: f64, y: f64, button: i16) {
         let s = Pt::new(x, y);
         if !s.is_finite() {
@@ -522,6 +590,16 @@ impl Model {
         } else {
             None
         };
+        if self.picking {
+            self.interaction = match hit {
+                Some(token_id) => Interaction::PickPress {
+                    token_id,
+                    start_screen: s,
+                },
+                None => Interaction::Pan { last: s },
+            };
+            return;
+        }
         self.selected = hit.clone();
         self.interaction = Interaction::Pan { last: s };
         let Some(id) = hit else { return };
@@ -553,6 +631,16 @@ impl Model {
                 self.camera.pan_by_screen(dx, dy);
                 self.needs_fit = false;
             }
+            Interaction::PickPress { start_screen, .. } => {
+                let (tx, ty) = (s.x - start_screen.x, s.y - start_screen.y);
+                if tx * tx + ty * ty >= PICK_SLOP_PX * PICK_SLOP_PX {
+                    // Too far to be a click: the user is panning, not picking.
+                    // Catch the map up with the whole travel so far.
+                    self.camera.pan_by_screen(tx, ty);
+                    self.needs_fit = false;
+                    self.interaction = Interaction::Pan { last: s };
+                }
+            }
             Interaction::Drag {
                 grab_offset,
                 start_screen,
@@ -579,10 +667,18 @@ impl Model {
     /// encoded `ClientMessage` carrying a `MoveTokenIntent` for the host to
     /// send. The token itself does not move until the server's event arrives
     /// (ADR 0004); until then (or a rejection, or the timeout) it is drawn at
-    /// the snapped destination.
+    /// the snapped destination. A release that ends a pick press queues the
+    /// token for `take_picks` and returns `None`.
     pub fn pointer_up(&mut self, x: f64, y: f64, now_ms: f64) -> Option<Vec<u8>> {
         self.pointer_move(x, y);
         let interaction = std::mem::replace(&mut self.interaction, Interaction::Idle);
+        if let Interaction::PickPress { token_id, .. } = &interaction {
+            // Still received and still on the drawn scene and level.
+            if self.token(token_id).is_some_and(|t| self.on_view(t)) {
+                self.picks.push(token_id.clone());
+            }
+            return None;
+        }
         let Interaction::Drag {
             token_id,
             preview,
@@ -849,6 +945,15 @@ impl Model {
                 r: r + 4.0,
                 thickness: 3.0,
                 color: [1.0, 0.85, 0.2, 1.0],
+            });
+        }
+        if self.highlights.contains(&t.token_id) {
+            items.push(DrawItem::Ring {
+                cx,
+                cy,
+                r: r + 8.0,
+                thickness: 3.0,
+                color: HIGHLIGHT_COLOR,
             });
         }
     }
