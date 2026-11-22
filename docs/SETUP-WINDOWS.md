@@ -99,4 +99,4 @@ winget install --id Docker.DockerDesktop -e
 ## Never
 
 - Never put a password, key or token in the repository, an issue or a chat with Claude.
-- Local secrets go in a `.env` file, which git ignores.
+- Local secrets go in a `.env` file, which git ignores. Start from `.env.example`; `tools/run-server.ps1` loads it.

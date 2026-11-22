@@ -10,6 +10,8 @@ Layout: a pure core (`campaign.rs`, `view.rs`, `auth.rs`, `ids.rs`, `rng.rs`) wi
 TT_DEV_AUTH=1 cargo run -p tt-server
 ```
 
+The server reads only its environment. To keep settings (and the LiveKit secret) in a git-ignored `.env` instead, copy `.env.example` to `.env`, fill in what you need, and start with `tools/run-server.ps1` (PowerShell) or `bash tools/run-server.sh`. Both load `.env`, skip comments and empty values, print only the variable names, and pass extra arguments to `cargo run`.
+
 | Variable | Meaning | Default |
 |---|---|---|
 | `TT_PORT` | listen port | 8788 (the mock uses 8787) |
