@@ -21,6 +21,8 @@ export interface TargetingState {
 	ordered: boolean;
 	/** How many picks the ability normally takes. 0 if unknown. */
 	limit: number;
+	/** The same count in words, for the hint ("Up to 2 targets"). Empty if not stated. */
+	targetText: string;
 }
 
 export function startTargeting(ability: AbilityView): TargetingState {
@@ -32,7 +34,8 @@ export function startTargeting(ability: AbilityView): TargetingState {
 		picks: [],
 		mode: RollMode.NORMAL,
 		ordered,
-		limit: ordered ? ability.attackSteps : ability.maxTargets
+		limit: ordered ? ability.attackSteps : ability.maxTargets,
+		targetText: ability.targetText
 	};
 }
 
@@ -64,13 +67,32 @@ export function pickCount(s: TargetingState, tokenId: string): number {
 	return s.picks.filter((id) => id === tokenId).length;
 }
 
-/** A note, never a block, when more targets are picked than the ability normally has. */
+/**
+ * A note, never a block, when the picks do not fit the ability. It says what the server will
+ * do (ADR 0005): a multi-attack ignores extra picks and does not roll attacks that have no
+ * pick (`extra_targets_ignored`); an ability with one attack step still uses every target,
+ * with a `too_many_targets` warning. The server decides; this only warns.
+ */
 export function limitWarning(s: TargetingState): string {
-	if (s.limit <= 0 || s.picks.length <= s.limit) return '';
-	const what = s.ordered
-		? `${s.abilityName} has ${s.limit} attacks`
-		: `${s.abilityName} normally has ${s.limit} ${s.limit === 1 ? 'target' : 'targets'}`;
-	return `${what}, and you picked ${s.picks.length}. You can still confirm; the server decides what happens.`;
+	const picked = s.picks.length;
+	const note = 'You can still confirm; the server decides what happens.';
+	if (s.ordered) {
+		if (picked > 0 && picked < s.limit) {
+			const later = s.limit - picked;
+			return `${s.abilityName} has ${s.limit} attacks, and you picked ${picked}. The ${later === 1 ? 'last attack' : `last ${later} attacks`} will not be rolled. ${note}`;
+		}
+		if (picked > s.limit) {
+			return `${s.abilityName} has ${s.limit} attacks, and you picked ${picked}. The extra ${picked - s.limit === 1 ? 'pick is' : 'picks are'} ignored. ${note}`;
+		}
+		return '';
+	}
+	if (s.limit <= 0 || picked <= s.limit) return '';
+	return `${s.abilityName} normally has ${s.limit} ${s.limit === 1 ? 'target' : 'targets'}, and you picked ${picked}. Every target is still used, and the server adds a warning. ${note}`;
+}
+
+/** True while the person is still looking at the character the picking started for. */
+export function keepTargeting(startedFor: string, shownCreatureId: string): boolean {
+	return startedFor === shownCreatureId;
 }
 
 /** The request to send. Targets go in pick order. */

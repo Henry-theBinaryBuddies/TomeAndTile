@@ -8,6 +8,7 @@
 		controlsView,
 		deviceLabel,
 		failureText,
+		getDeviceChoices,
 		getMediaClient,
 		joinDisabled,
 		joinLabel,
@@ -19,6 +20,7 @@
 	// The call belongs to the page, not to this panel, so collapsing the panel does not leave it.
 	const media = getMediaClient();
 	const { state: callState } = media;
+	const devices = getDeviceChoices();
 
 	const controls = $derived(controlsView($callState));
 	const inCall = $derived($callState.status === 'joined');
@@ -57,9 +59,10 @@
 	// ---- device pickers ----
 	let mics = $state<MediaDeviceOption[]>([]);
 	let cameras = $state<MediaDeviceOption[]>([]);
-	// The module does not report the chosen device yet, so this is what the person last picked here.
-	let selectedMic = $state('');
-	let selectedCamera = $state('');
+	// The module does not report the chosen device yet, so this is what the person last picked.
+	// It is kept outside the panel (video/devices.ts), so collapsing the panel does not forget it.
+	const selectedMic = $derived($devices.audioinput);
+	const selectedCamera = $derived($devices.videoinput);
 	let deviceError = $state('');
 
 	async function refreshDevices(kind: DeviceKind) {
@@ -84,8 +87,6 @@
 			untrack(() => {
 				mics = [];
 				cameras = [];
-				selectedMic = '';
-				selectedCamera = '';
 				deviceError = '';
 			});
 		}
@@ -98,8 +99,7 @@
 		deviceError = '';
 		try {
 			await media.selectDevice(kind, deviceId);
-			if (kind === 'audioinput') selectedMic = deviceId;
-			else selectedCamera = deviceId;
+			devices.remember(kind, deviceId);
 		} catch {
 			deviceError = DEVICE_SWITCH_FAILED;
 			select.value = kind === 'audioinput' ? selectedMic : selectedCamera;
@@ -109,7 +109,12 @@
 
 <div class="video">
 	<div class="bar">
-		<button type="button" class="primary" disabled={joinDisabled($callState.status)} onclick={onJoinLeave}>
+		<button
+			type="button"
+			class="primary"
+			disabled={joinDisabled($callState.status) || busyAction}
+			onclick={onJoinLeave}
+		>
 			{joinLabel($callState.status)}
 		</button>
 		<button
@@ -165,7 +170,7 @@
 	{#if $callState.participants.length > 0}
 		<ul class="tiles" aria-label="People in the call">
 			{#each $callState.participants as participant (participant.id)}
-				<li><VideoTile {participant} {media} /></li>
+				<li><VideoTile {participant} {media} call={$callState} /></li>
 			{/each}
 		</ul>
 	{:else}

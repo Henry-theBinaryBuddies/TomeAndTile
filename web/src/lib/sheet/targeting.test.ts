@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RollMode, TargetShape } from '@tomeandtile/contracts';
 import {
 	buildUseAbilityKind,
+	keepTargeting,
 	limitWarning,
 	pickCount,
 	pickToken,
@@ -20,6 +21,7 @@ const ability = (over: Partial<AbilityView> = {}): AbilityView => ({
 	kind: 'usable',
 	note: '',
 	rangeText: '5 ft',
+	targetText: 'Up to 1 target',
 	resourceText: '',
 	stepLines: [],
 	shape: TargetShape.CREATURES,
@@ -48,7 +50,7 @@ describe('picking targets for one attack', () => {
 		let s = startTargeting(ability());
 		s = pickToken(pickToken(s, 'a'), 'b');
 		expect(limitWarning(s)).toBe(
-			'Longsword normally has 1 target, and you picked 2. You can still confirm; the server decides what happens.'
+			'Longsword normally has 1 target, and you picked 2. Every target is still used, and the server adds a warning. You can still confirm; the server decides what happens.'
 		);
 		const kind = buildUseAbilityKind('t1', s);
 		expect(kind.case === 'useAbility' && kind.value.targetTokenIds).toEqual(['a', 'b']);
@@ -126,5 +128,58 @@ describe('mode and the request', () => {
 		expect(s.picks).toEqual([]);
 		const kind = buildUseAbilityKind('t1', s);
 		expect(kind.case === 'useAbility' && kind.value.targetTokenIds).toEqual([]);
+	});
+});
+
+describe('warnings say what the server will do', () => {
+	const multi = (attacks: number) => startTargeting(ability({ name: 'Multiattack', attackSteps: attacks }));
+
+	it('multi-attack with too few picks: the later attacks will not be rolled', () => {
+		const s = pickToken(multi(3), 'a');
+		expect(limitWarning(s)).toBe(
+			'Multiattack has 3 attacks, and you picked 1. The last 2 attacks will not be rolled. You can still confirm; the server decides what happens.'
+		);
+		expect(limitWarning(pickToken(pickToken(multi(3), 'a'), 'b'))).toContain('The last attack will not be rolled.');
+	});
+
+	it('multi-attack with no picks yet says nothing extra (the hint already asks for picks)', () => {
+		expect(limitWarning(multi(2))).toBe('');
+	});
+
+	it('multi-attack with the right number of picks says nothing', () => {
+		expect(limitWarning(pickToken(pickToken(multi(2), 'a'), 'a'))).toBe('');
+	});
+
+	it('multi-attack with too many picks: the extra ones are ignored', () => {
+		let s = multi(2);
+		for (const id of ['a', 'b', 'c']) s = pickToken(s, id);
+		expect(limitWarning(s)).toBe(
+			'Multiattack has 2 attacks, and you picked 3. The extra pick is ignored. You can still confirm; the server decides what happens.'
+		);
+		s = pickToken(s, 'd');
+		expect(limitWarning(s)).toContain('The extra picks are ignored.');
+	});
+
+	it('one attack with too many targets: all are still used, with a warning from the server', () => {
+		let s = startTargeting(ability({ maxTargets: 2 }));
+		for (const id of ['a', 'b', 'c']) s = pickToken(s, id);
+		expect(limitWarning(s)).toContain('normally has 2 targets, and you picked 3');
+		expect(limitWarning(s)).toContain('Every target is still used, and the server adds a warning.');
+	});
+
+	it('never blocks a confirm for any of these', () => {
+		const s = pickToken(multi(3), 'a');
+		expect(buildUseAbilityKind('t1', s).case).toBe('useAbility');
+	});
+});
+
+describe('keeping targeting open', () => {
+	it('keeps it while the same character is shown, so an unrelated update does not end it', () => {
+		expect(keepTargeting('creature-brannoch', 'creature-brannoch')).toBe(true);
+	});
+
+	it('ends it when another character is shown, or none', () => {
+		expect(keepTargeting('creature-brannoch', 'creature-tamsin')).toBe(false);
+		expect(keepTargeting('creature-brannoch', '')).toBe(false);
 	});
 });

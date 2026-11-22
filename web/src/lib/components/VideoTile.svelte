@@ -1,10 +1,21 @@
 <script lang="ts">
-	import type { MediaClient, ParticipantInfo } from '../../../media/index';
-	import { tileView, track } from '../video';
+	import type { MediaClient, MediaClientState, ParticipantInfo } from '../../../media/index';
+	import { shownParticipant, tileView, track } from '../video';
 
-	let { participant, media }: { participant: ParticipantInfo; media: MediaClient } = $props();
+	let {
+		participant,
+		media,
+		call
+	}: {
+		participant: ParticipantInfo;
+		media: MediaClient;
+		/** The call's own mic and camera state (what the buttons show). */
+		call: Pick<MediaClientState, 'micEnabled' | 'cameraEnabled'>;
+	} = $props();
 
-	const view = $derived(tileView(participant));
+	// Yourself: the call's own mic and camera state, so the tile matches the buttons.
+	const shown = $derived(shownParticipant(participant, call));
+	const view = $derived(tileView(shown));
 </script>
 
 <article class="tile" aria-label={view.summary}>
@@ -15,10 +26,10 @@
 			muted
 			playsinline
 			aria-hidden="true"
-			class:hidden={!participant.cameraEnabled}
-			use:track={{ media, participantId: participant.id, kind: 'video', version: participant.cameraEnabled }}
+			class:hidden={!shown.cameraEnabled}
+			use:track={{ media, participantId: participant.id, kind: 'video', version: participant }}
 		></video>
-		{#if !participant.cameraEnabled}<span class="off" aria-hidden="true">Camera off</span>{/if}
+		{#if !shown.cameraEnabled}<span class="off" aria-hidden="true">Camera off</span>{/if}
 	</div>
 	<p class="name" aria-hidden="true">{view.name}</p>
 	<p class="state" aria-hidden="true">{view.micText}</p>

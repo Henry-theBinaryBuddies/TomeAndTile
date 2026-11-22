@@ -1,26 +1,17 @@
-import { create } from '@bufbuild/protobuf';
 import { describe, expect, it } from 'vitest';
-import {
-	AbilitySchema,
-	ActionCost,
-	CreatureSchema,
-	Role,
-	TargetShape,
-	TargetingSchema,
-	AbilityScoresSchema,
-	ResourceSchema,
-	EffectStepSchema,
-	AttackStepSchema,
-	DamagePartSchema,
-	DamageType
-} from '@tomeandtile/contracts';
+import { ActionCost, Role, TargetShape, type Token } from '@tomeandtile/contracts';
 import { applySnapshot } from '../net/state';
 import { CHARACTER_FILES, loadCharacter, loadPregenTable } from './fixtures';
-import { abilityGroups, abilityView, sheetChoices, signed, statBlockView } from './view';
+import { abilityGroups, abilityView, actingTokenId, sheetChoices, signed, statBlockView } from './view';
 
+// Every case starts from a parsed fixture (contracts/fixtures) and changes only the field it
+// is about, so the tests use the same shapes the server sends.
 const brannoch = () => loadCharacter('brannoch-vale-fighter');
+const ilvaren = () => loadCharacter('ilvaren-quillfeather-wizard');
 const ability = (c: ReturnType<typeof brannoch>, id: string) =>
 	abilityView(c.abilities.find((a) => a.abilityId === id)!, c);
+const stat = (c: ReturnType<typeof brannoch>, label: string) =>
+	statBlockView(c).stats.find((x) => x.label === label)?.value;
 
 describe('fixtures', () => {
 	it('all five pregens parse and show a stat block and abilities', () => {
@@ -55,25 +46,42 @@ describe('statBlockView', () => {
 		expect(b.lists).toContainEqual({ label: 'Saving throws', value: 'Strength, Constitution' });
 	});
 
-	it('shows temporary hit points when there are some', () => {
-		const c = create(CreatureSchema, { name: 'X', hpCurrent: 5, hpMax: 9, hpTemp: 3 });
-		expect(statBlockView(c).stats[0].value).toBe('5 of 9 (+3 temporary)');
+	it('shows passive Perception as sent, and unknown when it was not stated', () => {
+		expect(stat(brannoch(), 'Passive Perception')).toBe('13');
+		const c = brannoch();
+		c.passivePerception = 0;
+		expect(stat(c, 'Passive Perception')).toBe('Unknown');
 	});
 
-	it('shows unknown, never zero, for what the server did not send', () => {
-		const b = statBlockView(create(CreatureSchema, { name: '  ' }));
-		expect(b.name).toBe('Unknown');
-		expect(b.scores).toBeNull();
-		const byLabel = Object.fromEntries(b.stats.map((s) => [s.label, s.value]));
-		expect(byLabel['Hit points']).toBe('Unknown');
-		expect(byLabel['Armor class']).toBe('Unknown');
-		expect(byLabel['Proficiency']).toBe('Unknown');
+	it('shows temporary hit points when there are some', () => {
+		const c = brannoch();
+		c.hpTemp = 3;
+		expect(stat(c, 'Hit points')).toBe('28 of 28 (+3 temporary)');
+	});
+
+	it('shows unknown, never zero, for each value the server did not send', () => {
+		const hp = brannoch();
+		hp.hpMax = 0;
+		expect(stat(hp, 'Hit points')).toBe('Unknown');
+		const ac = brannoch();
+		ac.armorClass = 0;
+		expect(stat(ac, 'Armor class')).toBe('Unknown');
+		const prof = brannoch();
+		prof.proficiencyBonus = 0;
+		expect(stat(prof, 'Proficiency')).toBe('Unknown');
+		const name = brannoch();
+		name.name = '  ';
+		expect(statBlockView(name).name).toBe('Unknown');
+		const none = brannoch();
+		none.scores = undefined;
+		expect(statBlockView(none).scores).toBeNull();
 	});
 
 	it('shows an ability score of zero as unknown', () => {
-		const c = create(CreatureSchema, { scores: create(AbilityScoresSchema, { strength: 12 }) });
+		const c = brannoch();
+		c.scores!.dexterity = 0;
 		const scores = statBlockView(c).scores!;
-		expect(scores[0].value).toBe('12');
+		expect(scores[0].value).toBe('17');
 		expect(scores[1].value).toBe('Unknown');
 	});
 
@@ -82,7 +90,10 @@ describe('statBlockView', () => {
 	});
 
 	it('keeps text from the server as plain text', () => {
-		const b = statBlockView(create(CreatureSchema, { name: '<img src=x onerror=alert(1)>', summary: '<b>hi</b>' }));
+		const c = brannoch();
+		c.name = '<img src=x onerror=alert(1)>';
+		c.summary = '<b>hi</b>';
+		const b = statBlockView(c);
 		expect(b.name).toBe('<img src=x onerror=alert(1)>');
 		expect(b.summary).toBe('<b>hi</b>');
 	});
@@ -115,6 +126,26 @@ describe('abilities', () => {
 		expect(ability(c, 'longbow').rangeText).toBe('150/600 ft');
 	});
 
+	it('show how many targets an ability takes', () => {
+		const c = brannoch();
+		expect(ability(c, 'longsword').targetText).toBe('Up to 1 target');
+		expect(ability(c, 'second-wind').targetText).toBe('');
+		const sword = c.abilities.find((a) => a.abilityId === 'longsword')!;
+		sword.targeting!.maxTargets = 3;
+		expect(abilityView(sword, c).targetText).toBe('Up to 3 targets');
+		sword.targeting!.maxTargets = 0;
+		expect(abilityView(sword, c).targetText).toBe('');
+	});
+
+	it('show a multi-attack as one target per attack', () => {
+		const c = brannoch();
+		const sword = c.abilities.find((a) => a.abilityId === 'longsword')!;
+		sword.steps = [sword.steps[0], sword.steps[0]];
+		const v = abilityView(sword, c);
+		expect(v.attackSteps).toBe(2);
+		expect(v.targetText).toBe('2 attacks, one target each');
+	});
+
 	it('show the resource and what is left', () => {
 		const c = brannoch();
 		expect(ability(c, 'second-wind').resourceText).toBe('Uses 1 Second Wind (2 of 2 left)');
@@ -123,95 +154,114 @@ describe('abilities', () => {
 	});
 
 	it('say the amount left is unknown when the named resource is not on the sheet', () => {
-		const c = create(CreatureSchema, {
-			resources: [create(ResourceSchema, { key: 'rage', label: 'Rage', current: 1, max: 2 })],
-			abilities: [create(AbilitySchema, { abilityId: 'x', name: 'X', resourceKey: 'ki', resourceAmount: 1 })]
-		});
-		expect(abilityView(c.abilities[0], c).resourceText).toBe('Uses 1 (amount left unknown)');
+		const c = brannoch();
+		c.resources = c.resources.filter((r) => r.key !== 'second_wind');
+		expect(c.abilities.find((a) => a.abilityId === 'second-wind')!.resourceKey).not.toBe('');
+		expect(ability(c, 'second-wind').resourceText).toMatch(/^Uses 1 \(amount left unknown\)$/);
 	});
 
 	it('treat a passive ability and one with no steps as plain text, not clickable', () => {
-		const c = create(CreatureSchema, {
-			abilities: [
-				create(AbilitySchema, { abilityId: 'p', name: 'Keen Sight', cost: ActionCost.PASSIVE }),
-				create(AbilitySchema, { abilityId: 'n', name: 'Flavor', cost: ActionCost.ACTION })
-			]
-		});
-		expect(abilityView(c.abilities[0], c).kind).toBe('passive');
-		expect(abilityView(c.abilities[1], c).kind).toBe('no_steps');
+		const c = brannoch();
+		c.abilities.find((a) => a.abilityId === 'longsword')!.cost = ActionCost.PASSIVE;
+		c.abilities.find((a) => a.abilityId === 'longbow')!.steps = [];
+		expect(ability(c, 'longsword').kind).toBe('passive');
+		expect(ability(c, 'longbow').kind).toBe('no_steps');
 	});
 
 	it('show an area ability disabled, with a note that areas come later', () => {
-		const step = create(EffectStepSchema, {
-			step: {
-				case: 'attack',
-				value: create(AttackStepSchema, { toHitBonus: 1, damage: [create(DamagePartSchema, { dice: '2d6', type: DamageType.FIRE })] })
-			}
-		});
-		const c = create(CreatureSchema, {
-			abilities: [
-				create(AbilitySchema, {
-					abilityId: 'f',
-					name: 'Burning Hands',
-					cost: ActionCost.ACTION,
-					targeting: create(TargetingSchema, { shape: TargetShape.CONE, sizeFeet: 15 }),
-					steps: [step]
-				})
-			]
-		});
-		const v = abilityView(c.abilities[0], c);
+		const c = ilvaren();
+		const v = ability(c, 'burning-hands');
 		expect(v.kind).toBe('area');
 		expect(v.note).toBe('Area abilities come later.');
-		expect(v.rangeText).toBe('Area, 15 ft');
-		expect(v.stepLines[0]).toContain('2d6 fire');
+		expect(v.rangeText).toBe('15 ft cone');
+		expect(v.stepLines[0]).toContain('3d6 fire');
 	});
 
-	it('count attack steps so a multi-attack is picked one target per step', () => {
-		const attack = create(EffectStepSchema, { step: { case: 'attack', value: create(AttackStepSchema, { toHitBonus: 4 }) } });
-		const c = create(CreatureSchema, {
-			abilities: [
-				create(AbilitySchema, {
-					abilityId: 'multi',
-					name: 'Multiattack',
-					cost: ActionCost.ACTION,
-					targeting: create(TargetingSchema, { shape: TargetShape.CREATURES, maxTargets: 1 }),
-					steps: [attack, attack]
-				})
-			]
-		});
-		expect(abilityView(c.abilities[0], c).attackSteps).toBe(2);
+	it('include the range of an area ability when the server sends one', () => {
+		const c = ilvaren();
+		const spell = c.abilities.find((a) => a.abilityId === 'burning-hands')!;
+		spell.targeting!.shape = TargetShape.SPHERE;
+		spell.targeting!.rangeFeet = 150;
+		spell.targeting!.sizeFeet = 20;
+		expect(abilityView(spell, c).rangeText).toBe('150 ft, 20 ft sphere');
+		spell.targeting!.sizeFeet = 0;
+		expect(abilityView(spell, c).rangeText).toBe('150 ft, sphere');
 	});
 });
 
 describe('sheetChoices', () => {
 	const table = () => applySnapshot(loadPregenTable());
+	const asPlayer = () => ({ ...table(), userId: 'mock-player', role: Role.PLAYER });
+	const copyOf = (t: Token, over: Partial<Token>): Token => ({ ...t, ...over });
 
 	it('gives mock-player all five pregens, each with its token', () => {
-		const s = { ...table(), userId: 'mock-player', role: Role.PLAYER };
-		const choices = sheetChoices(s);
+		const choices = sheetChoices(asPlayer());
 		expect(choices).toHaveLength(5);
 		expect(choices.map((c) => c.name)).toContain('Brannoch Vale');
 		const b = choices.find((c) => c.creatureId === 'creature-brannoch')!;
 		expect(b.sourceTokenId).toBe('token-brannoch');
+		expect(b.tokens).toEqual([{ tokenId: 'token-brannoch', name: expect.any(String) }]);
 	});
 
 	it('gives a player nothing they neither own nor control', () => {
-		const s = { ...table(), userId: 'someone-else', role: Role.PLAYER };
-		expect(sheetChoices(s)).toEqual([]);
+		expect(sheetChoices({ ...table(), userId: 'someone-else', role: Role.PLAYER })).toEqual([]);
 	});
 
 	it('gives the GM every creature the server sent', () => {
-		const s = { ...table(), userId: 'mock-gm', role: Role.GM };
-		expect(sheetChoices(s).length).toBeGreaterThanOrEqual(6);
+		expect(sheetChoices({ ...table(), userId: 'mock-gm', role: Role.GM }).length).toBeGreaterThanOrEqual(6);
 	});
 
 	it('includes an owned creature that has no token yet, with no source token', () => {
-		const s = {
-			userId: 'u1',
-			role: Role.PLAYER,
-			creatures: { c1: create(CreatureSchema, { creatureId: 'c1', name: 'Mine', ownerUserId: 'u1' }) },
-			tokens: {}
-		};
-		expect(sheetChoices(s)).toEqual([{ creatureId: 'c1', name: 'Mine', sourceTokenId: null }]);
+		const state = asPlayer();
+		const mine = state.creatures['creature-brannoch'];
+		mine.ownerUserId = 'mock-player';
+		const choice = sheetChoices({ ...state, tokens: {} }).find((c) => c.creatureId === mine.creatureId)!;
+		expect(choice.tokens).toEqual([]);
+		expect(choice.sourceTokenId).toBeNull();
+	});
+
+	it('uses only tokens on the active map', () => {
+		const state = asPlayer();
+		const original = state.tokens['token-brannoch'];
+		const elsewhere = copyOf(original, { tokenId: 'token-brannoch-elsewhere', sceneId: 'scene-other' });
+		const tokens = { ...state.tokens, [elsewhere.tokenId]: elsewhere };
+		const choice = sheetChoices({ ...state, tokens }).find((c) => c.creatureId === 'creature-brannoch')!;
+		expect(choice.tokens.map((t) => t.tokenId)).toEqual(['token-brannoch']);
+		expect(choice.sourceTokenId).toBe('token-brannoch');
+	});
+
+	it('has no acting token when the only one is on another map', () => {
+		const state = asPlayer();
+		const moved = copyOf(state.tokens['token-brannoch'], { sceneId: 'scene-other' });
+		const choice = sheetChoices({ ...state, tokens: { ...state.tokens, 'token-brannoch': moved } }).find(
+			(c) => c.creatureId === 'creature-brannoch'
+		)!;
+		expect(choice.tokens).toEqual([]);
+		expect(choice.sourceTokenId).toBeNull();
+	});
+
+	it('prefers the tokens the viewer controls over ones that are only linked', () => {
+		const state = asPlayer();
+		const linkedOnly = copyOf(state.tokens['token-brannoch'], { tokenId: 'token-brannoch-npc', controllerUserIds: [] });
+		const tokens = { ...state.tokens, [linkedOnly.tokenId]: linkedOnly };
+		const choice = sheetChoices({ ...state, tokens }).find((c) => c.creatureId === 'creature-brannoch')!;
+		expect(choice.tokens.map((t) => t.tokenId)).toEqual(['token-brannoch']);
+	});
+
+	it('does not pick one when several tokens could act; the person chooses', () => {
+		const state = asPlayer();
+		const second = copyOf(state.tokens['token-brannoch'], { tokenId: 'token-brannoch-2', name: 'Brannoch (2)' });
+		const tokens = { ...state.tokens, [second.tokenId]: second };
+		const choice = sheetChoices({ ...state, tokens }).find((c) => c.creatureId === 'creature-brannoch')!;
+		expect(choice.tokens).toHaveLength(2);
+		expect(choice.sourceTokenId).toBeNull();
+		expect(actingTokenId(choice, '')).toBeNull();
+		expect(actingTokenId(choice, 'token-brannoch-2')).toBe('token-brannoch-2');
+		expect(actingTokenId(choice, 'not-a-token')).toBeNull();
+	});
+
+	it('acts with the only token without being asked', () => {
+		const choice = sheetChoices(asPlayer()).find((c) => c.creatureId === 'creature-brannoch')!;
+		expect(actingTokenId(choice, '')).toBe('token-brannoch');
 	});
 });
