@@ -95,6 +95,18 @@ export function tileView(p: ParticipantInfo): TileView {
 	return { id: p.id, name, micText, cameraText, summary: `${name}. ${micText}. ${cameraText}.` };
 }
 
+/**
+ * The local tile must match the Mic and Camera buttons. The media module rebuilds the
+ * participant list only on remote and mute events, so for yourself the call's own mic and
+ * camera state is the one to show. Other people are shown as reported.
+ */
+export function shownParticipant(
+	p: ParticipantInfo,
+	call: Pick<MediaClientState, 'micEnabled' | 'cameraEnabled'>
+): ParticipantInfo {
+	return p.isLocal ? { ...p, micEnabled: call.micEnabled, cameraEnabled: call.cameraEnabled } : p;
+}
+
 /** Remote participants only: the person's own microphone is never played back to them. */
 export function audioParticipants(participants: readonly ParticipantInfo[]): ParticipantInfo[] {
 	return participants.filter((p) => !p.isLocal);
