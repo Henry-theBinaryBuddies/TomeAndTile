@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { MediaClient, MediaClientState, ParticipantInfo } from '../../../media/index';
-	import { shownParticipant, tileView, track } from '../video';
+	import { shownParticipant, tileView, track, videoTrackParams } from '../video';
 
 	let {
 		participant,
@@ -27,7 +27,7 @@
 			playsinline
 			aria-hidden="true"
 			class:hidden={!shown.cameraEnabled}
-			use:track={{ media, participantId: participant.id, kind: 'video', version: participant }}
+			use:track={videoTrackParams(media, participant, call)}
 		></video>
 		{#if !shown.cameraEnabled}<span class="off" aria-hidden="true">Camera off</span>{/if}
 	</div>

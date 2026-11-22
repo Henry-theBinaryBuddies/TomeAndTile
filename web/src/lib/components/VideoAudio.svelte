@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { audioParticipants, getMediaClient, track } from '../video';
+	import { audioParticipants, audioTrackParams, getMediaClient, track } from '../video';
 
 	// Always mounted (in the shell), so other people stay audible when the Video panel is
 	// collapsed or closed. Only remote participants get an element: your own microphone is
@@ -12,7 +12,7 @@
 <div class="audio" aria-hidden="true">
 	{#each remote as participant (participant.id)}
 		<!-- svelte-ignore a11y_media_has_caption -->
-		<audio autoplay use:track={{ media, participantId: participant.id, kind: 'audio', version: participant }}></audio>
+		<audio autoplay use:track={audioTrackParams(media, participant)}></audio>
 	{/each}
 </div>
 
