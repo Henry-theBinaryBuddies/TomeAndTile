@@ -160,10 +160,16 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		for (const subscriber of subscribers) subscriber(state);
 	}
 
-	// Re-lists one kind of device and reconciles the remembered selection against it: if the
-	// selected device is gone, falls back to whatever is first in the new list (or reports
-	// no_device if nothing of that kind is left), and moves the live track there when one is
-	// active. Never throws — listing devices is best-effort and must not break a call.
+	// Re-lists one kind of device and, only when there is an explicit remembered selection,
+	// reconciles it against the fresh list: if that device is gone, falls back to whatever is
+	// first in the new list (or reports no_device if nothing of that kind is left), and moves
+	// the live track there when one is active. With no explicit selection, `null` is left as it
+	// is ("use the browser's own default") rather than naming a specific device: the first
+	// device in a list is not necessarily the system default (Firefox lists no explicit default
+	// entry at all), so writing it into `selectedDeviceId` would make the state claim a choice
+	// nobody made and silently stop the no-device/fallback handling above from ever running for
+	// a device that was never actually selected. Never throws — listing devices is best-effort
+	// and must not break a call.
 	async function refreshDevices(kind: DeviceKind) {
 		const versionAtStart = selectionVersion[kind];
 		let list: MediaDeviceOption[];
@@ -183,17 +189,20 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		}
 
 		const hadSelection = selectedDeviceId[kind];
-		const stillPresent = hadSelection !== null && list.some((device) => device.deviceId === hadSelection);
-		const fellBack = hadSelection !== null && !stillPresent;
-		const nextSelection = stillPresent ? hadSelection : (list[0]?.deviceId ?? null);
-		if (fellBack) setSelectedDevice(kind, nextSelection);
+		if (hadSelection === null || list.some((device) => device.deviceId === hadSelection)) {
+			setState({ devices: { ...state.devices, [kind]: list } });
+			return;
+		}
 
+		// The explicitly selected device is gone: fall back to whatever is first in the new
+		// list, or report no_device if nothing of that kind is left.
+		const nextSelection = list[0]?.deviceId ?? null;
+		setSelectedDevice(kind, nextSelection);
 		setState({
 			devices: { ...state.devices, [kind]: list },
 			selectedDeviceId: { ...state.selectedDeviceId, [kind]: nextSelection }
 		});
 
-		if (!fellBack) return;
 		if (nextSelection === null) {
 			setState({ failure: { kind: 'no_device', message: `No ${deviceLabel(kind)} is available.` } });
 			return;
@@ -204,19 +213,6 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 			} catch (error) {
 				setState({ failure: toFailure(error) });
 			}
-		}
-	}
-
-	// Applies the remembered choice (if any) for one kind right after that kind's track is
-	// first enabled. A failure here is reported but never throws the enable itself back to the
-	// caller: the track is already up, just possibly on the wrong device.
-	async function applyRememberedDevice(targetRoom: RoomLike, kind: DeviceKind) {
-		const wanted = selectedDeviceId[kind];
-		if (!wanted) return;
-		try {
-			await targetRoom.switchActiveDevice(kind, wanted);
-		} catch (error) {
-			setState({ failure: toFailure(error) });
 		}
 	}
 
@@ -335,11 +331,13 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 
 		if (token.canPublish) {
 			try {
-				await nextRoom.setMicrophoneEnabled(true);
+				// The remembered device, if any, is captured from the start (instead of the
+				// system default and then switched), so the wrong microphone never opens even
+				// briefly.
+				await nextRoom.setMicrophoneEnabled(true, selectedDeviceId.audioinput ?? undefined);
 				if (myGeneration !== generation) return;
 				setState({ micEnabled: true });
 				void refreshDevices('audioinput');
-				await applyRememberedDevice(nextRoom, 'audioinput');
 			} catch (error) {
 				if (myGeneration !== generation) return;
 				setState({ failure: toFailure(error) });
@@ -397,10 +395,11 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		async enableCamera() {
 			if (!room || !state.canPublish) return;
 			try {
-				await room.setCameraEnabled(true);
+				// Same reasoning as the microphone in connect(): capture the remembered device
+				// from the start, never switch to it after the wrong one is already live.
+				await room.setCameraEnabled(true, selectedDeviceId.videoinput ?? undefined);
 				setState({ cameraEnabled: true });
 				void refreshDevices('videoinput');
-				await applyRememberedDevice(room, 'videoinput');
 			} catch (error) {
 				setState({ failure: toFailure(error) });
 			}
