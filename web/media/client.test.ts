@@ -45,14 +45,19 @@ class FakeRoom implements RoomLike {
 		this.disconnected = true;
 	}
 
-	async setMicrophoneEnabled(enabled: boolean) {
+	setMicrophoneDeviceId: string | undefined;
+	setCameraDeviceId: string | undefined;
+
+	async setMicrophoneEnabled(enabled: boolean, deviceId?: string) {
 		if (this.micError) throw this.micError;
 		this.micEnabled = enabled;
+		this.setMicrophoneDeviceId = deviceId;
 	}
 
-	async setCameraEnabled(enabled: boolean) {
+	async setCameraEnabled(enabled: boolean, deviceId?: string) {
 		if (this.cameraError) throw this.cameraError;
 		this.cameraEnabled = enabled;
+		this.setCameraDeviceId = deviceId;
 	}
 
 	async switchActiveDevice(kind: DeviceKind, deviceId: string) {
@@ -403,12 +408,15 @@ describe('device handling', () => {
 		expect(get(client.state).selectedDeviceId.audioinput).toBe('mic-2');
 	});
 
-	it('applies a selection made before joining once the microphone is first enabled', async () => {
+	it('applies a selection made before joining by capturing that device from the start', async () => {
 		const { client, rooms } = setup();
 		await client.selectDevice('audioinput', 'mic-2');
 		await client.join();
 
-		expect(rooms[0].switchDeviceCalls).toContainEqual({ kind: 'audioinput', deviceId: 'mic-2' });
+		// Passed straight to setMicrophoneEnabled, not switched to afterward: the wrong
+		// microphone must never open even briefly.
+		expect(rooms[0].setMicrophoneDeviceId).toBe('mic-2');
+		expect(rooms[0].switchDeviceCalls).toEqual([]);
 	});
 
 	it('still applies the remembered selection after a reconnect', async () => {
@@ -419,7 +427,20 @@ describe('device handling', () => {
 		rooms[0].fireDisconnected();
 		await vi.advanceTimersByTimeAsync(1_000);
 
-		expect(rooms[1].switchDeviceCalls).toContainEqual({ kind: 'audioinput', deviceId: 'mic-2' });
+		expect(rooms[1].setMicrophoneDeviceId).toBe('mic-2');
+	});
+
+	it('with no explicit selection, opens the default device rather than naming one in state', async () => {
+		const { client, rooms } = setup();
+		await vi.advanceTimersByTimeAsync(0); // let the startup listing resolve
+
+		expect(get(client.state).selectedDeviceId).toEqual({ audioinput: null, videoinput: null });
+
+		await client.join();
+
+		// No deviceId constraint: the system default opens, not whatever happened to list first.
+		expect(rooms[0].setMicrophoneDeviceId).toBeUndefined();
+		expect(get(client.state).selectedDeviceId.audioinput).toBeNull();
 	});
 
 	it('selecting a device never opens one for a spectator', async () => {
@@ -434,7 +455,6 @@ describe('device handling', () => {
 		const { client, rooms, devices } = setup();
 		await client.selectDevice('audioinput', 'mic-1');
 		await client.join();
-		rooms[0].switchDeviceCalls = []; // clear the calls from the initial apply-on-join
 
 		devices.audioinput = [{ deviceId: 'mic-2', label: 'Mic 2' }];
 		devices.fireChange();

@@ -2,6 +2,26 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-23 — #65 Fix: no-choice state named a device nobody picked
+
+**Did:** Per Henry's review on PR #86. The required fix: `refreshDevices` was writing
+`list[0]?.deviceId` into `state.selectedDeviceId` even when nothing had actually been chosen,
+which both claimed a choice that was never made and silently disabled the no-device/fallback
+handling for a device the user never picked (since `selectedDeviceId[kind]` stayed `null`
+internally while state showed otherwise). Now `null` is only ever replaced when there was a
+real prior selection that's since gone missing; with no explicit choice, `null` stays as it is.
+Added a test pinning it: startup listing with no choice leaves `selectedDeviceId` at `null` for
+both kinds.
+Also took the two optional suggestions: `RoomLike.setMicrophoneEnabled`/`setCameraEnabled` now
+take an optional `deviceId`, so a remembered device is captured from the start instead of
+opening the default and switching a moment later (no more flash of the wrong camera's light).
+Documented in `index.ts` that the client is meant to be created once per app lifetime, not once
+per panel mount, since there's no `dispose()` for the `devicechange` listener.
+**Directed Claude to:** Read Henry's review on PR #86 in full and fix everything it raised,
+required and optional.
+**Learned:** Nothing to flag — the fix and both optional items were exactly as described.
+**Blocked on / next:** Waiting on re-review.
+
 ## 2026-11-21 — #65 Device handling: changes, remembered choices, switch errors
 
 **Did:** Had Claude add device management to `web/media/`: `MediaClientState` now carries
