@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { createMediaClient, type MediaClientOptions } from './client';
-import { RoomFailure, type RoomLike } from './room';
+import { RoomFailure, type DisconnectCause, type RoomLike } from './room';
 import type { DeviceKind, MediaDeviceOption, ParticipantInfo } from './types';
 
 const SECRET_TOKEN = 'super-secret-join-token';
@@ -35,7 +35,7 @@ class FakeRoom implements RoomLike {
 	attachCalls: Array<{ participantId: string; kind: string }> = [];
 	audioPlaybackBlocked = false;
 	startAudioPlaybackError: unknown = null;
-	private disconnectedCallbacks: Array<() => void> = [];
+	private disconnectedCallbacks: Array<(cause: DisconnectCause) => void> = [];
 	private participantsChangedCallbacks: Array<() => void> = [];
 	private audioPlaybackStatusCallbacks: Array<(blocked: boolean) => void> = [];
 	private participantList: ParticipantInfo[] = [fakeParticipant({ id: 'local', name: 'Me', isLocal: true })];
@@ -94,7 +94,7 @@ class FakeRoom implements RoomLike {
 		return this.audioPlaybackBlocked;
 	}
 
-	onDisconnected(callback: () => void) {
+	onDisconnected(callback: (cause: DisconnectCause) => void) {
 		this.disconnectedCallbacks.push(callback);
 	}
 
@@ -113,9 +113,9 @@ class FakeRoom implements RoomLike {
 		this.audioPlaybackStatusCallbacks = [];
 	}
 
-	fireDisconnected() {
+	fireDisconnected(cause: DisconnectCause = 'other') {
 		this.disconnected = true;
-		for (const cb of this.disconnectedCallbacks) cb();
+		for (const cb of this.disconnectedCallbacks) cb(cause);
 	}
 
 	firePublishChanged() {
@@ -299,6 +299,38 @@ describe('reconnect on a dropped connection', () => {
 		expect(requestToken).toHaveBeenCalledTimes(1); // the pending reconnect never fired
 		expect(get(client.state).status).toBe('idle');
 		expect(rooms).toHaveLength(1);
+	});
+
+	it.each([
+		['duplicate_identity', 'joined_elsewhere'],
+		['removed', 'removed'],
+		['room_closed', 'room_closed']
+	] as const)(
+		'does not rejoin on a %s disconnect; reports %s instead',
+		async (cause, expectedFailureKind) => {
+			const { client, rooms, requestToken } = setup();
+			await client.join();
+
+			rooms[0].fireDisconnected(cause);
+			await vi.advanceTimersByTimeAsync(60_000); // long enough for any reconnect attempt
+
+			expect(requestToken).toHaveBeenCalledTimes(1); // never asked for a second token
+			expect(rooms).toHaveLength(1); // never created a second room
+			const state = get(client.state);
+			expect(state.status).toBe('idle');
+			expect(state.failure?.kind).toBe(expectedFailureKind);
+		}
+	);
+
+	it('an ordinary dropped connection still rejoins (not a terminal cause)', async () => {
+		const { client, rooms, requestToken } = setup();
+		await client.join();
+
+		rooms[0].fireDisconnected('other');
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect(requestToken).toHaveBeenCalledTimes(2);
+		expect(get(client.state).status).toBe('joined');
 	});
 });
 

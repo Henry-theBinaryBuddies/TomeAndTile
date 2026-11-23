@@ -6,7 +6,7 @@
 // asserts this.
 import { readable, type Readable } from 'svelte/store';
 import type { MediaToken } from '@tomeandtile/contracts';
-import { listLocalDevices, wrapLiveKitRoom, RoomFailure, type RoomLike } from './room';
+import { listLocalDevices, wrapLiveKitRoom, RoomFailure, type DisconnectCause, type RoomLike } from './room';
 import type {
 	DeviceKind,
 	DeviceLists,
@@ -119,6 +119,19 @@ function toFailure(error: unknown): MediaFailure {
 	}
 	return { kind: 'no_device', message: error instanceof Error ? error.message : String(error) };
 }
+
+// The server ended this participant's membership in the call on purpose. Automatically
+// rejoining would either immediately repeat the same disconnect (another tab or device fighting
+// this one over the same identity) or just fail again (removed, room closed), so these report a
+// failure and stop instead of going through scheduleReconnect like every other disconnect.
+const TERMINAL_DISCONNECT_FAILURES: Partial<Record<DisconnectCause, MediaFailure>> = {
+	duplicate_identity: {
+		kind: 'joined_elsewhere',
+		message: 'You joined the call from another tab or device.'
+	},
+	removed: { kind: 'removed', message: 'You were removed from the call.' },
+	room_closed: { kind: 'room_closed', message: 'The call has ended.' }
+};
 
 export function createMediaClient(options: MediaClientOptions): MediaClient {
 	const {
@@ -297,7 +310,7 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		}
 
 		room = nextRoom;
-		nextRoom.onDisconnected(() => {
+		nextRoom.onDisconnected((cause) => {
 			if (myGeneration !== generation || room !== nextRoom) return;
 			room = null;
 			// Same reasoning as teardown(): remove this room's listeners now, not just on an
@@ -305,6 +318,20 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 			// of listeners on an old room behind (harmless under the generation check above,
 			// but a real leak over a long session with several reconnects).
 			nextRoom.dispose();
+
+			const terminalFailure = TERMINAL_DISCONNECT_FAILURES[cause];
+			if (terminalFailure) {
+				setState({
+					status: 'idle',
+					canPublish: false,
+					micEnabled: false,
+					cameraEnabled: false,
+					participants: [],
+					failure: terminalFailure
+				});
+				return; // no scheduleReconnect: the server meant to end this participant's call
+			}
+
 			setState({
 				status: 'idle',
 				micEnabled: false,

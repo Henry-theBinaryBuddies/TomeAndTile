@@ -3,6 +3,7 @@
 // with no LiveKit import and no real SFU, and the exported `MediaClient` interface in
 // `client.ts` never carries a LiveKit type.
 import {
+	DisconnectReason,
 	MediaDeviceFailure,
 	Room,
 	RoomEvent,
@@ -18,6 +19,25 @@ import type {
 	TrackAvailability,
 	TrackKind
 } from './types';
+
+/** Why the room disconnected, classified into the few reasons `client.ts` treats differently —
+ * never LiveKit's own `DisconnectReason` type, so no LiveKit type crosses into `client.ts`.
+ * `'other'` covers everything `client.ts` should still try to reconnect from (a dropped network
+ * connection, a server restart, and so on). */
+export type DisconnectCause = 'duplicate_identity' | 'removed' | 'room_closed' | 'other';
+
+function classifyDisconnect(reason: DisconnectReason | undefined): DisconnectCause {
+	switch (reason) {
+		case DisconnectReason.DUPLICATE_IDENTITY:
+			return 'duplicate_identity';
+		case DisconnectReason.PARTICIPANT_REMOVED:
+			return 'removed';
+		case DisconnectReason.ROOM_DELETED:
+			return 'room_closed';
+		default:
+			return 'other';
+	}
+}
 
 /** A failure classified well enough for `client.ts` to turn into a `MediaFailure`. */
 export class RoomFailure extends Error {
@@ -81,7 +101,7 @@ export interface RoomLike {
 	/** Resumes blocked audio playback from a user gesture (for example a click handler). */
 	startAudioPlayback(): Promise<void>;
 	isAudioPlaybackBlocked(): boolean;
-	onDisconnected(callback: () => void): void;
+	onDisconnected(callback: (cause: DisconnectCause) => void): void;
 	onParticipantsChanged(callback: () => void): void;
 	onAudioPlaybackStatusChanged(callback: (blocked: boolean) => void): void;
 	/** Removes every listener this wrapper registered. Called once per room, during teardown;
@@ -159,7 +179,7 @@ export function wrapLiveKitRoom(room: Room = new Room()): RoomLike {
 			return !room.canPlaybackAudio;
 		},
 		onDisconnected(callback) {
-			addListener(RoomEvent.Disconnected, callback);
+			addListener(RoomEvent.Disconnected, (reason?: DisconnectReason) => callback(classifyDisconnect(reason)));
 		},
 		onParticipantsChanged(callback) {
 			addListener(RoomEvent.ParticipantConnected, callback);

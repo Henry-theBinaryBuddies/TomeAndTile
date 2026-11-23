@@ -35,7 +35,14 @@ export type MediaFailureKind =
 	| 'permission_denied'
 	| 'no_device'
 	| 'token_refused'
-	| 'connection_lost';
+	| 'connection_lost'
+	// The following three never trigger an automatic rejoin (unlike connection_lost): the
+	// server ended this participant's membership in the call on purpose, not by accident, so
+	// retrying would either immediately repeat the same disconnect (joined_elsewhere) or just
+	// fail again (removed, room_closed).
+	| 'joined_elsewhere'
+	| 'removed'
+	| 'room_closed';
 
 export interface MediaFailure {
 	kind: MediaFailureKind;

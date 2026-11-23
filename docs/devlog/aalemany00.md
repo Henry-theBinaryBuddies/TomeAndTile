@@ -2,6 +2,28 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-23 — Fix: duplicate-identity reconnect loop (from Henry's real-call test)
+
+**Did:** Henry's first real call against LiveKit Cloud found the same identity joining from two
+browsers fighting over the connection: our module treated LiveKit's `DUPLICATE_IDENTITY`
+disconnect the same as any dropped connection and rejoined after the backoff, which knocked out
+the other tab, which rejoined in turn — 34 disconnects in a few minutes until one tab closed.
+Had Claude implement his suggested fix: `room.ts` now classifies the `RoomEvent.Disconnected`
+argument into a small `DisconnectCause` of our own (`'duplicate_identity' | 'removed' |
+'room_closed' | 'other'`), never leaking LiveKit's own `DisconnectReason` type out of the file.
+`client.ts` only calls `scheduleReconnect` for `'other'`; the three terminal causes report a
+failure instead (`joined_elsewhere`, `removed`, `room_closed` — three new `MediaFailureKind`
+values) and leave the call ended. Also checked Henry's "worth checking" note and handled
+`PARTICIPANT_REMOVED`/`ROOM_DELETED` the same way, not just duplicate identity, since they're
+the same kind of "the server meant to end this, don't loop" case. 8 new tests, including one
+per terminal cause plus a control case confirming an ordinary drop still rejoins.
+**Directed Claude to:** Read Henry's comment on PR #88 in full and implement the suggested fix,
+including the two related reasons he flagged as worth checking.
+**Learned:** Nothing to flag — matched his diagnosis and suggested fix directly; the three
+`DisconnectReason` values needed were easy to find in `@livekit/protocol`'s own types.
+**Blocked on / next:** A new `MediaFailureKind` is an interface addition, so it needs a heads-up
+issue for Danny like the ones for #65 and #66 — filing that next.
+
 ## 2026-11-23 — #66 Fix: "waiting for video" never reached the panel
 
 **Did:** Per Henry's review on PR #88. The required fix: `onParticipantsChanged` listened for
