@@ -300,6 +300,11 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		nextRoom.onDisconnected(() => {
 			if (myGeneration !== generation || room !== nextRoom) return;
 			room = null;
+			// Same reasoning as teardown(): remove this room's listeners now, not just on an
+			// explicit leave(). Otherwise every dropped-connection rejoin leaves one more set
+			// of listeners on an old room behind (harmless under the generation check above,
+			// but a real leak over a long session with several reconnects).
+			nextRoom.dispose();
 			setState({
 				status: 'idle',
 				micEnabled: false,

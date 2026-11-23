@@ -253,6 +253,16 @@ describe('reconnect on a dropped connection', () => {
 		expect(get(client.state).status).toBe('joined');
 	});
 
+	it('disposes the old room on a dropped connection, not just on leave()', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+
+		rooms[0].fireDisconnected();
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect(rooms[0].disposed).toBe(true);
+	});
+
 	it('grows the delay on repeated drops, and resets it only once the connection stays up', async () => {
 		const { client, rooms, requestToken } = setup();
 		await client.join();

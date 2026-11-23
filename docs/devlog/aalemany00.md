@@ -2,6 +2,30 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-23 — #66 Fix: "waiting for video" never reached the panel
+
+**Did:** Per Henry's review on PR #88. The required fix: `onParticipantsChanged` listened for
+`TrackSubscribed`/`TrackUnsubscribed` and the local publish events, but never
+`RoomEvent.TrackPublished`/`TrackUnpublished` for a remote participant. LiveKit fires
+`TrackPublished` the moment someone turns their camera on, and `TrackSubscribed` only once the
+video actually arrives — without the first event, state never rebuilt in between, so a tile
+jumped straight from "camera off" to fully subscribed and skipped the "waiting for video" state
+entirely (the issue's second acceptance item). Added both to `onParticipantsChanged`. Since the
+fake room fires its callback directly and can't catch a missing event registration, added a
+`room.test.ts` case (mocking `livekit-client`, same pattern as the existing `listLocalDevices`
+pin) asserting `onParticipantsChanged` actually registers `TrackPublished`/`TrackUnpublished`,
+not just the subscription events.
+Also took the minor note: `onDisconnected`'s handler scheduled a rejoin without calling
+`dispose()` on the old room first. Harmless under the generation check, but a real set of
+listeners left behind on every reconnect over a long session. Now calls `nextRoom.dispose()`
+there too, same as `teardown()` already did for an explicit `leave()`.
+**Directed Claude to:** Read Henry's review on PR #88 in full and fix everything it raised,
+required and minor. Merge the updated #65 branch in first, since #88 is stacked on it.
+**Learned:** Nothing to flag — the fix matched Henry's diagnosis exactly once I checked
+LiveKit's actual event firing order for `TrackPublished` vs `TrackSubscribed`.
+**Blocked on / next:** Waiting on re-review. Henry's real-call test also turned up a duplicate-
+identity reconnect loop, not part of this PR's acceptance list; picking that up separately.
+
 ## 2026-11-23 — #65 Fix: no-choice state named a device nobody picked
 
 **Did:** Per Henry's review on PR #86. The required fix: `refreshDevices` was writing

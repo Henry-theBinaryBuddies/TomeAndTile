@@ -166,6 +166,12 @@ export function wrapLiveKitRoom(room: Room = new Room()): RoomLike {
 			addListener(RoomEvent.ParticipantDisconnected, callback);
 			addListener(RoomEvent.TrackMuted, callback);
 			addListener(RoomEvent.TrackUnmuted, callback);
+			// TrackPublished/TrackUnpublished (a remote participant's track becoming known at
+			// all) are distinct from TrackSubscribed/TrackUnsubscribed (that track's media
+			// actually arriving): without the former, a tile has no "waiting for video" state to
+			// show between "camera off" and the subscription completing.
+			addListener(RoomEvent.TrackPublished, callback);
+			addListener(RoomEvent.TrackUnpublished, callback);
 			addListener(RoomEvent.TrackSubscribed, callback);
 			addListener(RoomEvent.TrackUnsubscribed, callback);
 			addListener(RoomEvent.LocalTrackPublished, callback);
