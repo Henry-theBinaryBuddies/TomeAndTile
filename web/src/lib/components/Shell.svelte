@@ -8,6 +8,7 @@
 	import MapPlaceholder from './MapPlaceholder.svelte';
 	import Panel from './Panel.svelte';
 	import PhoneTabs from './PhoneTabs.svelte';
+	import VideoAudio from './VideoAudio.svelte';
 
 	const floating = $derived(floatingPanels($layout));
 
@@ -25,6 +26,7 @@
 <h1 class="sr-only">Tome &amp; Tile</h1>
 
 <MapPlaceholder />
+<VideoAudio />
 
 {#if $isPhone}
 	<PhoneTabs />

@@ -2,6 +2,30 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-21 — Asset upload, the M2 rules engine, target picking, reviews
+
+**Did:** Merged 15 pull requests this week:
+- **Asset upload (M1):** ADR 0014 ([#50](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/50)), the contract, mock server and real server ([#55](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/55) to [#57](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/57)).
+- **All my M2 issues, 58 to 64:** the seed and codes ([#71](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/71), [#72](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/72)), attack resolution and targeting checks ([#73](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/73), [#75](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/75)), `UseAbilityIntent` on both servers ([#80](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/80), [#83](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/83)), and picking targets on the map ([#84](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/84)).
+- **Contributors:** merged #11, #44, #45, #47 and #74 after review, filed the 13 M2 issues, and posted reviews on #77, #78, #79, #81, #82, #86 and #88.
+
+410 Rust and 188 web tests pass. Wrote the 2026-11-22 check-in report.
+
+**Directed Claude to:** Lead and review while Sonnet subagents and multi-agent review workflows wrote the routine code. Each finding was checked by a skeptic before anything changed. Corrections:
+- A server test bound `0.0.0.0` and set off a Windows firewall prompt. I asked what the program was, and every test now binds `127.0.0.1` only.
+- Claude fixed one leak itself after review: a visible monster's `not_enough_resource` warning would have told players how many uses it had left.
+- A merge was refused because "continue in order" was not an explicit yes. I said yes plainly and it went ahead, with no workaround.
+
+**Learned:**
+- A mouse-drag threshold of 3 px is too tight for a finger tap, so picking uses its own 8 px allowance.
+- A browser pane with a 2.5x pixel ratio can make clicks land in the wrong place; a fixed 800 by 600 viewport made the browser check trustworthy.
+- GitHub silently runs no pull request CI while a branch has merge conflicts (issue 49).
+- Tests that pass trivially are easy to write: the review found five picking tests that would have passed against broken code.
+
+**Blocked on / next:**
+- Issue 5 (the LiveKit Cloud project) is mine and is the only M1 item not met; no real call has run yet.
+- Next: close it and try a two-browser call, re-review the contributors' fixes, add the server rate limit and event-log cap, and plan M3.
+
 ## 2026-11-15 — Image proof, M1 issues, renderer packaging, contributor reviews
 
 **Did:** Merged [#27](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/27) (check-in report), [#28](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/28) (renderer demo with a map and token portraits, which proved the image path in a browser) and [#41](https://github.com/Henry-theBinaryBuddies/TomeAndTile/pull/41) (the renderer packaged for `web/`, closing issue 35). Filed the eight Milestone 1 issues (29 to 36) and assigned issues 9 and 10. Approved @Danny-Defeato's #24, #25 and #38 to #40, and merged #38 to #40 in order; refreshed the check-in report. 179 Rust and 113 web tests pass.

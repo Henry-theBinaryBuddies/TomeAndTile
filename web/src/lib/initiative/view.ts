@@ -1,7 +1,10 @@
 // What the initiative bar shows, built from the server's `Encounter`. The UI
 // never orders, rolls or advances anything: it shows the server's order, the
 // server's `turn_index` and the server's round.
-import type { Encounter } from '@tomeandtile/contracts';
+import type { Encounter, Token } from '@tomeandtile/contracts';
+
+/** The state's token map, or anything with names by token id. */
+export type TokenNames = Readonly<Record<string, Pick<Token, 'name'>>>;
 
 export interface InitiativeRow {
 	/** Position in the server's order. A creature that acts twice appears twice. */
@@ -34,18 +37,18 @@ export function currentEncounter(
 	);
 }
 
-export function nameFor(tokenNames: Readonly<Record<string, string>>, tokenId: string): string {
-	return tokenNames[tokenId]?.trim() || 'Unknown';
+export function nameFor(tokens: TokenNames, tokenId: string): string {
+	return tokens[tokenId]?.name.trim() || 'Unknown';
 }
 
 export function initiativeView(
 	encounter: Encounter,
-	tokenNames: Readonly<Record<string, string>>
+	tokens: TokenNames
 ): InitiativeView {
 	const rows = encounter.combatants.map((c, index) => ({
 		index,
 		tokenId: c.tokenId,
-		name: nameFor(tokenNames, c.tokenId),
+		name: nameFor(tokens, c.tokenId),
 		initiative: c.initiative,
 		current: index === encounter.turnIndex
 	}));

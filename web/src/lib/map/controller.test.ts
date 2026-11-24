@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { decodeServerMessage } from '../net/codec';
+import { eventFrame, snapshotFrame, chatKind } from '../net/testing';
 import {
 	createMapController,
 	NO_GRAPHICS_MESSAGE,
+	MISSED_UPDATES_MESSAGE,
 	type FrameScheduler,
 	type MapRenderer,
 	type MapSocket
@@ -163,13 +166,79 @@ describe('starting up', () => {
 		expect(renderer.resizes).toEqual([]);
 	});
 
-	it('keeps only the newest waiting frames if the renderer takes very long', async () => {
+	const snapshot = (seq: number) => new Uint8Array(snapshotFrame(BigInt(seq)));
+	const event = (seq: number) => new Uint8Array(eventFrame(BigInt(seq), chatKind('u', `m${seq}`)));
+	// Which frames the renderer got, by their kind and sequence number, for readable checks.
+	const seen = (r: FakeRenderer) =>
+		r.applied.map((f) => {
+			const m = decodeServerMessage(f);
+			return `${m?.kind.case}:${m?.kind.case === 'snapshot' ? m.kind.value.seq : m?.kind.case === 'event' ? m.kind.value.seq : '?'}`;
+		});
+
+	it('keeps every waiting frame, in order, while no Snapshot has replaced them', async () => {
 		const t = setup();
-		for (let i = 0; i < 250; i++) t.socket.receive(bytes(i % 256, i >> 8));
+		// Bytes that are not a valid message, so none of them can be mistaken for a Snapshot.
+		const frames = Array.from({ length: 300 }, (_, i) => new Uint8Array([255, 255, 255, 255, 255, 255, 255, 255, 255, 255, i % 256]));
+		for (const f of frames) t.socket.receive(f);
 		t.resolve(t.renderer);
 		await flush();
-		expect(t.renderer.applied).toHaveLength(200);
-		expect(t.renderer.applied[199]).toEqual(bytes(249, 0));
+		expect(t.events.problem).not.toHaveBeenCalled();
+		expect(t.renderer.applied).toHaveLength(300);
+		expect(t.renderer.applied.every((f, i) => f === frames[i])).toBe(true);
+	});
+
+	it('delivers the Snapshot and every later frame when many frames wait (Snapshot at 30 of 250)', async () => {
+		const t = setup();
+		for (let i = 0; i < 250; i++) t.socket.receive(i === 30 ? snapshot(31) : event(i + 1));
+		t.resolve(t.renderer);
+		await flush();
+		const got = seen(t.renderer);
+		expect(got).toHaveLength(220);
+		expect(got[0]).toBe('snapshot:31');
+		expect(got[1]).toBe('event:32');
+		expect(got[219]).toBe('event:250');
+		expect(t.events.unavailable).not.toHaveBeenCalled();
+		expect(t.events.problem).not.toHaveBeenCalled();
+	});
+
+	it('drops what an earlier Snapshot made old, keeping only the newest Snapshot and what follows', async () => {
+		const t = setup();
+		t.socket.receive(snapshot(1));
+		t.socket.receive(event(2));
+		t.socket.receive(snapshot(3)); // a reconnect while the map was starting
+		t.socket.receive(event(4));
+		t.resolve(t.renderer);
+		await flush();
+		expect(seen(t.renderer)).toEqual(['snapshot:3', 'event:4']);
+	});
+
+	it('does not stop the map when too many frames follow the Snapshot: it waits for the next Snapshot', async () => {
+		const t = setup();
+		t.socket.receive(snapshot(1));
+		for (let i = 2; i <= 1003; i++) t.socket.receive(event(i));
+		expect(t.events.problem).toHaveBeenCalledTimes(1);
+		expect(t.events.problem).toHaveBeenCalledWith(MISSED_UPDATES_MESSAGE);
+		t.socket.receive(event(1004)); // nothing to apply it to, so it is dropped quietly
+		expect(t.events.problem).toHaveBeenCalledTimes(1);
+		// A reconnect brings a full Snapshot, and the map starts from it.
+		t.socket.receive(snapshot(2000));
+		t.socket.receive(event(2001));
+		t.resolve(t.renderer);
+		await flush();
+		expect(seen(t.renderer)).toEqual(['snapshot:2000', 'event:2001']);
+		expect(t.events.unavailable).not.toHaveBeenCalled();
+		expect(t.events.ready).toHaveBeenCalledTimes(1);
+	});
+
+	it('still takes a reconnect Snapshot after the renderer is running, even if it had to wait before', async () => {
+		const t = setup();
+		t.socket.receive(snapshot(1));
+		for (let i = 2; i <= 1003; i++) t.socket.receive(event(i));
+		t.resolve(t.renderer);
+		await flush();
+		expect(t.renderer.applied).toHaveLength(0);
+		t.socket.receive(snapshot(5000));
+		expect(seen(t.renderer)).toEqual(['snapshot:5000']);
 	});
 });
 

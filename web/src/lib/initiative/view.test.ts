@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { CombatantSchema, EncounterSchema } from '@tomeandtile/contracts';
 import { currentEncounter, initiativeView, nameFor, turnAnnouncement } from './view';
 
-const names = { a: 'Aria', g: 'Goblin', gb: 'Goblin Boss' };
+const named = (m: Record<string, string>) =>
+	Object.fromEntries(Object.entries(m).map(([id, name]) => [id, { name }]));
+const names = named({ a: 'Aria', g: 'Goblin', gb: 'Goblin Boss' });
 
 const encounter = (over: Parameters<typeof create<typeof EncounterSchema>>[1] = {}) =>
 	create(EncounterSchema, {
@@ -41,7 +43,7 @@ describe('initiativeView', () => {
 	});
 
 	it('says Unknown, never a guess, for a combatant whose name is missing', () => {
-		const v = initiativeView(encounter(), { a: 'Aria' });
+		const v = initiativeView(encounter(), named({ a: 'Aria' }));
 		expect(v.rows.map((r) => r.name)).toEqual(['Unknown', 'Aria', 'Unknown']);
 	});
 
@@ -72,7 +74,7 @@ describe('initiativeView', () => {
 	});
 
 	it('treats names from the server as plain text', () => {
-		const v = initiativeView(encounter(), { gb: '<img src=x>', a: 'Aria' });
+		const v = initiativeView(encounter(), named({ gb: '<img src=x>', a: 'Aria' }));
 		expect(v.rows[0].name).toBe('<img src=x>');
 	});
 });
@@ -95,8 +97,8 @@ describe('currentEncounter', () => {
 
 describe('nameFor and turnAnnouncement', () => {
 	it('trims and falls back to Unknown', () => {
-		expect(nameFor({ a: '  Aria ' }, 'a')).toBe('Aria');
-		expect(nameFor({ a: ' ' }, 'a')).toBe('Unknown');
+		expect(nameFor(named({ a: '  Aria ' }), 'a')).toBe('Aria');
+		expect(nameFor(named({ a: ' ' }), 'a')).toBe('Unknown');
 		expect(nameFor({}, 'a')).toBe('Unknown');
 	});
 

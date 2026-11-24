@@ -15,3 +15,11 @@ export {
 	type SetMapImageResult
 } from './flow';
 export { buildSetBackgroundKind } from './intent';
+export {
+	CONFIRM_TIMEOUT_MS,
+	createUploadStore,
+	isBusy,
+	type UploadStatus,
+	type UploadStore
+} from './store';
+export { getUploadStore, startMapImageUpload } from './shared';
