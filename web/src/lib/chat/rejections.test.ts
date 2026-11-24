@@ -58,3 +58,13 @@ describe('map image rejection codes', () => {
 		}
 	});
 });
+
+describe('ability rejection codes', () => {
+	it('has plain text for the codes UseAbilityIntent can be refused with', () => {
+		for (const code of ['unknown_token', 'no_creature', 'unknown_ability', 'no_targets', 'unknown_target', 'rng_unavailable']) {
+			const text = rejectionText(code);
+			expect(text).not.toContain(code);
+			expect(text).not.toContain('could not do that');
+		}
+	});
+});

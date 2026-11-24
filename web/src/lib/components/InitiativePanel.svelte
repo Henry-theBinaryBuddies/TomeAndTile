@@ -5,7 +5,7 @@
 	const { state: panelState } = getGameClient();
 
 	const encounter = $derived(currentEncounter($panelState.encounters, $panelState.activeSceneId));
-	const view = $derived(encounter ? initiativeView(encounter, $panelState.tokenNames) : null);
+	const view = $derived(encounter ? initiativeView(encounter, $panelState.tokens) : null);
 </script>
 
 {#if view}
