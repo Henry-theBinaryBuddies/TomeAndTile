@@ -7,14 +7,17 @@
 use std::collections::HashMap;
 
 use tt_contracts::v1::{
-    event, intent, AssetRef, ChatPosted, CreateTokenIntent, Creature, CreatureSize,
-    CreatureUpserted, DiceRolled, Encounter, Event, EventUndone, HitOutcome, Intent, Member,
-    MoveTokenIntent, RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent,
-    RollMode, RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
-    SetControllersIntent, SetHitPointsIntent, SetLevelBackgroundIntent, Snapshot, Token,
-    TokenMoved, TokenRemoved, TokenUpserted, UndoIntent, UseAbilityIntent, Vec2, Warning,
+    event, intent, AssetRef, ChatPosted, Combatant, CreateTokenIntent, Creature, CreatureSize,
+    CreatureUpserted, DiceRolled, Encounter, EncounterEnded, EncounterUpdated, EndEncounterIntent,
+    EndTurnIntent, Event, EventUndone, HitOutcome, Intent, Member, Modifier, MoveTokenIntent,
+    RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent, RollMode,
+    RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
+    SetControllersIntent, SetHitPointsIntent, SetInitiativeIntent, SetLevelBackgroundIntent,
+    Snapshot, StartEncounterIntent, Token, TokenMoved, TokenRemoved, TokenUpserted, UndoIntent,
+    UseAbilityIntent, Vec2, Warning,
 };
 use tt_rules::ability::{resolve_ability, ResolveError};
+use tt_rules::conditions::expire_timers;
 use tt_rules::damage::health_state;
 use tt_rules::dice::{self, Expr};
 
@@ -231,12 +234,14 @@ impl Campaign {
             intent::Kind::CreateToken(t) => plain(self.create_token(is_gm, t, now_ms, ids))?,
             intent::Kind::RemoveToken(r) => plain(self.remove_token(is_gm, r))?,
             intent::Kind::Undo(u) => plain(self.undo(is_gm, u))?,
-            _ => {
-                return Err(Rejection::new(
-                    "not_implemented",
-                    "this intent is not implemented yet",
-                ))
+            intent::Kind::StartEncounter(s) => {
+                plain(self.start_encounter(actor_user_id, is_gm, s, now_ms, rng, ids))?
             }
+            intent::Kind::EndTurn(e) => {
+                plain(self.end_turn(actor_user_id, is_gm, e, now_ms, rng, ids))?
+            }
+            intent::Kind::SetInitiative(s) => plain(self.set_initiative(is_gm, s))?,
+            intent::Kind::EndEncounter(e) => plain(self.end_encounter(is_gm, e))?,
         };
         let mut events = Vec::with_capacity(kinds.len());
         let mut warnings = Some(warnings);
@@ -1012,6 +1017,410 @@ impl Campaign {
         }
         self.groups[gi].undone = true;
         Ok((scene_id, kinds))
+    }
+
+    /// `StartEncounterIntent` (GM only). Order of refusals: `not_permitted`,
+    /// `unknown_scene`, `no_combatants`, `unknown_token` (missing, or on
+    /// another scene), `encounter_running`, `rng_unavailable`. Duplicate ids
+    /// are listed once. One d20 plus `initiative_bonus` per token (no creature:
+    /// bonus 0), then `EncounterUpdated`: round 1, turn 0, sorted by
+    /// initiative (higher first), then `initiative_bonus` (higher first), then
+    /// list order. Ids are minted only after the entropy check. No turn-start
+    /// effects run for the first combatant.
+    fn start_encounter(
+        &mut self,
+        actor: &str,
+        is_gm: bool,
+        s: StartEncounterIntent,
+        now_ms: i64,
+        rng: &mut dyn RollSource,
+        ids: &mut dyn IdSource,
+    ) -> Outcome {
+        if !is_gm {
+            return Err(Rejection::not_permitted());
+        }
+        if !self.scenes.iter().any(|sc| sc.scene_id == s.scene_id) {
+            return Err(Rejection::new(
+                "unknown_scene",
+                format!("no scene {:?}", s.scene_id),
+            ));
+        }
+        let mut listed: Vec<&String> = Vec::new();
+        for id in &s.token_ids {
+            if !listed.contains(&id) {
+                listed.push(id);
+            }
+        }
+        if listed.is_empty() {
+            return Err(Rejection::new(
+                "no_combatants",
+                "an encounter needs at least one token",
+            ));
+        }
+        let mut tokens: Vec<&Token> = Vec::with_capacity(listed.len());
+        for id in &listed {
+            match self
+                .tokens
+                .iter()
+                .find(|t| &&t.token_id == id && t.scene_id == s.scene_id)
+            {
+                Some(t) => tokens.push(t),
+                None => {
+                    return Err(Rejection::new(
+                        "unknown_token",
+                        format!("token {id:?} is not on scene {:?}", s.scene_id),
+                    ))
+                }
+            }
+        }
+        if self.encounters.iter().any(|e| e.scene_id == s.scene_id) {
+            return Err(Rejection::new(
+                "encounter_running",
+                "the scene already has a running encounter",
+            ));
+        }
+
+        // Roll everything, then check entropy before any state change.
+        let d20 = Expr::parse("1d20").expect("1d20 parses");
+        let mut pending: Vec<(String, i32, RollResult)> = Vec::with_capacity(tokens.len());
+        for t in &tokens {
+            let creature = self
+                .creatures
+                .iter()
+                .find(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id);
+            let bonus = creature.map_or(0, |c| c.initiative_bonus);
+            let rolled = dice::roll(&d20, RollMode::Normal, rng);
+            let visibility = if t.hidden {
+                RollVisibility::GmOnly
+            } else {
+                RollVisibility::Public
+            };
+            let roll = RollResult {
+                roll_id: String::new(),
+                notation: if bonus == 0 {
+                    "1d20".to_string()
+                } else {
+                    format!("1d20{bonus:+}")
+                },
+                purpose: RollPurpose::Initiative as i32,
+                mode: RollMode::Normal as i32,
+                dice: rolled.dice,
+                modifiers: if bonus == 0 {
+                    Vec::new()
+                } else {
+                    vec![Modifier {
+                        source: "initiative".into(),
+                        value: bonus,
+                    }]
+                },
+                total: rolled.total.saturating_add(bonus),
+                critical: rolled.critical,
+                fumble: rolled.fumble,
+                visibility: visibility as i32,
+                roller_user_id: actor.to_string(),
+                roller_creature_id: creature.map_or_else(String::new, |c| c.creature_id.clone()),
+                label: format!("{} initiative", t.name),
+            };
+            pending.push((t.token_id.clone(), bonus, roll));
+        }
+        if rng.take_failure() {
+            return Err(Rejection::new(
+                "rng_unavailable",
+                "the server could not get secure randomness; try again",
+            ));
+        }
+
+        // Validated: mint ids and mutate.
+        let mut kinds = Vec::with_capacity(pending.len() + 1);
+        let mut entries: Vec<(i32, i32, usize, String)> = Vec::with_capacity(pending.len());
+        for (i, (token_id, bonus, mut roll)) in pending.into_iter().enumerate() {
+            roll.roll_id = ids.next_id(now_ms);
+            entries.push((roll.total, bonus, i, token_id));
+            kinds.push(event::Kind::DiceRolled(DiceRolled { roll: Some(roll) }));
+        }
+        entries.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+        let encounter = Encounter {
+            encounter_id: ids.next_id(now_ms),
+            scene_id: s.scene_id.clone(),
+            round: 1,
+            turn_index: 0,
+            combatants: entries
+                .into_iter()
+                .enumerate()
+                .map(|(order, (initiative, _, _, token_id))| Combatant {
+                    token_id,
+                    initiative,
+                    order: order as u32,
+                    ..Default::default()
+                })
+                .collect(),
+        };
+        self.encounters.push(encounter.clone());
+        kinds.push(event::Kind::EncounterUpdated(EncounterUpdated {
+            encounter: Some(encounter),
+        }));
+        Ok((s.scene_id, kinds))
+    }
+
+    /// `EndTurnIntent` (GM, or a player controlling the current combatant's
+    /// visible token). Order of refusals: `unknown_encounter` (GM) or
+    /// `not_permitted` (a player naming a missing or invisible encounter, or
+    /// not controlling the current token), then `rng_unavailable`. Events:
+    /// `EncounterUpdated`, a `TokenUpserted` per token whose timers ended,
+    /// then the recharge `DiceRolled`s and one `CreatureUpserted` of the
+    /// creature whose turn starts.
+    fn end_turn(
+        &mut self,
+        actor: &str,
+        is_gm: bool,
+        e: EndTurnIntent,
+        now_ms: i64,
+        rng: &mut dyn RollSource,
+        ids: &mut dyn IdSource,
+    ) -> Outcome {
+        let viewer = crate::view::Viewer {
+            user_id: actor.to_string(),
+            role: if is_gm { Role::Gm } else { Role::Player },
+        };
+        let found = self
+            .encounters
+            .iter()
+            .position(|x| x.encounter_id == e.encounter_id)
+            .filter(|i| is_gm || self.encounter_visible(&self.encounters[*i], &viewer));
+        let Some(ei) = found else {
+            return Err(if is_gm {
+                Rejection::new(
+                    "unknown_encounter",
+                    format!("no encounter {:?}", e.encounter_id),
+                )
+            } else {
+                Rejection::not_permitted()
+            });
+        };
+        let enc = self.encounters[ei].clone();
+        let n = enc.combatants.len();
+        let cur = enc.turn_index as usize;
+        let current = enc.combatants.get(cur);
+        if !is_gm {
+            let allowed = current.is_some_and(|c| {
+                self.tokens.iter().any(|t| {
+                    t.token_id == c.token_id
+                        && !t.hidden
+                        && t.controller_user_ids.iter().any(|u| u == actor)
+                })
+            });
+            if !allowed {
+                return Err(Rejection::not_permitted());
+            }
+        }
+        let Some(current) = current else {
+            return Err(Rejection::new(
+                "unknown_encounter",
+                "the encounter has no current combatant",
+            ));
+        };
+        let (next, round) = if cur + 1 >= n {
+            (0, enc.round.saturating_add(1))
+        } else {
+            (cur + 1, enc.round)
+        };
+        let mut updated = enc.clone();
+        updated.turn_index = next as u32;
+        updated.round = round;
+        let starter = updated.combatants[next].token_id.clone();
+        let expired = expire_timers(
+            &self.tokens,
+            &updated,
+            Some((current.token_id.as_str(), enc.round)),
+            (starter.as_str(), round),
+        );
+
+        // Recharge: a d6 for each spent recharge ability of the creature
+        // whose turn starts.
+        let start_token = self.tokens.iter().find(|t| t.token_id == starter);
+        let sheet_idx = start_token.and_then(|t| {
+            self.creatures
+                .iter()
+                .position(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id)
+        });
+        let hidden = start_token.is_some_and(|t| t.hidden);
+        let mut rolls: Vec<RollResult> = Vec::new();
+        let mut recharged = sheet_idx.map(|i| self.creatures[i].clone());
+        let mut changed = false;
+        if let Some(sheet) = recharged.as_mut() {
+            let d6 = Expr::parse("1d6").expect("1d6 parses");
+            let visibility = if hidden || sheet.owner_user_id.is_empty() {
+                RollVisibility::GmOnly
+            } else {
+                RollVisibility::Public
+            };
+            let creature_id = sheet.creature_id.clone();
+            for ability in &mut sheet.abilities {
+                let Some(min_roll) = ability
+                    .recharge
+                    .as_ref()
+                    .filter(|_| ability.recharge_spent)
+                    .map(|r| r.min_roll)
+                else {
+                    continue;
+                };
+                let rolled = dice::roll(&d6, RollMode::Normal, rng);
+                if rolled.total >= i32::try_from(min_roll).unwrap_or(i32::MAX) {
+                    ability.recharge_spent = false;
+                    changed = true;
+                }
+                let name = if ability.name.is_empty() {
+                    &ability.ability_id
+                } else {
+                    &ability.name
+                };
+                rolls.push(RollResult {
+                    roll_id: String::new(),
+                    notation: d6.canonical(),
+                    purpose: RollPurpose::Freeform as i32,
+                    mode: RollMode::Normal as i32,
+                    dice: rolled.dice,
+                    modifiers: Vec::new(),
+                    total: rolled.total,
+                    critical: false,
+                    fumble: false,
+                    visibility: visibility as i32,
+                    roller_user_id: actor.to_string(),
+                    roller_creature_id: creature_id.clone(),
+                    label: format!("{name} recharge"),
+                });
+            }
+        }
+        if rng.take_failure() {
+            return Err(Rejection::new(
+                "rng_unavailable",
+                "the server could not get secure randomness; try again",
+            ));
+        }
+
+        // Validated: mutate.
+        self.encounters[ei] = updated.clone();
+        let mut kinds = vec![event::Kind::EncounterUpdated(EncounterUpdated {
+            encounter: Some(updated),
+        })];
+        for token in expired {
+            if let Some(stored) = self
+                .tokens
+                .iter_mut()
+                .find(|t| t.token_id == token.token_id)
+            {
+                *stored = token.clone();
+            }
+            kinds.push(event::Kind::TokenUpserted(TokenUpserted {
+                token: Some(token),
+            }));
+        }
+        for mut roll in rolls {
+            roll.roll_id = ids.next_id(now_ms);
+            kinds.push(event::Kind::DiceRolled(DiceRolled { roll: Some(roll) }));
+        }
+        if let (true, Some(idx), Some(sheet)) = (changed, sheet_idx, recharged) {
+            self.creatures[idx] = sheet.clone();
+            kinds.push(event::Kind::CreatureUpserted(CreatureUpserted {
+                creature: Some(sheet),
+            }));
+        }
+        Ok((enc.scene_id, kinds))
+    }
+
+    /// `SetInitiativeIntent` (GM only): `not_permitted`, `unknown_encounter`,
+    /// `unknown_combatant`. Sets `initiative` and `order`, re-sorts (higher
+    /// initiative first, then lower `order`; equal keys keep their places)
+    /// and keeps the turn with the combatant whose turn it was.
+    fn set_initiative(&mut self, is_gm: bool, s: SetInitiativeIntent) -> Outcome {
+        if !is_gm {
+            return Err(Rejection::not_permitted());
+        }
+        let Some(ei) = self
+            .encounters
+            .iter()
+            .position(|x| x.encounter_id == s.encounter_id)
+        else {
+            return Err(Rejection::new(
+                "unknown_encounter",
+                format!("no encounter {:?}", s.encounter_id),
+            ));
+        };
+        let Some(ci) = self.encounters[ei]
+            .combatants
+            .iter()
+            .position(|c| c.token_id == s.token_id)
+        else {
+            return Err(Rejection::new(
+                "unknown_combatant",
+                format!("token {:?} is not in the encounter", s.token_id),
+            ));
+        };
+
+        // Validated: mutate.
+        let enc = &mut self.encounters[ei];
+        enc.combatants[ci].initiative = s.initiative;
+        enc.combatants[ci].order = s.order;
+        let mut indexed: Vec<(usize, Combatant)> = std::mem::take(&mut enc.combatants)
+            .into_iter()
+            .enumerate()
+            .collect();
+        indexed.sort_by(|a, b| {
+            b.1.initiative
+                .cmp(&a.1.initiative)
+                .then(a.1.order.cmp(&b.1.order))
+        });
+        let turn = enc.turn_index as usize;
+        if let Some(pos) = indexed.iter().position(|(orig, _)| *orig == turn) {
+            enc.turn_index = pos as u32;
+        }
+        enc.combatants = indexed.into_iter().map(|(_, c)| c).collect();
+        let enc = enc.clone();
+        Ok((
+            enc.scene_id.clone(),
+            vec![event::Kind::EncounterUpdated(EncounterUpdated {
+                encounter: Some(enc),
+            })],
+        ))
+    }
+
+    /// `EndEncounterIntent` (GM only): `not_permitted`, `unknown_encounter`.
+    /// Removes the encounter and its condition timers (the conditions stay).
+    fn end_encounter(&mut self, is_gm: bool, e: EndEncounterIntent) -> Outcome {
+        if !is_gm {
+            return Err(Rejection::not_permitted());
+        }
+        let Some(ei) = self
+            .encounters
+            .iter()
+            .position(|x| x.encounter_id == e.encounter_id)
+        else {
+            return Err(Rejection::new(
+                "unknown_encounter",
+                format!("no encounter {:?}", e.encounter_id),
+            ));
+        };
+
+        // Validated: mutate.
+        let enc = self.encounters.remove(ei);
+        let mut kinds = vec![event::Kind::EncounterEnded(EncounterEnded {
+            encounter_id: enc.encounter_id.clone(),
+        })];
+        for token in &mut self.tokens {
+            if token
+                .condition_timers
+                .iter()
+                .any(|t| t.encounter_id == enc.encounter_id)
+            {
+                token
+                    .condition_timers
+                    .retain(|t| t.encounter_id != enc.encounter_id);
+                kinds.push(event::Kind::TokenUpserted(TokenUpserted {
+                    token: Some(token.clone()),
+                }));
+            }
+        }
+        Ok((enc.scene_id, kinds))
     }
 
     fn chat(&mut self, actor: &str, text: &str) -> Outcome {
