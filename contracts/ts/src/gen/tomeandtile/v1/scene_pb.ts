@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tomeandtile/v1/scene.proto.
  */
 export const file_tomeandtile_v1_scene: GenFile = /*@__PURE__*/
-  fileDesc("Chp0b21lYW5kdGlsZS92MS9zY2VuZS5wcm90bxIOdG9tZWFuZHRpbGUudjEiswEKBEdyaWQSJgoEa2luZBgBIAEoDjIYLnRvbWVhbmR0aWxlLnYxLkdyaWRLaW5kEhEKCWNlbGxfc2l6ZRgCIAEoAhIkCgZvZmZzZXQYAyABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEhUKDWZlZXRfcGVyX2NlbGwYBCABKAISMwoNZGlhZ29uYWxfcnVsZRgFIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkRpYWdvbmFsUnVsZSJcCghBc3NldFJlZhIQCghhc3NldF9pZBgBIAEoCRISCgptZWRpYV90eXBlGAIgASgJEgsKA3VybBgDIAEoCRINCgV3aWR0aBgEIAEoDRIOCgZoZWlnaHQYBSABKA0ibQoFTGV2ZWwSEAoIbGV2ZWxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIWCg5lbGV2YXRpb25fZmVldBgDIAEoAhIsCgpiYWNrZ3JvdW5kGAQgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYioQEKBFdhbGwSDwoHd2FsbF9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIfCgFhGAMgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIfCgFiGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhImCgRraW5kGAUgASgOMhgudG9tZWFuZHRpbGUudjEuV2FsbEtpbmQSDAoEb3BlbhgGIAEoCCKsAQoFU2NlbmUSEAoIc2NlbmVfaWQYASABKAkSEwoLY2FtcGFpZ25faWQYAiABKAkSDAoEbmFtZRgDIAEoCRIiCgRncmlkGAQgASgLMhQudG9tZWFuZHRpbGUudjEuR3JpZBIlCgZsZXZlbHMYBSADKAsyFS50b21lYW5kdGlsZS52MS5MZXZlbBIjCgV3YWxscxgGIAMoCzIULnRvbWVhbmR0aWxlLnYxLldhbGwiOQoEQXVyYRINCgVsYWJlbBgBIAEoCRITCgtyYWRpdXNfZmVldBgCIAEoAhINCgVjb2xvchgDIAEoCSKQBAoFVG9rZW4SEAoIdG9rZW5faWQYASABKAkSEAoIc2NlbmVfaWQYAiABKAkSEAoIbGV2ZWxfaWQYAyABKAkSEwoLY3JlYXR1cmVfaWQYBCABKAkSDAoEbmFtZRgFIAEoCRInCgVpbWFnZRgGIAEoCzIYLnRvbWVhbmR0aWxlLnYxLkFzc2V0UmVmEiYKCHBvc2l0aW9uGAcgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIqCgRzaXplGAggASgOMhwudG9tZWFuZHRpbGUudjEuQ3JlYXR1cmVTaXplEhYKDmZhY2luZ19kZWdyZWVzGAkgASgCEhYKDmVsZXZhdGlvbl9mZWV0GAogASgCEiMKBWF1cmFzGAsgAygLMhQudG9tZWFuZHRpbGUudjEuQXVyYRIxCgxoZWFsdGhfc3RhdGUYDCABKA4yGy50b21lYW5kdGlsZS52MS5IZWFsdGhTdGF0ZRIXCgpocF9jdXJyZW50GA0gASgFSACIAQESEwoGaHBfbWF4GA4gASgFSAGIAQESFAoHaHBfdGVtcBgPIAEoBUgCiAEBEhIKCmNvbmRpdGlvbnMYECADKAkSGwoTY29udHJvbGxlcl91c2VyX2lkcxgRIAMoCRIOCgZoaWRkZW4YEiABKAhCDQoLX2hwX2N1cnJlbnRCCQoHX2hwX21heEIKCghfaHBfdGVtcCqCAQoIR3JpZEtpbmQSGQoVR1JJRF9LSU5EX1VOU1BFQ0lGSUVEEAASFAoQR1JJRF9LSU5EX1NRVUFSRRABEhYKEkdSSURfS0lORF9IRVhfUk9XUxACEhkKFUdSSURfS0lORF9IRVhfQ09MVU1OUxADEhIKDkdSSURfS0lORF9OT05FEAQqfgoMRGlhZ29uYWxSdWxlEh0KGURJQUdPTkFMX1JVTEVfVU5TUEVDSUZJRUQQABIWChJESUFHT05BTF9SVUxFX0ZJVkUQARIaChZESUFHT05BTF9SVUxFX0ZJVkVfVEVOEAISGwoXRElBR09OQUxfUlVMRV9FVUNMSURFQU4QAyp6CghXYWxsS2luZBIZChVXQUxMX0tJTkRfVU5TUEVDSUZJRUQQABISCg5XQUxMX0tJTkRfV0FMTBABEhIKDldBTExfS0lORF9ET09SEAISFAoQV0FMTF9LSU5EX1dJTkRPVxADEhUKEVdBTExfS0lORF9URVJSQUlOEAQqxwEKDENyZWF0dXJlU2l6ZRIdChlDUkVBVFVSRV9TSVpFX1VOU1BFQ0lGSUVEEAASFgoSQ1JFQVRVUkVfU0laRV9USU5ZEAESFwoTQ1JFQVRVUkVfU0laRV9TTUFMTBACEhgKFENSRUFUVVJFX1NJWkVfTUVESVVNEAMSFwoTQ1JFQVRVUkVfU0laRV9MQVJHRRAEEhYKEkNSRUFUVVJFX1NJWkVfSFVHRRAFEhwKGENSRUFUVVJFX1NJWkVfR0FSR0FOVFVBThAGKpQBCgtIZWFsdGhTdGF0ZRIcChhIRUFMVEhfU1RBVEVfVU5TUEVDSUZJRUQQABIYChRIRUFMVEhfU1RBVEVfSEVBTFRIWRABEhkKFUhFQUxUSF9TVEFURV9CTE9PRElFRBACEhsKF0hFQUxUSF9TVEFURV9ORUFSX0RFQVRIEAMSFQoRSEVBTFRIX1NUQVRFX0RPV04QBGIGcHJvdG8z", [file_tomeandtile_v1_common]);
+  fileDesc("Chp0b21lYW5kdGlsZS92MS9zY2VuZS5wcm90bxIOdG9tZWFuZHRpbGUudjEiswEKBEdyaWQSJgoEa2luZBgBIAEoDjIYLnRvbWVhbmR0aWxlLnYxLkdyaWRLaW5kEhEKCWNlbGxfc2l6ZRgCIAEoAhIkCgZvZmZzZXQYAyABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEhUKDWZlZXRfcGVyX2NlbGwYBCABKAISMwoNZGlhZ29uYWxfcnVsZRgFIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkRpYWdvbmFsUnVsZSJcCghBc3NldFJlZhIQCghhc3NldF9pZBgBIAEoCRISCgptZWRpYV90eXBlGAIgASgJEgsKA3VybBgDIAEoCRINCgV3aWR0aBgEIAEoDRIOCgZoZWlnaHQYBSABKA0ibQoFTGV2ZWwSEAoIbGV2ZWxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIWCg5lbGV2YXRpb25fZmVldBgDIAEoAhIsCgpiYWNrZ3JvdW5kGAQgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYioQEKBFdhbGwSDwoHd2FsbF9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIfCgFhGAMgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIfCgFiGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhImCgRraW5kGAUgASgOMhgudG9tZWFuZHRpbGUudjEuV2FsbEtpbmQSDAoEb3BlbhgGIAEoCCKsAQoFU2NlbmUSEAoIc2NlbmVfaWQYASABKAkSEwoLY2FtcGFpZ25faWQYAiABKAkSDAoEbmFtZRgDIAEoCRIiCgRncmlkGAQgASgLMhQudG9tZWFuZHRpbGUudjEuR3JpZBIlCgZsZXZlbHMYBSADKAsyFS50b21lYW5kdGlsZS52MS5MZXZlbBIjCgV3YWxscxgGIAMoCzIULnRvbWVhbmR0aWxlLnYxLldhbGwiOQoEQXVyYRINCgVsYWJlbBgBIAEoCRITCgtyYWRpdXNfZmVldBgCIAEoAhINCgVjb2xvchgDIAEoCSJ+Cg5Db25kaXRpb25UaW1lchIRCgllZmZlY3RfaWQYASABKAkSFAoMZW5jb3VudGVyX2lkGAIgASgJEhcKD3NvdXJjZV90b2tlbl9pZBgDIAEoCRISCgplbmRzX3JvdW5kGAQgASgNEhYKDmF0X2VuZF9vZl90dXJuGAUgASgIIsoECgVUb2tlbhIQCgh0b2tlbl9pZBgBIAEoCRIQCghzY2VuZV9pZBgCIAEoCRIQCghsZXZlbF9pZBgDIAEoCRITCgtjcmVhdHVyZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEicKBWltYWdlGAYgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYSJgoIcG9zaXRpb24YByABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEioKBHNpemUYCCABKA4yHC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVNpemUSFgoOZmFjaW5nX2RlZ3JlZXMYCSABKAISFgoOZWxldmF0aW9uX2ZlZXQYCiABKAISIwoFYXVyYXMYCyADKAsyFC50b21lYW5kdGlsZS52MS5BdXJhEjEKDGhlYWx0aF9zdGF0ZRgMIAEoDjIbLnRvbWVhbmR0aWxlLnYxLkhlYWx0aFN0YXRlEhcKCmhwX2N1cnJlbnQYDSABKAVIAIgBARITCgZocF9tYXgYDiABKAVIAYgBARIUCgdocF90ZW1wGA8gASgFSAKIAQESEgoKY29uZGl0aW9ucxgQIAMoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGBEgAygJEg4KBmhpZGRlbhgSIAEoCBI4ChBjb25kaXRpb25fdGltZXJzGBMgAygLMh4udG9tZWFuZHRpbGUudjEuQ29uZGl0aW9uVGltZXJCDQoLX2hwX2N1cnJlbnRCCQoHX2hwX21heEIKCghfaHBfdGVtcCqCAQoIR3JpZEtpbmQSGQoVR1JJRF9LSU5EX1VOU1BFQ0lGSUVEEAASFAoQR1JJRF9LSU5EX1NRVUFSRRABEhYKEkdSSURfS0lORF9IRVhfUk9XUxACEhkKFUdSSURfS0lORF9IRVhfQ09MVU1OUxADEhIKDkdSSURfS0lORF9OT05FEAQqfgoMRGlhZ29uYWxSdWxlEh0KGURJQUdPTkFMX1JVTEVfVU5TUEVDSUZJRUQQABIWChJESUFHT05BTF9SVUxFX0ZJVkUQARIaChZESUFHT05BTF9SVUxFX0ZJVkVfVEVOEAISGwoXRElBR09OQUxfUlVMRV9FVUNMSURFQU4QAyp6CghXYWxsS2luZBIZChVXQUxMX0tJTkRfVU5TUEVDSUZJRUQQABISCg5XQUxMX0tJTkRfV0FMTBABEhIKDldBTExfS0lORF9ET09SEAISFAoQV0FMTF9LSU5EX1dJTkRPVxADEhUKEVdBTExfS0lORF9URVJSQUlOEAQqxwEKDENyZWF0dXJlU2l6ZRIdChlDUkVBVFVSRV9TSVpFX1VOU1BFQ0lGSUVEEAASFgoSQ1JFQVRVUkVfU0laRV9USU5ZEAESFwoTQ1JFQVRVUkVfU0laRV9TTUFMTBACEhgKFENSRUFUVVJFX1NJWkVfTUVESVVNEAMSFwoTQ1JFQVRVUkVfU0laRV9MQVJHRRAEEhYKEkNSRUFUVVJFX1NJWkVfSFVHRRAFEhwKGENSRUFUVVJFX1NJWkVfR0FSR0FOVFVBThAGKpQBCgtIZWFsdGhTdGF0ZRIcChhIRUFMVEhfU1RBVEVfVU5TUEVDSUZJRUQQABIYChRIRUFMVEhfU1RBVEVfSEVBTFRIWRABEhkKFUhFQUxUSF9TVEFURV9CTE9PRElFRBACEhsKF0hFQUxUSF9TVEFURV9ORUFSX0RFQVRIEAMSFQoRSEVBTFRIX1NUQVRFX0RPV04QBGIGcHJvdG8z", [file_tomeandtile_v1_common]);
 
 /**
  * @generated from message tomeandtile.v1.Grid
@@ -254,6 +254,70 @@ export const AuraSchema: GenMessage<Aura> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_scene, 5);
 
 /**
+ * When a timed condition on a token ends. A condition with no timer stays
+ * until it is removed. Only round-based durations get a timer, and only
+ * while an encounter is running on the token's scene.
+ *
+ * Rules, applied in round R of a running encounter, from the ability's
+ * ApplyEffectStep.duration:
+ *   DURATION_UNIT_ROUNDS, amount N                 ends_round R + N, at the
+ *                                                  start of the source's turn
+ *   DURATION_UNIT_UNTIL_START_OF_SOURCE_NEXT_TURN  ends_round R + 1, at the
+ *                                                  start
+ *   DURATION_UNIT_UNTIL_END_OF_SOURCE_NEXT_TURN    ends_round R + 1, at the
+ *                                                  end
+ * If the source is not a combatant, the timer ends at the start of
+ * ends_round (when the turn order wraps).
+ * MINUTES, HOURS, UNTIL_DISPELLED, INSTANT, UNSPECIFIED, and any round-based
+ * duration outside an encounter: no timer, and the warning
+ * duration_not_tracked (except INSTANT and UNSPECIFIED, which give no
+ * warning). Duration.concentration is ignored in M3.
+ * Ending an encounter removes its timers and leaves the conditions on the
+ * tokens.
+ *
+ * @generated from message tomeandtile.v1.ConditionTimer
+ */
+export type ConditionTimer = Message<"tomeandtile.v1.ConditionTimer"> & {
+  /**
+   * @generated from field: string effect_id = 1;
+   */
+  effectId: string;
+
+  /**
+   * @generated from field: string encounter_id = 2;
+   */
+  encounterId: string;
+
+  /**
+   * The token whose turn ends the condition (the ability's source).
+   *
+   * @generated from field: string source_token_id = 3;
+   */
+  sourceTokenId: string;
+
+  /**
+   * The encounter round in which it ends.
+   *
+   * @generated from field: uint32 ends_round = 4;
+   */
+  endsRound: number;
+
+  /**
+   * False: at the start of the source's turn in ends_round. True: at the end.
+   *
+   * @generated from field: bool at_end_of_turn = 5;
+   */
+  atEndOfTurn: boolean;
+};
+
+/**
+ * Describes the message tomeandtile.v1.ConditionTimer.
+ * Use `create(ConditionTimerSchema)` to create a new message.
+ */
+export const ConditionTimerSchema: GenMessage<ConditionTimer> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_scene, 6);
+
+/**
  * A token as sent to one viewer. Fields the viewer may not see are left
  * unset by the server (ADR 0006); clients must treat unset as "unknown".
  *
@@ -331,6 +395,14 @@ export type Token = Message<"tomeandtile.v1.Token"> & {
   /**
    * Present only for controllers, the GM, or when revealed.
    *
+   * hp_current, hp_max, hp_temp, conditions and condition_timers are the live
+   * values. Damage, healing, SetHitPointsIntent and SetConditionsIntent change
+   * the token only. Several tokens can share one creature (three goblins, one
+   * stat block), so the creature cannot hold live HP. The HP values are copied
+   * from the creature when the token is created (CreateTokenIntent). A token
+   * with no hp_max has no HP to change: damage and healing are shown on the
+   * result card but not applied (warning no_hit_points).
+   *
    * @generated from field: optional int32 hp_current = 13;
    */
   hpCurrent?: number | undefined;
@@ -346,7 +418,11 @@ export type Token = Message<"tomeandtile.v1.Token"> & {
   hpTemp?: number | undefined;
 
   /**
-   * Condition ids, e.g. "prone", "poisoned".
+   * Condition ids. The SRD conditions are: blinded, charmed, deafened,
+   * exhaustion, frightened, grappled, incapacitated, invisible, paralyzed,
+   * petrified, poisoned, prone, restrained, stunned, unconscious. Any other id
+   * matching [a-z0-9_]{1,40} (bless, hunters_mark, shield) is a label: shown,
+   * stored and timed, with no rules effect.
    *
    * @generated from field: repeated string conditions = 16;
    */
@@ -365,6 +441,14 @@ export type Token = Message<"tomeandtile.v1.Token"> & {
    * @generated from field: bool hidden = 18;
    */
   hidden: boolean;
+
+  /**
+   * When the timed entries of `conditions` end (see ConditionTimer). Filtered
+   * like `conditions`: sent to everyone who receives the token.
+   *
+   * @generated from field: repeated tomeandtile.v1.ConditionTimer condition_timers = 19;
+   */
+  conditionTimers: ConditionTimer[];
 };
 
 /**
@@ -372,7 +456,7 @@ export type Token = Message<"tomeandtile.v1.Token"> & {
  * Use `create(TokenSchema)` to create a new message.
  */
 export const TokenSchema: GenMessage<Token> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_scene, 6);
+  messageDesc(file_tomeandtile_v1_scene, 7);
 
 /**
  * @generated from enum tomeandtile.v1.GridKind
@@ -535,6 +619,20 @@ export const CreatureSizeSchema: GenEnum<CreatureSize> = /*@__PURE__*/
 
 /**
  * What a viewer who does not control the token sees of its health.
+ *
+ * The server computes it from the token's hp_current and hp_max after every
+ * HP change, in integer arithmetic. Temporary HP does not count.
+ *   HEALTH_STATE_DOWN        hp_current is 0
+ *   HEALTH_STATE_NEAR_DEATH  hp_current * 4 <= hp_max (at or below a quarter)
+ *   HEALTH_STATE_BLOODIED    hp_current * 2 <= hp_max (at or below half)
+ *   HEALTH_STATE_HEALTHY     above half
+ * A token with no hp_max, or hp_max 0, keeps the state it has.
+ * Example, hp_max 9: 5 to 9 Healthy, 3 and 4 Bloodied, 1 and 2 Near death,
+ * 0 Down.
+ *
+ * health_state goes to every viewer who receives the token; the numbers only
+ * to the GM and controllers (ADR 0006). Reaching 0 sets Down and nothing
+ * else: death saves are rolled by hand (ADR 0005).
  *
  * @generated from enum tomeandtile.v1.HealthState
  */

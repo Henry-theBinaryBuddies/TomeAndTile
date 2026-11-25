@@ -137,7 +137,13 @@ message Duration {
 
 // Apply a condition or named effect to the target.
 message ApplyEffectStep {
-  // Condition or effect id, e.g. "prone", "bless".
+  // Condition or effect id. The SRD condition ids are: blinded, charmed,
+  // deafened, exhaustion, frightened, grappled, incapacitated, invisible,
+  // paralyzed, petrified, poisoned, prone, restrained, stunned, unconscious.
+  // Any other id matching [a-z0-9_]{1,40} (bless, hunters_mark, shield) is a
+  // label: shown, stored and timed, with no rules effect. Which conditions
+  // change rolls is decided by the rules engine. Durations become timers as
+  // described on ConditionTimer (scene.proto).
   string effect_id = 1;
   Duration duration = 2;
   // Apply only if the preceding attack hit or the save failed.
@@ -210,6 +216,10 @@ message Creature {
   AbilityScores scores = 6;
   int32 proficiency_bonus = 7;
   int32 armor_class = 8;
+  // hp_current, hp_max, hp_temp and conditions are the stat block's values.
+  // They are copied onto a token when it is created (CreateTokenIntent) and
+  // are not changed by play in M3. Show HP from the token, never from the
+  // creature; the live values are on Token.
   int32 hp_current = 9;
   int32 hp_max = 10;
   int32 hp_temp = 11;
@@ -248,4 +258,19 @@ message Creature {
   // Condition ids the creature cannot be given, e.g. "prone", "blinded".
   // `conditions` holds the ones currently active.
   repeated string condition_immunities = 32;
+}
+
+// Reply to a Creature Cauldron import (ADR 0015). This is the HTTP reply of
+// POST /campaigns/{campaign_id}/imports; the request body is the raw export
+// file. Errors are JSON {"code","message"}.
+message ImportResult {
+  // The creature as stored, with its server-minted creature_id.
+  Creature creature = 1;
+  // True if it replaced an earlier import with the same
+  // provenance.source and provenance.external_id; creature_id is the
+  // earlier one.
+  bool replaced = 2;
+  // What the importer could not map and did not guess (for example a
+  // multiattack kept as text). Never blocks the import.
+  repeated Warning notes = 3;
 }

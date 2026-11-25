@@ -175,7 +175,7 @@ async fn player_snapshot_has_the_pregens_but_not_the_goblin_creature() {
             "creature-tamsin"
         ]
     );
-    assert_eq!(s.tokens.len(), 7);
+    assert_eq!(s.tokens.len(), 8);
 }
 
 #[tokio::test]
@@ -183,7 +183,7 @@ async fn gm_snapshot_has_every_creature() {
     let addr = start(faces(&[])).await;
     let (_ws, s) = join(addr, "gm").await;
     assert_eq!(s.role, Role::Gm as i32);
-    assert_eq!(s.creatures.len(), 6);
+    assert_eq!(s.creatures.len(), 7);
     assert!(s
         .creatures
         .iter()
@@ -204,7 +204,7 @@ async fn token_hp_is_not_redacted_for_anyone() {
         };
         assert_eq!(hp("token-aria"), Some(24));
         assert_eq!(hp("token-brannoch"), Some(28));
-        assert_eq!(hp("token-goblin"), None);
+        assert_eq!(hp("token-goblin"), Some(9));
     }
 }
 
@@ -535,7 +535,7 @@ async fn both_connections_get_the_same_event_and_no_upserts() {
             .hp_current
     };
     assert_eq!(hp("token-brannoch"), Some(28));
-    assert_eq!(hp("token-goblin"), None);
+    assert_eq!(hp("token-goblin"), Some(9));
 }
 
 #[tokio::test]

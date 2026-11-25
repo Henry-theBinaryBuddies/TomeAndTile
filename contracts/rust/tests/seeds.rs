@@ -100,15 +100,19 @@ fn seed_parses_and_extends_the_mock_snapshot() {
     assert_eq!(seed.active_scene_id, mock.active_scene_id);
     assert_eq!(seed.seq, mock.seq);
 
-    // token-aria is unchanged; token-goblin only gains a creature id.
+    // token-aria is unchanged; token-goblin gains a creature id and HP.
     assert_eq!(token(&seed, "token-aria"), token(&mock, "token-aria"));
     let mut goblin = token(&seed, "token-goblin").clone();
     assert_eq!(goblin.creature_id, "creature-goblin");
+    assert_eq!((goblin.hp_current, goblin.hp_max), (Some(9), Some(9)));
     goblin.creature_id.clear();
+    goblin.hp_current = None;
+    goblin.hp_max = None;
     assert_eq!(&goblin, token(&mock, "token-goblin"));
 
-    assert_eq!(seed.tokens.len(), mock.tokens.len() + PREGENS.len());
-    assert_eq!(seed.creatures.len(), PREGENS.len() + 1);
+    // The pregens, plus the ember wisp.
+    assert_eq!(seed.tokens.len(), mock.tokens.len() + PREGENS.len() + 1);
+    assert_eq!(seed.creatures.len(), PREGENS.len() + 2);
     assert!(seed.tokens.iter().all(|t| !t.hidden), "no token is hidden");
 }
 
@@ -145,16 +149,15 @@ fn every_pregen_has_a_linked_token_for_mock_player() {
 }
 
 #[test]
-fn the_goblin_is_the_only_monster_and_has_one_attack() {
+fn the_goblin_and_the_ember_wisp_are_the_only_monsters() {
     let seed = seed();
     let monsters: Vec<&Creature> = seed
         .creatures
         .iter()
         .filter(|c| c.kind == CreatureKind::Monster as i32)
         .collect();
-    assert_eq!(monsters.len(), 1);
-    let m = monsters[0];
-    assert_eq!(m.creature_id, "creature-goblin");
+    assert_eq!(monsters.len(), 2);
+    let m = creature(&seed, "creature-goblin");
     assert!(m.armor_class > 0 && m.hp_max > 0 && m.hp_current == m.hp_max);
     assert_eq!(m.abilities.len(), 1);
     let a = &m.abilities[0];
