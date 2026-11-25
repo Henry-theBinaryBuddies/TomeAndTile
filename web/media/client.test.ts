@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { createMediaClient, type MediaClientOptions } from './client';
 import { RoomFailure, type RoomLike } from './room';
-import type { ParticipantInfo } from './types';
+import type { DeviceKind, MediaDeviceOption, ParticipantInfo } from './types';
 
 const SECRET_TOKEN = 'super-secret-join-token';
 
@@ -28,6 +28,8 @@ class FakeRoom implements RoomLike {
 	connectError: unknown = null;
 	micError: unknown = null;
 	cameraError: unknown = null;
+	switchDeviceError: unknown = null;
+	switchDeviceCalls: Array<{ kind: DeviceKind; deviceId: string }> = [];
 	private disconnectedCallbacks: Array<() => void> = [];
 	private participantsChangedCallbacks: Array<() => void> = [];
 	private participantList: ParticipantInfo[] = [
@@ -43,17 +45,25 @@ class FakeRoom implements RoomLike {
 		this.disconnected = true;
 	}
 
-	async setMicrophoneEnabled(enabled: boolean) {
+	setMicrophoneDeviceId: string | undefined;
+	setCameraDeviceId: string | undefined;
+
+	async setMicrophoneEnabled(enabled: boolean, deviceId?: string) {
 		if (this.micError) throw this.micError;
 		this.micEnabled = enabled;
+		this.setMicrophoneDeviceId = deviceId;
 	}
 
-	async setCameraEnabled(enabled: boolean) {
+	async setCameraEnabled(enabled: boolean, deviceId?: string) {
 		if (this.cameraError) throw this.cameraError;
 		this.cameraEnabled = enabled;
+		this.setCameraDeviceId = deviceId;
 	}
 
-	async switchActiveDevice() {}
+	async switchActiveDevice(kind: DeviceKind, deviceId: string) {
+		this.switchDeviceCalls.push({ kind, deviceId });
+		if (this.switchDeviceError) throw this.switchDeviceError;
+	}
 
 	participants() {
 		return this.participantList;
@@ -84,7 +94,36 @@ class FakeRoom implements RoomLike {
 	}
 }
 
-function setup(overrides: Partial<MediaClientOptions> = {}) {
+/** A fake device catalog + `devicechange` emitter, with no browser `navigator` involved. Tests
+ * mutate `audioinput`/`videoinput` directly, then call `fireChange()` to simulate hardware
+ * being plugged in or removed. */
+class FakeDevices {
+	audioinput: MediaDeviceOption[] = [
+		{ deviceId: 'mic-1', label: 'Mic 1' },
+		{ deviceId: 'mic-2', label: 'Mic 2' }
+	];
+	videoinput: MediaDeviceOption[] = [{ deviceId: 'cam-1', label: 'Cam 1' }];
+	private listeners: Array<() => void> = [];
+	listCalls: DeviceKind[] = [];
+
+	list = async (kind: DeviceKind): Promise<MediaDeviceOption[]> => {
+		this.listCalls.push(kind);
+		return [...this[kind]];
+	};
+
+	onChange = (callback: () => void): (() => void) => {
+		this.listeners.push(callback);
+		return () => {
+			this.listeners = this.listeners.filter((l) => l !== callback);
+		};
+	};
+
+	fireChange() {
+		for (const listener of this.listeners) listener();
+	}
+}
+
+function setup(overrides: Partial<MediaClientOptions> = {}, devices = new FakeDevices()) {
 	const rooms: FakeRoom[] = [];
 	const options: MediaClientOptions = {
 		requestToken: vi.fn(async () => fakeToken()),
@@ -93,10 +132,17 @@ function setup(overrides: Partial<MediaClientOptions> = {}) {
 			rooms.push(room);
 			return room;
 		},
+		listDevices: devices.list,
+		onDeviceChange: devices.onChange,
 		...overrides
 	};
 	const client = createMediaClient(options);
-	return { client, rooms, requestToken: options.requestToken as ReturnType<typeof vi.fn> };
+	return {
+		client,
+		rooms,
+		devices,
+		requestToken: options.requestToken as ReturnType<typeof vi.fn>
+	};
 }
 
 beforeEach(() => {
@@ -321,6 +367,134 @@ describe('participants', () => {
 
 		expect(client.listParticipants()).toHaveLength(2);
 		expect(client.listParticipants()[1].name).toBe('The GM');
+	});
+});
+
+describe('device handling', () => {
+	it('lists both kinds at startup without asking permission, reaching state', async () => {
+		const { client, devices } = setup();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(devices.listCalls).toEqual(expect.arrayContaining(['audioinput', 'videoinput']));
+		const state = get(client.state);
+		expect(state.devices.audioinput).toEqual([
+			{ deviceId: 'mic-1', label: 'Mic 1' },
+			{ deviceId: 'mic-2', label: 'Mic 2' }
+		]);
+		expect(state.devices.videoinput).toEqual([{ deviceId: 'cam-1', label: 'Cam 1' }]);
+	});
+
+	it('re-lists on a devicechange event; the panel never has to poll', async () => {
+		const { client, devices } = setup();
+		await vi.advanceTimersByTimeAsync(0);
+		devices.listCalls = [];
+
+		devices.audioinput = [
+			{ deviceId: 'mic-1', label: 'Mic 1' },
+			{ deviceId: 'mic-2', label: 'Mic 2' },
+			{ deviceId: 'mic-3', label: 'Mic 3' }
+		];
+		devices.fireChange();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(devices.listCalls).toContain('audioinput');
+		expect(get(client.state).devices.audioinput).toHaveLength(3);
+	});
+
+	it('records the selected device in state immediately, even before joining', async () => {
+		const { client } = setup();
+		await client.selectDevice('audioinput', 'mic-2');
+
+		expect(get(client.state).selectedDeviceId.audioinput).toBe('mic-2');
+	});
+
+	it('applies a selection made before joining by capturing that device from the start', async () => {
+		const { client, rooms } = setup();
+		await client.selectDevice('audioinput', 'mic-2');
+		await client.join();
+
+		// Passed straight to setMicrophoneEnabled, not switched to afterward: the wrong
+		// microphone must never open even briefly.
+		expect(rooms[0].setMicrophoneDeviceId).toBe('mic-2');
+		expect(rooms[0].switchDeviceCalls).toEqual([]);
+	});
+
+	it('still applies the remembered selection after a reconnect', async () => {
+		const { client, rooms } = setup();
+		await client.selectDevice('audioinput', 'mic-2');
+		await client.join();
+
+		rooms[0].fireDisconnected();
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect(rooms[1].setMicrophoneDeviceId).toBe('mic-2');
+	});
+
+	it('with no explicit selection, opens the default device rather than naming one in state', async () => {
+		const { client, rooms } = setup();
+		await vi.advanceTimersByTimeAsync(0); // let the startup listing resolve
+
+		expect(get(client.state).selectedDeviceId).toEqual({ audioinput: null, videoinput: null });
+
+		await client.join();
+
+		// No deviceId constraint: the system default opens, not whatever happened to list first.
+		expect(rooms[0].setMicrophoneDeviceId).toBeUndefined();
+		expect(get(client.state).selectedDeviceId.audioinput).toBeNull();
+	});
+
+	it('selecting a device never opens one for a spectator', async () => {
+		const { client, rooms } = setup({ requestToken: async () => fakeToken({ canPublish: false }) });
+		await client.join();
+		await client.selectDevice('audioinput', 'mic-2');
+
+		expect(rooms[0].switchDeviceCalls).toEqual([]);
+	});
+
+	it('falls back to another device when the selected one disappears, and switches the live track', async () => {
+		const { client, rooms, devices } = setup();
+		await client.selectDevice('audioinput', 'mic-1');
+		await client.join();
+
+		devices.audioinput = [{ deviceId: 'mic-2', label: 'Mic 2' }];
+		devices.fireChange();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(get(client.state).selectedDeviceId.audioinput).toBe('mic-2');
+		expect(rooms[0].switchDeviceCalls).toContainEqual({ kind: 'audioinput', deviceId: 'mic-2' });
+	});
+
+	it('reports no_device when the selected device disappears and none are left', async () => {
+		const { client, devices } = setup();
+		await client.selectDevice('audioinput', 'mic-1');
+		await client.join();
+
+		devices.audioinput = [];
+		devices.fireChange();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(get(client.state).failure).toEqual({ kind: 'no_device', message: 'No microphone is available.' });
+	});
+
+	it('a failed selectDevice lands in state.failure and the call stays up', async () => {
+		const { client, rooms } = setup();
+		await client.join();
+		rooms[0].switchDeviceError = new RoomFailure('no_device', 'that microphone is gone');
+
+		await client.selectDevice('audioinput', 'mic-2');
+
+		const state = get(client.state);
+		expect(state.failure).toEqual({ kind: 'no_device', message: 'that microphone is gone' });
+		expect(state.status).toBe('joined');
+	});
+
+	it('re-lists devices once permission is granted, to pick up real labels', async () => {
+		const { client, devices } = setup();
+		devices.listCalls = [];
+
+		await client.join(); // can_publish defaults true, so this enables the microphone
+
+		expect(devices.listCalls).toContain('audioinput');
 	});
 });
 

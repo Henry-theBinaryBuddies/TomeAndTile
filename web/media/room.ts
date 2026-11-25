@@ -55,8 +55,10 @@ function toParticipantInfo(participant: Participant | LocalParticipant, isLocal:
 export interface RoomLike {
 	connect(url: string, token: string): Promise<void>;
 	disconnect(): Promise<void>;
-	setMicrophoneEnabled(enabled: boolean): Promise<void>;
-	setCameraEnabled(enabled: boolean): Promise<void>;
+	/** `deviceId`, when given, captures that device from the start instead of the system
+	 * default, so a remembered device choice never opens the wrong one first and switches. */
+	setMicrophoneEnabled(enabled: boolean, deviceId?: string): Promise<void>;
+	setCameraEnabled(enabled: boolean, deviceId?: string): Promise<void>;
 	switchActiveDevice(kind: DeviceKind, deviceId: string): Promise<void>;
 	participants(): ParticipantInfo[];
 	attach(participantId: string, kind: TrackKind, element: HTMLMediaElement): boolean;
@@ -83,22 +85,26 @@ export function wrapLiveKitRoom(room: Room = new Room()): RoomLike {
 		async disconnect() {
 			await room.disconnect();
 		},
-		async setMicrophoneEnabled(enabled) {
+		async setMicrophoneEnabled(enabled, deviceId) {
 			try {
-				await room.localParticipant.setMicrophoneEnabled(enabled);
+				await room.localParticipant.setMicrophoneEnabled(enabled, deviceId ? { deviceId } : undefined);
 			} catch (error) {
 				throw classifyDeviceError(error);
 			}
 		},
-		async setCameraEnabled(enabled) {
+		async setCameraEnabled(enabled, deviceId) {
 			try {
-				await room.localParticipant.setCameraEnabled(enabled);
+				await room.localParticipant.setCameraEnabled(enabled, deviceId ? { deviceId } : undefined);
 			} catch (error) {
 				throw classifyDeviceError(error);
 			}
 		},
 		async switchActiveDevice(kind, deviceId) {
-			await room.switchActiveDevice(kind, deviceId);
+			try {
+				await room.switchActiveDevice(kind, deviceId);
+			} catch (error) {
+				throw classifyDeviceError(error);
+			}
 		},
 		participants() {
 			const list = [toParticipantInfo(room.localParticipant, true)];
