@@ -124,9 +124,12 @@ impl Campaign {
                 ));
                 return Some(out);
             }
-            // The token may already be gone, so its hidden flag is unknown:
-            // GM only until a removal intent carries that information.
-            event::Kind::TokenRemoved(_) => gm,
+            // The token is gone, so the campaign kept whether it was hidden:
+            // everyone for a visible token, the GM otherwise (also for an id
+            // that was never removed through an intent).
+            event::Kind::TokenRemoved(r) => {
+                gm || self.removed_token_hidden.get(&r.token_id) == Some(&false)
+            }
             // Unknown or hidden tokens: GM only.
             event::Kind::TokenMoved(m) => {
                 gm || self.token_by_id(&m.token_id).is_some_and(|t| !t.hidden)
