@@ -46,7 +46,7 @@ A GM, or a player who controls the (visible) source token, sends `use_ability` w
 
 - **Hit points live on the token** (`Token.hp_*`), never on the creature: three goblins share one stat block. `Creature.hp_*` is the stat block's value and no intent changes it. The token's `health_state` is recomputed with every change and goes to everyone who may see the token; the numbers only to the GM and the token's controllers.
 - Death saves stay manual. Reaching 0 sets `HEALTH_STATE_DOWN` (and `dropped_to_zero` on the outcome) and nothing else: no death save, no instant death.
-- Encounter: the encounter in state whose `scene_id` is the source token's scene, with its `round`, is passed to the engine (it decides condition timers). Encounters cannot be started yet (#102), so today there is none and timed conditions get a `duration_not_tracked` warning.
+- Encounter: the encounter in state whose `scene_id` is the source token's scene, with its `round`, is passed to the engine (it decides condition timers). While the scene has no running encounter, timed conditions get a `duration_not_tracked` warning (start one with `start_encounter`, below).
 - Ids and attribution: the server fills `Resolution.resolution_id` and every `RollResult.roll_id` from its id source, sets `roller_user_id` to the sender and `visibility` to `PUBLIC`. A damage roll that the engine copies into every outcome of one save or flat step gets ONE `roll_id`, the same in every copy. Every other roll (attack rolls, saving throws, each target's attack damage) has its own.
 - Scene grid: taken from the scene of the source token. Without a grid, range is not checked.
 - Warnings never stop the action. The engine's warnings are in `Resolution.warnings` and also in `Event.warnings` of the `ResolutionUpdated` event (only that event). Codes: `out_of_range`, `too_many_targets`, `not_enough_resource`, `extra_targets_ignored`, `area_not_checked`, `no_hit_points`, `condition_immune`, `duration_not_tracked`, `ability_recharging` (see `common.proto`). A viewer who may not see the source creature's sheet (a player, for a monster) gets the resolution without `not_enough_resource`, because that warning names the creature's resource and how many uses are left.
@@ -54,6 +54,30 @@ A GM, or a player who controls the (visible) source token, sends `use_ability` w
 - Refusals go to the sender only and append nothing. Order of checks: permission, `unknown_token`, `no_creature`, `unknown_ability`, `unknown_target`, then the engine (`no_targets`, `not_implemented`), then `rng_unavailable`. `not_implemented` is now only for plugin steps, mixed multi-attack abilities (several attack steps with a save or flat step) and ability data the engine cannot use (including dice that do not parse). Codes are in the table below.
 - A player naming a source token that is missing, hidden or not theirs always gets `not_permitted`, so a player can never learn what abilities a GM creature has.
 - Visibility: `ResolutionUpdated` goes to every viewer (spectators included, like public chat) when neither the source token nor any target token is hidden; otherwise to the GM only. `TokenUpserted` and `CreatureUpserted` keep their normal rules (below), so a player never receives a monster's `Creature` (AC, HP) or hit point numbers in a snapshot or an event. The log keeps every event unredacted.
+
+## Encounters (#102)
+
+Four intents run combat. Each validates first and changes state last (a refusal leaves state, `seq`, the log and the change records untouched; the entropy check comes before any change). Each is recorded as a `NotUndoable` group with the tokens and creatures it changed, so it blocks undo of earlier changes to them, and it cannot be undone itself (`not_undoable`).
+
+| Intent | Who | Events | Notes |
+|---|---|---|---|
+| `start_encounter` | GM | one `DiceRolled` per combatant, then `EncounterUpdated` | duplicate token ids are listed once, in first-listed order. Per token one d20 plus the creature's `initiative_bonus` (0 with no creature), purpose `INITIATIVE`, label `<token name> initiative`, `roller_creature_id` set, `GM_ONLY` for a hidden token and `PUBLIC` otherwise. The encounter has a minted `encounter_id`, the scene id, round 1 and `turn_index` 0. Combatants are sorted by initiative (higher first), then `initiative_bonus` (higher first), then list order; `order` is the position after sorting. Nothing runs for the first turn (no recharge rolls) |
+| `end_turn` | GM, or a player who controls the current combatant's visible token | `EncounterUpdated`, a `TokenUpserted` per token whose timers ended, then recharge `DiceRolled`s and one `CreatureUpserted` | `turn_index` moves on; past the last combatant it goes to 0 and `round` goes up by one |
+| `set_initiative` | GM | `EncounterUpdated` | sets the combatant's `initiative` and `order`, then re-sorts: higher initiative first, then lower `order`, equal keys keep their places. The turn stays with the combatant whose turn it was |
+| `end_encounter` | GM | `EncounterEnded`, a `TokenUpserted` per token that had timers of the encounter | removes the encounter and its condition timers; the conditions stay. Later Snapshots have no encounter |
+
+Timers on `end_turn`: one call of `tt_rules::conditions::expire_timers` with the token whose turn ended (and the round it ended in) and the token whose turn starts (and its round). End-of-turn timers of the first and start-of-turn timers of the second end, together with their conditions; timers of other encounters and of no encounter are never touched. `use_ability` passes the scene's running encounter and its round, so round-based effects get timers: Choking Ash on round 1 ends when the wisp's turn starts in round 2.
+
+Recharge: when a combatant's turn starts, the server rolls a d6 for each ability of its creature with `recharge_spent` true and a `recharge` rule. A roll of at least `min_roll` sets `recharge_spent` false. Each roll is a `DiceRolled` (label `<ability name> recharge`, purpose `FREEFORM`, `roller_creature_id` set), `GM_ONLY` when the creature has no owner or the token is hidden and `PUBLIC` otherwise; one `CreatureUpserted` follows when anything recharged.
+
+Order of refusals:
+
+- `start_encounter`: `not_permitted`, `unknown_scene`, `no_combatants` (empty list), `unknown_token` (missing, or on another scene), `encounter_running` (the scene has one; one encounter per scene), `rng_unavailable`.
+- `end_turn`: `unknown_encounter` for the GM. A player naming a missing encounter, or one they may not see (a hidden combatant), or not controlling the current token, gets `not_permitted`, so a player cannot probe for a hidden fight. Then `rng_unavailable`.
+- `set_initiative`: `not_permitted`, `unknown_encounter`, `unknown_combatant`.
+- `end_encounter`: `not_permitted`, `unknown_encounter`.
+
+Visibility: `EncounterUpdated` keeps the `encounter_visible` rule (a non-GM sees it only if every combatant is a known, non-hidden token), `EncounterEnded` goes to everyone, and initiative and recharge rolls follow the `DiceRolled` filter. Action economy flags stay false; combatants cannot be added or removed in a running encounter.
 
 ## Hit points, conditions and tokens
 
@@ -134,10 +158,10 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 
 | Code | When |
 |---|---|
-| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token, or setting its hit points) they do not control, that is hidden, or that does not exist; non-GM `set_controllers`, `set_level_background`, `set_conditions`, `create_token`, `remove_token` or `undo` |
+| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token, or setting its hit points) they do not control, that is hidden, or that does not exist; non-GM `set_controllers`, `set_level_background`, `set_conditions`, `create_token`, `remove_token`, `undo`, `start_encounter`, `set_initiative` or `end_encounter`; `end_turn` by a player who does not control the current combatant's visible token or who cannot see the encounter |
 | `malformed_intent` | the intent has no kind |
-| `not_implemented` | any intent kind other than move, chat, roll, use_ability, set_controllers, set_level_background, set_hit_points, set_conditions, create_token, remove_token, undo (the encounter intents are not built yet); for `use_ability`, a plugin step, several attack steps together with a save or flat step, or ability data the engine cannot use (including dice that do not parse) |
-| `unknown_token` | GM names a token that does not exist (move, set_controllers, set_hit_points, set_conditions, remove_token, the source of use_ability) |
+| `not_implemented` | `use_ability`: a plugin step, several attack steps together with a save or flat step, or ability data the engine cannot use (including dice that do not parse) |
+| `unknown_token` | GM names a token that does not exist (move, set_controllers, set_hit_points, set_conditions, remove_token, the source of use_ability), or `start_encounter` lists one that is missing or on another scene |
 | `no_hit_points` | `set_hit_points`: the token has no `hp_max` |
 | `bad_hit_points` | `set_hit_points`: `hp_current` below 0 or above `hp_max`, or `hp_temp` below 0 or above 999 |
 | `bad_condition_id` | `set_conditions`: an id in `add` or `remove` is not `[a-z0-9_]{1,40}` |
@@ -167,7 +191,11 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 | `rng_unavailable` | the OS gave no entropy; nothing changed, nothing was rolled |
 | `unknown_user` | `set_controllers` or `create_token` names a non-member |
 | `invalid_controller` | `set_controllers` or `create_token` names a spectator |
-| `unknown_scene` | `set_level_background` or `create_token` names a scene that does not exist |
+| `unknown_scene` | `set_level_background`, `create_token` or `start_encounter` names a scene that does not exist |
+| `no_combatants` | `start_encounter` with no token ids |
+| `encounter_running` | `start_encounter`: the scene already has a running encounter |
+| `unknown_encounter` | `end_turn` (GM), `set_initiative` or `end_encounter` names an encounter that does not exist |
+| `unknown_combatant` | `set_initiative`: the token is not in the encounter |
 | `unknown_asset` | `set_level_background` names an `asset_id` this server never issued (empty clears) |
 
 ## Filtering rules and judgement calls
@@ -193,6 +221,7 @@ The core is tested in `src/tests.rs`. `tests/serve.rs` checks `/healthz` and `/`
 - broadcast: chat reaches everyone with the same `seq`; a rejection goes only to the sender, with its `client_intent_id` and code, and uses no `seq`; `seq` strictly increases;
 - filtering over the wire: hidden tokens and hp in the Snapshot; a `GM_ONLY` roll and a hidden-token move reach the GM only; `set_controllers` delivers the token and creature to the new controller, who can then move it;
 - use_ability: with the pregen seed and a fixed roller, a player's longsword hit for 6 reaches the GM and the player as the same `ResolutionUpdated` (a `DamageApplied` of 6), then a `TokenUpserted` for the goblin with `HEALTH_STATE_BLOODIED`: `hp_current` 3 for the GM, no hit point fields for the player, and no goblin sheet or other event;
+- encounters: with the pregen seed and a fixed roller, the GM starts an encounter with Brannoch and the goblin; both clients receive the two `PUBLIC` initiative rolls and the `EncounterUpdated`; the player ends Brannoch's turn when it is current and gets `not_permitted` (to the sender alone) when it is the goblin's; a later join has the encounter in its Snapshot;
 - undo: the GM undoes a player's goblin hit; the player's undo is refused to the player alone; both receive the goblin's restored `TokenUpserted` (no hit points for the player) and the two `EventUndone`;
 - create and remove: the GM creates a hidden token and removes it, and the player receives neither event while the GM receives both; for a visible token everyone receives both (the player's copy has no hit points);
 - media: a player and a spectator get tokens with the right URL, room and grants (payload decoded in the test) and nobody else sees anything; no `seq` used; repeated requests; media off gives `media_not_configured` to the requester only; a request before Hello closes the socket;

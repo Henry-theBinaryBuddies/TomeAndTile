@@ -563,21 +563,8 @@ fn spectators_and_strangers_are_refused_everything() {
 }
 
 #[test]
-fn unimplemented_intents_are_rejected() {
-    use tt_contracts::v1 as pb;
+fn an_intent_with_no_kind_is_malformed() {
     let mut c = campaign();
-    let all = vec![
-        intent::Kind::StartEncounter(pb::StartEncounterIntent::default()),
-        intent::Kind::EndTurn(pb::EndTurnIntent::default()),
-        intent::Kind::SetInitiative(pb::SetInitiativeIntent::default()),
-    ];
-    for k in all {
-        assert_eq!(
-            code(run(&mut c, "gm", intent_of(k.clone()))),
-            "not_implemented"
-        );
-        assert_eq!(code(run(&mut c, "alice", intent_of(k))), "not_implemented");
-    }
     let r = run(&mut c, "gm", Intent::default());
     assert_eq!(code(r), "malformed_intent");
     assert_eq!(c.seq, 0);
@@ -3129,5 +3116,642 @@ mod undoing {
         run(&mut c, "alice", chat("x")).unwrap();
         let g = c.groups.last().unwrap();
         assert!(g.before_tokens.is_empty() && g.before_creatures.is_empty());
+    }
+}
+
+// ------------------------------------------------------- encounters (#102)
+
+mod encountering {
+    use super::*;
+    use tt_contracts::v1 as pb;
+
+    fn start(scene: &str, tokens: &[&str]) -> Intent {
+        intent_of(intent::Kind::StartEncounter(pb::StartEncounterIntent {
+            scene_id: scene.into(),
+            token_ids: tokens.iter().map(|s| s.to_string()).collect(),
+        }))
+    }
+
+    fn end_turn(encounter: &str) -> Intent {
+        intent_of(intent::Kind::EndTurn(pb::EndTurnIntent {
+            encounter_id: encounter.into(),
+        }))
+    }
+
+    fn set_init(encounter: &str, token: &str, initiative: i32, order: u32) -> Intent {
+        intent_of(intent::Kind::SetInitiative(pb::SetInitiativeIntent {
+            encounter_id: encounter.into(),
+            token_id: token.into(),
+            initiative,
+            order,
+        }))
+    }
+
+    fn end_enc(encounter: &str) -> Intent {
+        intent_of(intent::Kind::EndEncounter(pb::EndEncounterIntent {
+            encounter_id: encounter.into(),
+        }))
+    }
+
+    fn undo(seq: u64) -> Intent {
+        intent_of(intent::Kind::Undo(pb::UndoIntent { event_seq: seq }))
+    }
+
+    /// The test campaign plus t-bob (bob, creature c-bob). Initiative
+    /// bonuses: c-alice +2, c-goblin 0, c-bob 0, c-hidden 0.
+    fn world() -> Campaign {
+        let mut c = campaign();
+        c.tokens
+            .push(token("t-bob", "c-bob", &["bob"], false, 245.0));
+        for cr in &mut c.creatures {
+            cr.initiative_bonus = if cr.creature_id == "c-alice" { 2 } else { 0 };
+        }
+        c
+    }
+
+    fn combatant(token_id: &str, order: u32) -> pb::Combatant {
+        pb::Combatant {
+            token_id: token_id.into(),
+            initiative: 20 - order as i32,
+            order,
+            ..Default::default()
+        }
+    }
+
+    /// `enc-1` on s1 with the given order, in round `round`, turn 0.
+    fn running(c: &mut Campaign, order: &[&str], round: u32) {
+        c.encounters.push(Encounter {
+            encounter_id: "enc-1".into(),
+            scene_id: "s1".into(),
+            round,
+            turn_index: 0,
+            combatants: order
+                .iter()
+                .enumerate()
+                .map(|(i, t)| combatant(t, i as u32))
+                .collect(),
+        });
+    }
+
+    fn timer(effect: &str, source: &str, ends_round: u32, at_end: bool) -> pb::ConditionTimer {
+        pb::ConditionTimer {
+            effect_id: effect.into(),
+            encounter_id: "enc-1".into(),
+            source_token_id: source.into(),
+            ends_round,
+            at_end_of_turn: at_end,
+        }
+    }
+
+    fn timed(c: &mut Campaign, token_id: &str, t: pb::ConditionTimer) {
+        let tok = c.tokens.iter_mut().find(|x| x.token_id == token_id);
+        let tok = tok.expect("token");
+        tok.conditions.push(t.effect_id.clone());
+        tok.condition_timers.push(t);
+    }
+
+    fn stored<'a>(c: &'a Campaign, id: &str) -> &'a Token {
+        c.tokens.iter().find(|t| t.token_id == id).expect("token")
+    }
+
+    fn encounter_of(e: &Event) -> &Encounter {
+        match e.kind.as_ref() {
+            Some(event::Kind::EncounterUpdated(u)) => u.encounter.as_ref().expect("encounter"),
+            other => panic!("not EncounterUpdated: {other:?}"),
+        }
+    }
+
+    fn order_of(e: &Encounter) -> Vec<&str> {
+        e.combatants.iter().map(|c| c.token_id.as_str()).collect()
+    }
+
+    fn upserted(e: &Event) -> &Token {
+        match e.kind.as_ref() {
+            Some(event::Kind::TokenUpserted(u)) => u.token.as_ref().expect("token"),
+            other => panic!("not TokenUpserted: {other:?}"),
+        }
+    }
+
+    fn refuse(c: &mut Campaign, actor: &str, i: Intent, rng: &mut Scripted, expect: &str) {
+        let before = state_of(c);
+        let encounters = c.encounters.clone();
+        let r = run_with(c, actor, i, rng).expect_err("expected a rejection");
+        assert_eq!(r.code, expect, "{}", r.message);
+        assert_eq!(state_of(c), before, "{expect}: state changed");
+        assert_eq!(c.encounters, encounters, "{expect}: encounters changed");
+    }
+
+    fn breath(spent: bool, min_roll: u32) -> pb::Ability {
+        pb::Ability {
+            ability_id: "breath".into(),
+            name: "Fire Breath".into(),
+            recharge: Some(pb::Recharge { min_roll }),
+            recharge_spent: spent,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn start_rolls_one_initiative_per_token_and_sorts_with_both_tie_breaks() {
+        let mut c = world();
+        // List order bob, goblin, alice, bob again. d20 raw shows 12, 12, 10:
+        // totals 12, 12 and 10 + 2 = 12. All tie; alice wins on her bonus,
+        // then bob before the goblin by list order.
+        let events = run_with(
+            &mut c,
+            "gm",
+            start("s1", &["t-bob", "t-goblin", "t-alice", "t-bob"]),
+            &mut Scripted::new(&[11, 11, 9]),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 4, "three rolls and the encounter");
+        let labels: Vec<_> = events[..3]
+            .iter()
+            .map(|e| roll_of(e).label.clone())
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "t-bob initiative",
+                "t-goblin initiative",
+                "t-alice initiative"
+            ]
+        );
+        for e in &events[..3] {
+            let r = roll_of(e);
+            assert_eq!(r.purpose, pb::RollPurpose::Initiative as i32);
+            assert_eq!(r.visibility, RollVisibility::Public as i32);
+            assert_eq!(r.roller_user_id, "gm");
+            assert!(!r.roll_id.is_empty());
+            assert_eq!(r.total, 12);
+        }
+        assert_eq!(roll_of(&events[0]).roller_creature_id, "c-bob");
+        assert_eq!(roll_of(&events[2]).notation, "1d20+2");
+        assert_eq!(roll_of(&events[2]).modifiers[0].value, 2);
+        assert_eq!(roll_of(&events[1]).notation, "1d20");
+        let enc = encounter_of(&events[3]);
+        assert_eq!(order_of(enc), ["t-alice", "t-bob", "t-goblin"]);
+        assert_eq!((enc.round, enc.turn_index), (1, 0));
+        assert_eq!(enc.scene_id, "s1");
+        assert!(!enc.encounter_id.is_empty());
+        let orders: Vec<_> = enc.combatants.iter().map(|x| x.order).collect();
+        assert_eq!(orders, [0, 1, 2]);
+        assert_eq!(c.encounters.len(), 1);
+        assert_eq!(&c.encounters[0], enc);
+        assert!(events.iter().all(|e| e.scene_id == "s1"));
+        // The group never changes tokens or creatures and cannot be undone.
+        let g = c.groups.last().unwrap();
+        assert_eq!(g.kind, crate::campaign::GroupKind::NotUndoable);
+        assert!(g.changed_token_ids.is_empty());
+    }
+
+    #[test]
+    fn a_higher_roll_goes_first_and_a_token_without_a_creature_has_no_bonus() {
+        let mut c = world();
+        c.tokens.push(token("t-prop", "", &[], false, 35.0));
+        // alice 1 + 2, prop 20 + 0.
+        let events = run_with(
+            &mut c,
+            "gm",
+            start("s1", &["t-alice", "t-prop"]),
+            &mut Scripted::new(&[0, 19]),
+        )
+        .unwrap();
+        assert_eq!(roll_of(&events[1]).total, 20);
+        assert_eq!(roll_of(&events[1]).roller_creature_id, "");
+        let enc = encounter_of(&events[2]);
+        assert_eq!(order_of(enc), ["t-prop", "t-alice"]);
+        assert_eq!(enc.combatants[0].initiative, 20);
+        assert_eq!(enc.combatants[1].initiative, 3);
+    }
+
+    #[test]
+    fn a_hidden_token_rolls_gm_only_and_the_encounter_goes_to_the_gm_alone() {
+        let mut c = world();
+        let events = run(&mut c, "gm", start("s1", &["t-alice", "t-hidden"])).unwrap();
+        assert_eq!(
+            roll_of(&events[0]).visibility,
+            RollVisibility::Public as i32
+        );
+        assert_eq!(
+            roll_of(&events[1]).visibility,
+            RollVisibility::GmOnly as i32
+        );
+        let (gm, alice) = (viewer(&c, "gm"), viewer(&c, "alice"));
+        assert!(c.event_for(&events[0], &alice).is_some());
+        assert!(c.event_for(&events[1], &alice).is_none());
+        assert!(c.event_for(&events[2], &alice).is_none());
+        assert!(c.event_for(&events[2], &gm).is_some());
+        assert!(c.snapshot_for(&alice).encounters.is_empty());
+        assert_eq!(c.snapshot_for(&gm).encounters.len(), 1);
+        // A player cannot end this turn: the encounter is invisible to them.
+        let id = c.encounters[0].encounter_id.clone();
+        refuse(
+            &mut c,
+            "alice",
+            end_turn(&id),
+            &mut Scripted::new(&[0]),
+            "not_permitted",
+        );
+    }
+
+    #[test]
+    fn ending_turns_wraps_the_round_and_expires_timers_in_order() {
+        let mut c = world();
+        running(&mut c, &["t-alice", "t-bob", "t-goblin"], 1);
+        // Ends when the goblin's own turn ends in round 1.
+        timed(&mut c, "t-goblin", timer("dazed", "t-goblin", 1, true));
+        // Ends when alice's turn starts in round 2.
+        timed(&mut c, "t-bob", timer("blinded", "t-alice", 2, false));
+        // Another encounter's timer is left alone.
+        let mut other = timer("held", "t-alice", 1, false);
+        other.encounter_id = "enc-other".into();
+        timed(&mut c, "t-goblin", other);
+
+        // A player ends the turn of the token they control.
+        let events = run(&mut c, "alice", end_turn("enc-1")).unwrap();
+        assert_eq!(events.len(), 1);
+        let enc = encounter_of(&events[0]);
+        assert_eq!((enc.round, enc.turn_index), (1, 1));
+        // Not bob's turn... alice (not bob's controller) is refused; bob may.
+        refuse(
+            &mut c,
+            "alice",
+            end_turn("enc-1"),
+            &mut Scripted::new(&[0]),
+            "not_permitted",
+        );
+        run(&mut c, "bob", end_turn("enc-1")).unwrap();
+        assert_eq!(c.encounters[0].turn_index, 2);
+
+        // The goblin's turn ends (GM): its end timer, then alice starts round 2
+        // and bob's start timer goes. Token events follow the token order.
+        let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        let enc = encounter_of(&events[0]);
+        assert_eq!((enc.round, enc.turn_index), (2, 0));
+        assert_eq!(events.len(), 3);
+        assert_eq!(upserted(&events[1]).token_id, "t-goblin");
+        assert_eq!(upserted(&events[1]).conditions, ["held"]);
+        assert_eq!(upserted(&events[2]).token_id, "t-bob");
+        assert!(upserted(&events[2]).conditions.is_empty());
+        assert!(stored(&c, "t-bob").condition_timers.is_empty());
+        assert_eq!(stored(&c, "t-goblin").condition_timers.len(), 1);
+        assert_eq!(c.encounters[0].round, 2);
+        // The turn change touched two tokens and is not undoable.
+        let g = c.groups.last().unwrap();
+        assert_eq!(g.kind, crate::campaign::GroupKind::NotUndoable);
+        assert_eq!(g.changed_token_ids, ["t-goblin", "t-bob"]);
+    }
+
+    #[test]
+    fn a_one_combatant_encounter_wraps_onto_itself() {
+        let mut c = world();
+        running(&mut c, &["t-goblin"], 1);
+        timed(&mut c, "t-goblin", timer("dazed", "t-goblin", 2, false));
+        let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        let enc = encounter_of(&events[0]);
+        assert_eq!((enc.round, enc.turn_index), (2, 0));
+        assert_eq!(upserted(&events[1]).token_id, "t-goblin");
+        assert!(stored(&c, "t-goblin").condition_timers.is_empty());
+    }
+
+    #[test]
+    fn setting_initiative_mid_round_re_sorts_and_keeps_the_turn() {
+        let mut c = world();
+        // alice, bob, goblin at 12 each (orders 0, 1, 2), as in the start test.
+        let events = run_with(
+            &mut c,
+            "gm",
+            start("s1", &["t-bob", "t-goblin", "t-alice"]),
+            &mut Scripted::new(&[11, 11, 9]),
+        )
+        .unwrap();
+        let id = encounter_of(&events[3]).encounter_id.clone();
+        run(&mut c, "alice", end_turn(&id)).unwrap();
+        assert_eq!(c.encounters[0].turn_index, 1, "bob's turn");
+
+        // Same initiative, a later order: the goblin stays last.
+        let events = run(&mut c, "gm", set_init(&id, "t-goblin", 12, 5)).unwrap();
+        assert_eq!(events.len(), 1);
+        let enc = encounter_of(&events[0]);
+        assert_eq!(order_of(enc), ["t-alice", "t-bob", "t-goblin"]);
+        assert_eq!(enc.combatants[2].order, 5);
+        assert_eq!(enc.turn_index, 1);
+        // Higher initiative: the goblin jumps in front, bob's turn follows him.
+        let events = run(&mut c, "gm", set_init(&id, "t-goblin", 20, 9)).unwrap();
+        let enc = encounter_of(&events[0]);
+        assert_eq!(order_of(enc), ["t-goblin", "t-alice", "t-bob"]);
+        assert_eq!(enc.turn_index, 2);
+        assert_eq!(enc.round, 1);
+        assert_eq!(c.encounters[0], *enc);
+        // Equal initiative: the lower order acts first.
+        let events = run(&mut c, "gm", set_init(&id, "t-bob", 12, 0)).unwrap();
+        let enc = encounter_of(&events[0]);
+        assert_eq!(order_of(enc), ["t-goblin", "t-alice", "t-bob"]);
+        let events = run(&mut c, "gm", set_init(&id, "t-bob", 12, 0)).unwrap();
+        assert_eq!(encounter_of(&events[0]).turn_index, 2);
+        let events = run(&mut c, "gm", set_init(&id, "t-alice", 12, 3)).unwrap();
+        let enc = encounter_of(&events[0]);
+        assert_eq!(order_of(enc), ["t-goblin", "t-bob", "t-alice"]);
+        assert_eq!(enc.turn_index, 1, "still bob's turn");
+        let g = c.groups.last().unwrap();
+        assert_eq!(g.kind, crate::campaign::GroupKind::NotUndoable);
+    }
+
+    #[test]
+    fn recharge_rolls_a_d6_when_the_turn_starts_and_succeeds_or_fails() {
+        let mut c = world();
+        running(&mut c, &["t-alice", "t-bob", "t-goblin"], 1);
+        c.encounters[0].turn_index = 1;
+        let goblin = c.creatures.iter_mut().find(|x| x.creature_id == "c-goblin");
+        goblin.expect("c-goblin").abilities = vec![
+            breath(true, 5),
+            // Spent but no recharge rule, and a ready one: no rolls for these.
+            pb::Ability {
+                ability_id: "plain".into(),
+                recharge_spent: true,
+                ..Default::default()
+            },
+            pb::Ability {
+                recharge: Some(pb::Recharge { min_roll: 2 }),
+                ..breath(false, 2)
+            },
+        ];
+        // Fails: the die shows 4 (value 3) against 5.
+        let events = run_with(&mut c, "bob", end_turn("enc-1"), &mut Scripted::new(&[3])).unwrap();
+        assert_eq!(events.len(), 2, "no creature event on a failure");
+        let r = roll_of(&events[1]);
+        assert_eq!(r.label, "Fire Breath recharge");
+        assert_eq!(r.total, 4);
+        assert_eq!(r.visibility, RollVisibility::GmOnly as i32);
+        assert_eq!(r.roller_creature_id, "c-goblin");
+        assert!(!r.roll_id.is_empty());
+        assert!(c.creatures[1].abilities[0].recharge_spent);
+        assert!(c.event_for(&events[1], &viewer(&c, "alice")).is_none());
+
+        // Succeeds on the next goblin turn: 5 or more. Alice and bob go first.
+        run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        assert_eq!(c.encounters[0].turn_index, 1);
+        let events = run_with(&mut c, "gm", end_turn("enc-1"), &mut Scripted::new(&[4])).unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(roll_of(&events[1]).total, 5);
+        let Some(event::Kind::CreatureUpserted(u)) = events[2].kind.as_ref() else {
+            panic!("expected CreatureUpserted, got {:?}", events[2].kind);
+        };
+        let sheet = u.creature.as_ref().unwrap();
+        assert!(!sheet.abilities[0].recharge_spent);
+        assert!(sheet.abilities[1].recharge_spent, "no rule, left alone");
+        assert_eq!(&c.creatures[1], sheet);
+        assert_eq!(c.groups.last().unwrap().changed_creature_ids, ["c-goblin"]);
+    }
+
+    #[test]
+    fn an_owned_creatures_recharge_roll_is_public() {
+        let mut c = world();
+        running(&mut c, &["t-goblin", "t-alice"], 1);
+        let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
+        alice.expect("c-alice").abilities = vec![breath(true, 6)];
+        let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        let r = roll_of(&events[1]);
+        assert_eq!(r.visibility, RollVisibility::Public as i32);
+        assert!(c.event_for(&events[1], &viewer(&c, "bob")).is_some());
+        // A hidden token's creature is GM only even with an owner.
+        let mut c = world();
+        running(&mut c, &["t-goblin", "t-hidden"], 1);
+        let hidden = c.creatures.iter_mut().find(|x| x.creature_id == "c-hidden");
+        let hidden = hidden.expect("c-hidden");
+        hidden.owner_user_id = "bob".into();
+        hidden.abilities = vec![breath(true, 6)];
+        let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        assert_eq!(
+            roll_of(&events[1]).visibility,
+            RollVisibility::GmOnly as i32
+        );
+    }
+
+    #[test]
+    fn ending_the_encounter_keeps_conditions_and_drops_their_timers() {
+        let mut c = world();
+        running(&mut c, &["t-alice", "t-goblin"], 3);
+        timed(&mut c, "t-goblin", timer("blinded", "t-alice", 5, false));
+        c.tokens
+            .iter_mut()
+            .find(|t| t.token_id == "t-goblin")
+            .unwrap()
+            .conditions
+            .push("poisoned".into());
+        let events = run(&mut c, "gm", end_enc("enc-1")).unwrap();
+        assert_eq!(events.len(), 2);
+        let Some(event::Kind::EncounterEnded(e)) = events[0].kind.as_ref() else {
+            panic!("expected EncounterEnded, got {:?}", events[0].kind);
+        };
+        assert_eq!(e.encounter_id, "enc-1");
+        assert_eq!(events[0].scene_id, "s1");
+        let t = upserted(&events[1]);
+        assert_eq!(t.token_id, "t-goblin");
+        assert_eq!(t.conditions, ["blinded", "poisoned"]);
+        assert!(t.condition_timers.is_empty());
+        assert_eq!(stored(&c, "t-goblin"), t);
+        assert!(c.encounters.is_empty());
+        for who in ["gm", "alice", "spec"] {
+            assert!(c.snapshot_for(&viewer(&c, who)).encounters.is_empty());
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_some());
+        }
+        // The scene may start another one now.
+        run(&mut c, "gm", start("s1", &["t-alice"])).unwrap();
+    }
+
+    #[test]
+    fn ended_encounter_reaches_everyone_even_when_it_was_gm_only() {
+        let mut c = world();
+        running(&mut c, &["t-hidden", "t-alice"], 1);
+        let events = run(&mut c, "gm", end_enc("enc-1")).unwrap();
+        assert_eq!(events.len(), 1);
+        for who in ["gm", "alice", "bob", "spec"] {
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_some());
+        }
+    }
+
+    #[test]
+    fn encounter_changes_block_undo_and_cannot_be_undone() {
+        let mut c = world();
+        running(&mut c, &["t-alice", "t-goblin"], 1);
+        timed(&mut c, "t-goblin", timer("blinded", "t-alice", 2, false));
+        // Edit group on the goblin (seq 1), then the end of the encounter
+        // changes the goblin's timers (seq 2, 3).
+        let hp = intent_of(intent::Kind::SetHitPoints(pb::SetHitPointsIntent {
+            token_id: "t-goblin".into(),
+            hp_current: 5,
+            hp_temp: 0,
+        }));
+        run(&mut c, "gm", hp).unwrap();
+        run(&mut c, "gm", end_enc("enc-1")).unwrap();
+        assert_eq!(c.groups[1].kind, crate::campaign::GroupKind::NotUndoable);
+        assert_eq!(c.groups[1].changed_token_ids, ["t-goblin"]);
+        assert!(c.groups[1].before_tokens.is_empty());
+        assert_eq!(code(run(&mut c, "gm", undo(1))), "undo_blocked");
+        assert_eq!(code(run(&mut c, "gm", undo(2))), "not_undoable");
+        // Starting is not undoable either.
+        let events = run(&mut c, "gm", start("s1", &["t-bob"])).unwrap();
+        assert_eq!(code(run(&mut c, "gm", undo(events[0].seq))), "not_undoable");
+    }
+
+    #[test]
+    fn every_refusal_code_leaves_everything_untouched() {
+        let mut c = world();
+        c.tokens.push(token("t-far", "", &[], false, 35.0));
+        c.tokens.last_mut().unwrap().scene_id = "s2".into();
+        let mut ok = Scripted::new(&[0]);
+        let mut bad = Scripted::new(&[0]);
+        bad.fail = true;
+
+        refuse(
+            &mut c,
+            "alice",
+            start("s1", &["t-alice"]),
+            &mut ok,
+            "not_permitted",
+        );
+        refuse(
+            &mut c,
+            "spec",
+            start("s1", &["t-alice"]),
+            &mut ok,
+            "not_permitted",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            start("nope", &["t-alice"]),
+            &mut ok,
+            "unknown_scene",
+        );
+        refuse(&mut c, "gm", start("s1", &[]), &mut ok, "no_combatants");
+        refuse(
+            &mut c,
+            "gm",
+            start("s1", &["t-alice", "t-x"]),
+            &mut ok,
+            "unknown_token",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            start("s1", &["t-far"]),
+            &mut ok,
+            "unknown_token",
+        );
+        // The entropy check comes before any state change.
+        refuse(
+            &mut c,
+            "gm",
+            start("s1", &["t-alice"]),
+            &mut bad,
+            "rng_unavailable",
+        );
+        run(&mut c, "gm", start("s1", &["t-alice", "t-goblin"])).unwrap();
+        let id = c.encounters[0].encounter_id.clone();
+        refuse(
+            &mut c,
+            "gm",
+            start("s1", &["t-bob"]),
+            &mut ok,
+            "encounter_running",
+        );
+
+        refuse(&mut c, "spec", end_turn(&id), &mut ok, "not_permitted");
+        refuse(&mut c, "gm", end_turn("nope"), &mut ok, "unknown_encounter");
+        refuse(&mut c, "bob", end_turn("nope"), &mut ok, "not_permitted");
+        let current = c.encounters[0].combatants[0].token_id.clone();
+        let outsider = if current == "t-alice" { "bob" } else { "alice" };
+        refuse(&mut c, outsider, end_turn(&id), &mut ok, "not_permitted");
+
+        refuse(
+            &mut c,
+            "alice",
+            set_init(&id, "t-alice", 1, 0),
+            &mut ok,
+            "not_permitted",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            set_init("nope", "t-alice", 1, 0),
+            &mut ok,
+            "unknown_encounter",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            set_init(&id, "t-bob", 1, 0),
+            &mut ok,
+            "unknown_combatant",
+        );
+
+        refuse(&mut c, "alice", end_enc(&id), &mut ok, "not_permitted");
+        refuse(&mut c, "gm", end_enc("nope"), &mut ok, "unknown_encounter");
+
+        // A failed recharge roll rejects the whole turn change.
+        let goblin = c.creatures.iter_mut().find(|x| x.creature_id == "c-goblin");
+        goblin.expect("c-goblin").abilities = vec![breath(true, 5)];
+        let gi = c.encounters[0]
+            .combatants
+            .iter()
+            .position(|x| x.token_id == "t-goblin")
+            .unwrap();
+        c.encounters[0].turn_index = ((gi + 1) % 2) as u32;
+        refuse(&mut c, "gm", end_turn(&id), &mut bad, "rng_unavailable");
+    }
+
+    #[test]
+    fn choking_ash_blinds_for_one_round_and_the_wisps_next_turn_lifts_it() {
+        let seed: pb::Snapshot = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/seeds/pregen-table.json"
+        ))
+        .expect("pregen seed parses");
+        let mut c = Campaign::from_snapshot(seed);
+        // Wisp 20 + 2, Brannoch 1 + 2: the wisp acts first.
+        let events = run_with(
+            &mut c,
+            "mock-gm",
+            start("scene-mock", &["token-ember-wisp", "token-brannoch"]),
+            &mut Scripted::new(&[19, 0]),
+        )
+        .unwrap();
+        let enc = encounter_of(&events[2]);
+        assert_eq!(order_of(enc), ["token-ember-wisp", "token-brannoch"]);
+        let id = enc.encounter_id.clone();
+
+        let ash = intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+            source_token_id: "token-ember-wisp".into(),
+            ability_id: "choking-ash".into(),
+            target_token_ids: vec!["token-brannoch".into()],
+            ..Default::default()
+        }));
+        // Every die shows 1: the Constitution save fails against DC 11.
+        let events = run_with(&mut c, "mock-gm", ash, &mut Scripted::new(&[0])).unwrap();
+        let brannoch = stored(&c, "token-brannoch");
+        assert_eq!(brannoch.conditions, ["blinded"]);
+        assert_eq!(brannoch.condition_timers.len(), 1);
+        let t = &brannoch.condition_timers[0];
+        assert_eq!(t.ends_round, 2);
+        assert_eq!(t.encounter_id, id);
+        assert_eq!(t.source_token_id, "token-ember-wisp");
+        assert!(events.iter().any(|e| matches!(
+            e.kind.as_ref(),
+            Some(event::Kind::TokenUpserted(u))
+                if u.token.as_ref().is_some_and(|t| t.token_id == "token-brannoch")
+        )));
+
+        // Round 1, Brannoch's turn: still blind. The wisp's round 2 turn lifts it.
+        let events = run(&mut c, "mock-gm", end_turn(&id)).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(stored(&c, "token-brannoch").conditions, ["blinded"]);
+        let events = run(&mut c, "mock-player", end_turn(&id)).unwrap();
+        assert_eq!(encounter_of(&events[0]).round, 2);
+        assert_eq!(upserted(&events[1]).token_id, "token-brannoch");
+        assert!(stored(&c, "token-brannoch").conditions.is_empty());
+        assert!(stored(&c, "token-brannoch").condition_timers.is_empty());
     }
 }

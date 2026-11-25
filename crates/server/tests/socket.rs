@@ -14,10 +14,11 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
     client_message, event, intent, server_message, ChatIntent, ClientMessage, CreateTokenIntent,
-    Creature, Event, HealthState, Hello, HitOutcome, Intent, Level, MediaToken, MediaTokenRequest,
-    Member, MoveTokenIntent, RemoveTokenIntent, ResolutionState, Role, RollDiceIntent, RollMode,
-    RollVisibility, Scene, ServerMessage, SetControllersIntent, Snapshot, Token, UndoIntent,
-    UseAbilityIntent, Vec2,
+    Creature, EndTurnIntent, Event, HealthState, Hello, HitOutcome, Intent, Level, MediaToken,
+    MediaTokenRequest, Member, MoveTokenIntent, RemoveTokenIntent, ResolutionState, Role,
+    RollDiceIntent, RollMode, RollPurpose, RollVisibility, Scene, ServerMessage,
+    SetControllersIntent, Snapshot, StartEncounterIntent, Token, UndoIntent, UseAbilityIntent,
+    Vec2,
 };
 use tt_server::media::MediaConfig;
 use tt_server::net::MAX_MESSAGE_BYTES;
@@ -136,6 +137,8 @@ async fn start_with_media(dev_auth: bool, media: Option<MediaConfig>) -> Server 
 
 struct Client {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    /// Scratch for tests that keep an id they read from an event.
+    encounter_id: String,
 }
 
 fn client_message(kind: client_message::Kind) -> Vec<u8> {
@@ -185,7 +188,10 @@ impl Client {
             .await
             .expect("connect in time")
             .expect("handshake");
-        Client { ws }
+        Client {
+            ws,
+            encounter_id: String::new(),
+        }
     }
 
     async fn send_raw(&mut self, bytes: Vec<u8>) {
@@ -1052,4 +1058,100 @@ async fn the_gm_undoes_a_players_attack_and_both_see_it() {
     let s = sentinel(&mut gm, 1).await;
     player.expect_chat(&s).await;
     gm.expect_chat(&s).await;
+}
+
+#[tokio::test]
+async fn a_gm_starts_an_encounter_and_the_player_ends_only_brannochs_turn() {
+    // Initiative d20s show 15 and 5: Brannoch 15 + 2 goes first, the goblin
+    // 5 + 2 second.
+    let server = start_pregen(vec![14, 4]).await;
+    let (mut gm, _) = join(&server, "mock-gm").await;
+    let (mut player, _) = join(&server, "mock-player").await;
+    gm.send_intent(
+        "start-1",
+        intent::Kind::StartEncounter(StartEncounterIntent {
+            scene_id: "scene-mock".into(),
+            token_ids: vec!["token-brannoch".into(), "token-goblin".into()],
+        }),
+    )
+    .await;
+    for client in [&mut gm, &mut player] {
+        let mut totals = Vec::new();
+        for n in 0..2 {
+            let e = client.recv_event().await;
+            assert_eq!(e.seq, n as u64 + 1);
+            assert_eq!(e.client_intent_id, "start-1");
+            let Some(event::Kind::DiceRolled(d)) = e.kind else {
+                panic!("expected DiceRolled, got {:?}", e.kind);
+            };
+            let r = d.roll.expect("roll");
+            assert_eq!(r.purpose, RollPurpose::Initiative as i32);
+            assert_eq!(r.visibility, RollVisibility::Public as i32);
+            assert!(r.label.ends_with("initiative"), "{}", r.label);
+            assert!(!r.roll_id.is_empty());
+            totals.push(r.total);
+        }
+        assert_eq!(totals, [17, 7]);
+        let e = client.recv_event().await;
+        assert_eq!(e.seq, 3);
+        let Some(event::Kind::EncounterUpdated(u)) = e.kind else {
+            panic!("expected EncounterUpdated, got {:?}", e.kind);
+        };
+        let enc = u.encounter.expect("encounter");
+        assert_eq!((enc.round, enc.turn_index), (1, 0));
+        let order: Vec<_> = enc.combatants.iter().map(|c| c.token_id.as_str()).collect();
+        assert_eq!(order, ["token-brannoch", "token-goblin"]);
+        client.encounter_id = enc.encounter_id;
+    }
+    let id = player.encounter_id.clone();
+
+    // Brannoch is current: his controller may end the turn.
+    player
+        .send_intent(
+            "end-1",
+            intent::Kind::EndTurn(EndTurnIntent {
+                encounter_id: id.clone(),
+            }),
+        )
+        .await;
+    for client in [&mut gm, &mut player] {
+        let e = client.recv_event().await;
+        assert_eq!((e.seq, e.client_intent_id.as_str()), (4, "end-1"));
+        let Some(event::Kind::EncounterUpdated(u)) = e.kind else {
+            panic!("expected EncounterUpdated, got {:?}", e.kind);
+        };
+        assert_eq!(u.encounter.expect("encounter").turn_index, 1);
+    }
+
+    // The goblin is current: the player may not end its turn, and only the
+    // sender hears about it.
+    player
+        .send_intent(
+            "end-2",
+            intent::Kind::EndTurn(EndTurnIntent {
+                encounter_id: id.clone(),
+            }),
+        )
+        .await;
+    assert_eq!(player.recv_rejection().await.code, "not_permitted");
+    let s = sentinel(&mut gm, 1).await;
+    player.expect_chat(&s).await;
+    gm.expect_chat(&s).await;
+
+    // The GM can, and a late joiner's snapshot carries the encounter.
+    gm.send_intent(
+        "end-3",
+        intent::Kind::EndTurn(EndTurnIntent { encounter_id: id }),
+    )
+    .await;
+    for client in [&mut gm, &mut player] {
+        let e = client.recv_event().await;
+        let Some(event::Kind::EncounterUpdated(u)) = e.kind else {
+            panic!("expected EncounterUpdated, got {:?}", e.kind);
+        };
+        let enc = u.encounter.expect("encounter");
+        assert_eq!((enc.round, enc.turn_index), (2, 0));
+    }
+    let (_late, snap) = join(&server, "mock-player").await;
+    assert_eq!(snap.encounters.len(), 1);
 }

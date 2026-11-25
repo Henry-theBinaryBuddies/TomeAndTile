@@ -69,7 +69,7 @@ impl Campaign {
 
     /// Non-GM viewers see an encounter only if none of its combatants is a
     /// hidden (or unknown) token, so the turn order cannot reveal one.
-    fn encounter_visible(&self, encounter: &Encounter, viewer: &Viewer) -> bool {
+    pub(crate) fn encounter_visible(&self, encounter: &Encounter, viewer: &Viewer) -> bool {
         viewer.is_gm()
             || encounter
                 .combatants
