@@ -107,6 +107,19 @@ impl Campaign {
         }
     }
 
+    /// May `viewer` receive `original`, an event that has been undone? As
+    /// `event_for` with the current state, except a `TokenRemoved` whose token
+    /// undo has put back: that is judged by the restored token, because the
+    /// hidden flag kept for removed tokens is deleted on restore.
+    fn undone_original_visible(&self, original: &Event, viewer: &Viewer) -> bool {
+        if let Some(event::Kind::TokenRemoved(r)) = original.kind.as_ref() {
+            if let Some(t) = self.token_by_id(&r.token_id) {
+                return viewer.is_gm() || !t.hidden;
+            }
+        }
+        self.event_for(original, viewer).is_some()
+    }
+
     /// The version of `event` this viewer may receive, or `None`.
     pub fn event_for(&self, event: &Event, viewer: &Viewer) -> Option<Event> {
         let gm = viewer.is_gm();
@@ -188,8 +201,16 @@ impl Campaign {
                     true
                 }
             }
-            // Not emitted in v0 and its payload is not yet filterable.
-            event::Kind::EventUndone(_) => gm,
+            // Exactly the viewers who may receive the undone original,
+            // filtered with the current state. An original not in the log
+            // is GM only.
+            event::Kind::EventUndone(u) => {
+                gm || self
+                    .log
+                    .binary_search_by_key(&u.undone_seq, |e| e.seq)
+                    .ok()
+                    .is_some_and(|i| self.undone_original_visible(&self.log[i], viewer))
+            }
             event::Kind::CreatureUpserted(c) => c
                 .creature
                 .as_ref()

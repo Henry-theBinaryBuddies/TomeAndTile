@@ -570,7 +570,6 @@ fn unimplemented_intents_are_rejected() {
         intent::Kind::StartEncounter(pb::StartEncounterIntent::default()),
         intent::Kind::EndTurn(pb::EndTurnIntent::default()),
         intent::Kind::SetInitiative(pb::SetInitiativeIntent::default()),
-        intent::Kind::Undo(pb::UndoIntent::default()),
     ];
     for k in all {
         assert_eq!(
@@ -2638,5 +2637,497 @@ mod intents {
         let gm = viewer(&c, "gm");
         let e = c.event_for(&events[1], &gm).unwrap();
         assert!(token_of(&e).hp_current.is_some());
+    }
+}
+
+// ------------------------------------------------------------- undo (#101)
+
+mod undoing {
+    use super::*;
+    use tt_contracts::v1 as pb;
+
+    fn attack_ability(id: &str, resource: &str) -> pb::Ability {
+        pb::Ability {
+            ability_id: id.into(),
+            name: id.into(),
+            resource_key: resource.into(),
+            resource_amount: if resource.is_empty() { 0 } else { 1 },
+            targeting: Some(pb::Targeting {
+                shape: pb::TargetShape::Creatures as i32,
+                ..Default::default()
+            }),
+            steps: vec![pb::EffectStep {
+                step: Some(pb::effect_step::Step::Attack(pb::AttackStep {
+                    to_hit_bonus: 5,
+                    damage: vec![pb::DamagePart {
+                        dice: "1d8+3".into(),
+                        r#type: pb::DamageType::Slashing as i32,
+                    }],
+                })),
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// Choking Ash: a Constitution save DC 100 (always fails), poison damage,
+    /// then `blinded` for one round.
+    fn ash() -> pb::Ability {
+        pb::Ability {
+            ability_id: "ash".into(),
+            name: "ash".into(),
+            targeting: Some(pb::Targeting {
+                shape: pb::TargetShape::Creatures as i32,
+                ..Default::default()
+            }),
+            steps: vec![
+                pb::EffectStep {
+                    step: Some(pb::effect_step::Step::Save(pb::SaveStep {
+                        ability: pb::AbilityScore::Constitution as i32,
+                        dc: 100,
+                        damage: vec![pb::DamagePart {
+                            dice: "2d4".into(),
+                            r#type: pb::DamageType::Poison as i32,
+                        }],
+                        half_on_success: true,
+                    })),
+                },
+                pb::EffectStep {
+                    step: Some(pb::effect_step::Step::ApplyEffect(pb::ApplyEffectStep {
+                        effect_id: "blinded".into(),
+                        duration: Some(pb::Duration {
+                            unit: pb::DurationUnit::Rounds as i32,
+                            amount: 1,
+                            concentration: false,
+                        }),
+                        only_on_failure: true,
+                    })),
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    /// Alice's creature: `bolt` (spends a spell slot of 3) and `sword`.
+    /// The goblin's creature: `ash`. An encounter runs on scene s1.
+    fn world() -> Campaign {
+        let mut c = campaign();
+        let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
+        let alice = alice.expect("c-alice");
+        alice.abilities = vec![
+            attack_ability("bolt", "spell_slot_1"),
+            attack_ability("sword", ""),
+        ];
+        alice.resources = vec![pb::Resource {
+            key: "spell_slot_1".into(),
+            label: "1st".into(),
+            current: 3,
+            max: 3,
+        }];
+        let goblin = c.creatures.iter_mut().find(|x| x.creature_id == "c-goblin");
+        goblin.expect("c-goblin").abilities = vec![ash()];
+        c.encounters.push(Encounter {
+            encounter_id: "enc-1".into(),
+            scene_id: "s1".into(),
+            round: 1,
+            combatants: vec![Combatant {
+                token_id: "t-alice".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        c
+    }
+
+    fn use_ab(source: &str, ability: &str, target: &str) -> Intent {
+        intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+            source_token_id: source.into(),
+            ability_id: ability.into(),
+            target_token_ids: vec![target.into()],
+            ..Default::default()
+        }))
+    }
+
+    fn undo(seq: u64) -> Intent {
+        Intent {
+            client_intent_id: "undo-1".into(),
+            kind: Some(intent::Kind::Undo(pb::UndoIntent { event_seq: seq })),
+        }
+    }
+
+    fn set_hp(token_id: &str, cur: i32, temp: i32) -> Intent {
+        intent_of(intent::Kind::SetHitPoints(pb::SetHitPointsIntent {
+            token_id: token_id.into(),
+            hp_current: cur,
+            hp_temp: temp,
+        }))
+    }
+
+    fn set_cond(token_id: &str, add: &[&str], remove: &[&str]) -> Intent {
+        let own = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+        intent_of(intent::Kind::SetConditions(pb::SetConditionsIntent {
+            token_id: token_id.into(),
+            add: own(add),
+            remove: own(remove),
+        }))
+    }
+
+    fn remove(token_id: &str) -> Intent {
+        intent_of(intent::Kind::RemoveToken(pb::RemoveTokenIntent {
+            token_id: token_id.into(),
+        }))
+    }
+
+    fn create(creature_id: &str) -> Intent {
+        intent_of(intent::Kind::CreateToken(pb::CreateTokenIntent {
+            scene_id: "s1".into(),
+            creature_id: creature_id.into(),
+            position: Some(p(35.0, 35.0)),
+            ..Default::default()
+        }))
+    }
+
+    fn stored<'a>(c: &'a Campaign, id: &str) -> &'a Token {
+        c.tokens.iter().find(|t| t.token_id == id).expect("token")
+    }
+
+    fn sheet<'a>(c: &'a Campaign, id: &str) -> &'a Creature {
+        c.creatures
+            .iter()
+            .find(|t| t.creature_id == id)
+            .expect("creature")
+    }
+
+    fn kinds(events: &[Event]) -> Vec<&event::Kind> {
+        events
+            .iter()
+            .map(|e| e.kind.as_ref().expect("kind"))
+            .collect()
+    }
+
+    fn refuse(c: &mut Campaign, actor: &str, i: Intent, expect: &str) -> Rejection {
+        let before = state_of(c);
+        let groups = c.groups.clone();
+        let r = run(c, actor, i).expect_err("expected a rejection");
+        assert_eq!(r.code, expect, "{}", r.message);
+        assert_eq!(state_of(c), before, "{expect}: state changed");
+        assert_eq!(c.groups, groups, "{expect}: a group changed");
+        r
+    }
+
+    fn undone_seqs(events: &[Event]) -> Vec<u64> {
+        events
+            .iter()
+            .filter_map(|e| match e.kind.as_ref() {
+                Some(event::Kind::EventUndone(u)) => Some(u.undone_seq),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn sword_hit(c: &mut Campaign, target: &str) -> Vec<Event> {
+        run_with(
+            c,
+            "alice",
+            use_ab("t-alice", "sword", target),
+            &mut Scripted::new(&[14, 5]),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn undo_an_attack_restores_hit_points_health_state_and_the_spell_slot() {
+        let mut c = world();
+        let (goblin0, alice0) = (stored(&c, "t-goblin").clone(), sheet(&c, "c-alice").clone());
+        // d20 15 + 5 beats AC 15; 1d8 shows 6, +3 = 9 damage.
+        let used = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "bolt", "t-goblin"),
+            &mut Scripted::new(&[14, 5]),
+        )
+        .unwrap();
+        assert_eq!(used.len(), 3, "resolution, goblin token, alice sheet");
+        assert_ne!(stored(&c, "t-goblin").hp_current, goblin0.hp_current);
+        assert_ne!(stored(&c, "t-goblin").health_state, goblin0.health_state);
+        assert_eq!(sheet(&c, "c-alice").resources[0].current, 2);
+
+        let undone = run(&mut c, "gm", undo(used[0].seq)).unwrap();
+        assert_eq!(stored(&c, "t-goblin"), &goblin0);
+        assert_eq!(sheet(&c, "c-alice"), &alice0);
+        assert_eq!(
+            undone.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            [4, 5, 6, 7, 8]
+        );
+        assert!(undone.iter().all(|e| e.client_intent_id == "undo-1"));
+        match kinds(&undone)[..] {
+            [event::Kind::TokenUpserted(t), event::Kind::CreatureUpserted(s), event::Kind::EventUndone(a), event::Kind::EventUndone(b), event::Kind::EventUndone(d)] =>
+            {
+                assert_eq!(t.token.as_ref(), Some(&goblin0));
+                assert_eq!(s.creature.as_ref(), Some(&alice0));
+                assert_eq!((a.undone_seq, b.undone_seq, d.undone_seq), (1, 2, 3));
+            }
+            ref other => panic!("unexpected undo group: {other:?}"),
+        }
+        // The players see the restored health_state and no hit points.
+        let e = c.event_for(&undone[0], &viewer(&c, "bob")).expect("token");
+        match e.kind {
+            Some(event::Kind::TokenUpserted(u)) => {
+                let t = u.token.expect("token");
+                assert_eq!(t.health_state, goblin0.health_state);
+                assert_eq!((t.hp_current, t.hp_max, t.hp_temp), (None, None, None));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn undo_choking_ash_removes_the_condition_and_its_timer() {
+        let mut c = world();
+        let alice0 = stored(&c, "t-alice").clone();
+        let used = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-goblin", "ash", "t-alice"),
+            &mut Scripted::new(&[0, 1]),
+        )
+        .unwrap();
+        let hit = stored(&c, "t-alice");
+        assert_eq!(hit.conditions, ["blinded"]);
+        assert_eq!(hit.condition_timers.len(), 1);
+        run(&mut c, "gm", undo(used[0].seq)).unwrap();
+        let back = stored(&c, "t-alice");
+        assert!(back.conditions.is_empty() && back.condition_timers.is_empty());
+        assert_eq!(back, &alice0);
+    }
+
+    #[test]
+    fn undo_set_hit_points_set_conditions_and_move() {
+        let mut c = world();
+        let before = c.tokens.clone();
+        let hp = run(&mut c, "gm", set_hp("t-goblin", 2, 0)).unwrap();
+        run(&mut c, "gm", undo(hp[0].seq)).unwrap();
+        assert_eq!(c.tokens, before);
+
+        let cond = run(&mut c, "gm", set_cond("t-alice", &["prone"], &[])).unwrap();
+        assert_eq!(stored(&c, "t-alice").conditions, ["prone"]);
+        run(&mut c, "gm", undo(cond[0].seq)).unwrap();
+        assert_eq!(c.tokens, before);
+
+        let start = token_pos(&c, "t-goblin").unwrap();
+        let path = vec![p(1.0, 1.0), p(3.0, 3.0)];
+        let moved = run(&mut c, "gm", mv("t-goblin", path)).unwrap();
+        assert_eq!(token_pos(&c, "t-goblin"), Some(p(3.0, 3.0)));
+        let undone = run(&mut c, "gm", undo(moved[0].seq)).unwrap();
+        assert_eq!(token_pos(&c, "t-goblin"), Some(start));
+        match kinds(&undone)[..] {
+            [event::Kind::TokenMoved(m), event::Kind::EventUndone(_)] => {
+                assert_eq!(m.token_id, "t-goblin");
+                assert_eq!(m.path, [start]);
+                assert_eq!(m.level_id, "l1");
+            }
+            ref other => panic!("unexpected undo group: {other:?}"),
+        }
+        assert_eq!(c.tokens, before);
+    }
+
+    #[test]
+    fn undo_a_create_and_a_remove() {
+        let mut c = world();
+        let made = run(&mut c, "gm", create("c-goblin")).unwrap();
+        let new_id = match kinds(&made)[0] {
+            event::Kind::TokenUpserted(u) => u.token.as_ref().unwrap().token_id.clone(),
+            other => panic!("{other:?}"),
+        };
+        let undone = run(&mut c, "gm", undo(made[0].seq)).unwrap();
+        assert!(c.tokens.iter().all(|t| t.token_id != new_id));
+        match kinds(&undone)[..] {
+            [event::Kind::TokenRemoved(r), event::Kind::EventUndone(_)] => {
+                assert_eq!(r.token_id, new_id)
+            }
+            ref other => panic!("unexpected undo group: {other:?}"),
+        }
+
+        // A removed token comes back whole, with its sheet when controlled.
+        let alice0 = stored(&c, "t-alice").clone();
+        let goblin0 = stored(&c, "t-goblin").clone();
+        let gone = run(&mut c, "gm", remove("t-goblin")).unwrap();
+        assert!(c.removed_token_hidden.contains_key("t-goblin"));
+        let back = run(&mut c, "gm", undo(gone[0].seq)).unwrap();
+        assert_eq!(stored(&c, "t-goblin"), &goblin0);
+        assert_eq!(stored(&c, "t-goblin").hp_current, Some(10));
+        assert!(!c.removed_token_hidden.contains_key("t-goblin"));
+        assert_eq!(back.len(), 2, "no sheet event: nobody controls the goblin");
+
+        // t-alice is in the world's encounter: take her out first.
+        c.encounters.clear();
+        let gone = run(&mut c, "gm", remove("t-alice")).unwrap();
+        let back = run(&mut c, "gm", undo(gone[0].seq)).unwrap();
+        assert_eq!(stored(&c, "t-alice"), &alice0);
+        match kinds(&back)[..] {
+            [event::Kind::TokenUpserted(t), event::Kind::CreatureUpserted(s), event::Kind::EventUndone(_)] =>
+            {
+                assert_eq!(t.token.as_ref(), Some(&alice0));
+                assert_eq!(s.creature.as_ref().unwrap().creature_id, "c-alice");
+            }
+            ref other => panic!("unexpected undo group: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_refusal_code_in_order_and_nothing_changes() {
+        let mut c = world();
+        let hp = run(&mut c, "gm", set_hp("t-goblin", 5, 0)).unwrap();
+        let said = run(&mut c, "alice", chat("hi")).unwrap();
+        let d20 = roll("d20", RollMode::Normal, RollVisibility::Public, "");
+        let rolled = run(&mut c, "gm", d20).unwrap();
+        let ctl = run(&mut c, "gm", set_ctl("t-hidden", &["bob"])).unwrap();
+        let bg = run(&mut c, "gm", set_bg("s1", "l1", "")).unwrap();
+        let hp2 = run(&mut c, "gm", set_hp("t-goblin", 4, 0)).unwrap();
+
+        for who in ["alice", "spec", "stranger"] {
+            refuse(&mut c, who, undo(hp[0].seq), "not_permitted");
+        }
+        // The permission check comes first, even for a seq that is unknown.
+        refuse(&mut c, "alice", undo(9999), "not_permitted");
+        refuse(&mut c, "gm", undo(9999), "unknown_event");
+        refuse(&mut c, "gm", undo(0), "unknown_event");
+        for e in [&said, &rolled, &ctl, &bg] {
+            refuse(&mut c, "gm", undo(e[0].seq), "not_undoable");
+        }
+        // Set controllers sent two events: the second is not a first event.
+        assert_eq!(ctl.len(), 2);
+        refuse(&mut c, "gm", undo(ctl[1].seq), "not_first_event");
+        let r = refuse(&mut c, "gm", undo(hp[0].seq), "undo_blocked");
+        assert!(r.message.contains(&hp2[0].seq.to_string()), "{}", r.message);
+        // Undo the later change, then the earlier one, then neither again.
+        let u2 = run(&mut c, "gm", undo(hp2[0].seq)).unwrap();
+        refuse(&mut c, "gm", undo(hp2[0].seq), "already_undone");
+        // An undo group cannot be undone, and an event inside it is not first.
+        refuse(&mut c, "gm", undo(u2[0].seq), "not_undoable");
+        refuse(&mut c, "gm", undo(u2[1].seq), "not_first_event");
+        run(&mut c, "gm", undo(hp[0].seq)).unwrap();
+        refuse(&mut c, "gm", undo(hp[0].seq), "already_undone");
+    }
+
+    #[test]
+    fn events_before_the_seed_seq_are_unknown() {
+        let mut c = world();
+        c.seq = 40;
+        let hp = run(&mut c, "gm", set_hp("t-goblin", 5, 0)).unwrap();
+        assert_eq!(hp[0].seq, 41);
+        refuse(&mut c, "gm", undo(40), "unknown_event");
+        refuse(&mut c, "gm", undo(1), "unknown_event");
+        run(&mut c, "gm", undo(41)).unwrap();
+    }
+
+    #[test]
+    fn a_later_attack_blocks_the_earlier_undo_until_it_is_undone() {
+        let mut c = world();
+        let goblin0 = stored(&c, "t-goblin").clone();
+        let first = sword_hit(&mut c, "t-goblin");
+        let second = sword_hit(&mut c, "t-goblin");
+        let r = refuse(&mut c, "gm", undo(first[0].seq), "undo_blocked");
+        assert!(r.message.contains(&second[0].seq.to_string()));
+        run(&mut c, "gm", undo(second[0].seq)).unwrap();
+        run(&mut c, "gm", undo(first[0].seq)).unwrap();
+        assert_eq!(stored(&c, "t-goblin"), &goblin0);
+    }
+
+    #[test]
+    fn naming_the_attacks_token_event_is_not_first_event() {
+        let mut c = world();
+        let used = sword_hit(&mut c, "t-goblin");
+        assert!(matches!(used[1].kind, Some(event::Kind::TokenUpserted(_))));
+        let r = refuse(&mut c, "gm", undo(used[1].seq), "not_first_event");
+        assert!(r.message.contains(&used[0].seq.to_string()));
+    }
+
+    #[test]
+    fn a_creature_shared_by_two_groups_blocks_too() {
+        let mut c = world();
+        // Both attacks spend alice's slot but hit different tokens.
+        let mut bolt = |target: &str| {
+            run_with(
+                &mut c,
+                "alice",
+                use_ab("t-alice", "bolt", target),
+                &mut Scripted::new(&[14, 5]),
+            )
+            .unwrap()
+        };
+        let first = bolt("t-goblin");
+        bolt("t-alice");
+        refuse(&mut c, "gm", undo(first[0].seq), "undo_blocked");
+    }
+
+    #[test]
+    fn the_log_keeps_the_originals_and_the_undo_group() {
+        let mut c = world();
+        let hp = run(&mut c, "gm", set_hp("t-goblin", 5, 0)).unwrap();
+        let undone = run(&mut c, "gm", undo(hp[0].seq)).unwrap();
+        let all: Vec<Event> = hp.iter().chain(undone.iter()).cloned().collect();
+        assert_eq!(c.log, all);
+        let seqs: Vec<u64> = c.log.iter().map(|e| e.seq).collect();
+        assert_eq!(seqs, [1, 2, 3]);
+        assert_eq!(undone_seqs(&undone), [1]);
+        // The undo group changed the token, so it is a group of its own.
+        let g = c.groups.last().unwrap();
+        assert_eq!((g.first_seq, g.last_seq), (2, 3));
+        assert_eq!(g.changed_token_ids, ["t-goblin"]);
+        assert!(c.groups[0].undone);
+        assert!(!g.undone);
+    }
+
+    #[test]
+    fn who_gets_the_event_undone() {
+        let mut c = world();
+        let (alice, bob, gm) = (viewer(&c, "alice"), viewer(&c, "bob"), viewer(&c, "gm"));
+        // A public attack on the visible goblin: players see the undo.
+        let used = sword_hit(&mut c, "t-goblin");
+        let undone = run(&mut c, "gm", undo(used[0].seq)).unwrap();
+        let marks: Vec<&Event> = undone
+            .iter()
+            .filter(|e| matches!(e.kind, Some(event::Kind::EventUndone(_))))
+            .collect();
+        assert_eq!(marks.len(), 2);
+        for v in [&alice, &bob, &gm, &viewer(&c, "spec")] {
+            assert!(marks.iter().all(|e| c.event_for(e, v).is_some()));
+        }
+
+        // A change to the hidden token: only the GM.
+        let hp = run(&mut c, "gm", set_hp("t-hidden", 3, 0)).unwrap();
+        let undone = run(&mut c, "gm", undo(hp[0].seq)).unwrap();
+        for e in &undone {
+            assert!(c.event_for(e, &gm).is_some());
+            assert!(c.event_for(e, &alice).is_none(), "{:?}", e.kind);
+        }
+
+        // Removing a visible token and undoing it: players got the removal,
+        // so they get the undo; for the hidden token they get neither.
+        let gone = run(&mut c, "gm", remove("t-goblin")).unwrap();
+        let back = run(&mut c, "gm", undo(gone[0].seq)).unwrap();
+        assert!(back.iter().all(|e| c.event_for(e, &bob).is_some()));
+        let gone = run(&mut c, "gm", remove("t-hidden")).unwrap();
+        let back = run(&mut c, "gm", undo(gone[0].seq)).unwrap();
+        assert!(back.iter().all(|e| c.event_for(e, &bob).is_none()));
+        assert!(back.iter().all(|e| c.event_for(e, &gm).is_some()));
+
+        // A create undone: the new token's removal and the undo reach players.
+        let made = run(&mut c, "gm", create("")).unwrap();
+        let back = run(&mut c, "gm", undo(made[0].seq)).unwrap();
+        assert!(back.iter().all(|e| c.event_for(e, &bob).is_some()));
+    }
+
+    #[test]
+    fn the_before_state_is_kept_whole_for_undoable_groups_only() {
+        let mut c = world();
+        let goblin0 = stored(&c, "t-goblin").clone();
+        run(&mut c, "gm", remove("t-goblin")).unwrap();
+        let g = c.groups.last().unwrap();
+        assert_eq!(g.before_tokens, [goblin0]);
+        assert_eq!(g.kind, crate::campaign::GroupKind::Edit);
+        run(&mut c, "alice", chat("x")).unwrap();
+        let g = c.groups.last().unwrap();
+        assert!(g.before_tokens.is_empty() && g.before_creatures.is_empty());
     }
 }

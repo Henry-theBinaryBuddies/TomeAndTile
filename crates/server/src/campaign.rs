@@ -8,11 +8,11 @@ use std::collections::HashMap;
 
 use tt_contracts::v1::{
     event, intent, AssetRef, ChatPosted, CreateTokenIntent, Creature, CreatureSize,
-    CreatureUpserted, DiceRolled, Encounter, Event, HitOutcome, Intent, Member, MoveTokenIntent,
-    RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent, RollMode,
-    RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
+    CreatureUpserted, DiceRolled, Encounter, Event, EventUndone, HitOutcome, Intent, Member,
+    MoveTokenIntent, RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent,
+    RollMode, RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
     SetControllersIntent, SetHitPointsIntent, SetLevelBackgroundIntent, Snapshot, Token,
-    TokenMoved, TokenRemoved, TokenUpserted, UseAbilityIntent, Vec2, Warning,
+    TokenMoved, TokenRemoved, TokenUpserted, UndoIntent, UseAbilityIntent, Vec2, Warning,
 };
 use tt_rules::ability::{resolve_ability, ResolveError};
 use tt_rules::damage::health_state;
@@ -59,6 +59,19 @@ impl Rejection {
     }
 }
 
+/// What kind of intent produced a group; decides whether undo may take it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupKind {
+    /// A move: undone with a `TokenMoved` back to the earlier place.
+    Move,
+    /// Ability use, set HP, set conditions, create or remove a token.
+    Edit,
+    /// Chat, dice, set controllers, set level background, encounters.
+    NotUndoable,
+    /// An undo group: never undone itself (no redo in M3).
+    Undo,
+}
+
 /// What one applied intent changed, kept next to the log for undo (#101).
 ///
 /// `first_seq..=last_seq` are the intent's events (consecutive, the same
@@ -68,7 +81,12 @@ impl Rejection {
 /// intent: each id once, in the order of `Campaign::tokens` after the change
 /// (removed ids last). Undo's dependency rule: a group cannot be undone while
 /// a later, not undone group lists any of the same ids.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// For an undoable group `before_tokens` and `before_creatures` hold the
+/// whole stored value, as it was before the intent, of each listed id that
+/// existed then (a removed token is kept whole). An id created by the group
+/// has no entry. They stay empty for groups that cannot be undone.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppliedGroup {
     pub first_seq: u64,
     pub last_seq: u64,
@@ -76,6 +94,11 @@ pub struct AppliedGroup {
     pub client_intent_id: String,
     pub changed_token_ids: Vec<String>,
     pub changed_creature_ids: Vec<String>,
+    pub kind: GroupKind,
+    pub before_tokens: Vec<Token>,
+    pub before_creatures: Vec<Creature>,
+    /// True once an undo group has reversed this one.
+    pub undone: bool,
 }
 
 /// All state of one campaign, held in memory.
@@ -182,6 +205,16 @@ impl Campaign {
         };
         let tokens_before = self.tokens.clone();
         let creatures_before = self.creatures.clone();
+        let group_kind = match &kind {
+            intent::Kind::MoveToken(_) => GroupKind::Move,
+            intent::Kind::UseAbility(_)
+            | intent::Kind::SetHitPoints(_)
+            | intent::Kind::SetConditions(_)
+            | intent::Kind::CreateToken(_)
+            | intent::Kind::RemoveToken(_) => GroupKind::Edit,
+            intent::Kind::Undo(_) => GroupKind::Undo,
+            _ => GroupKind::NotUndoable,
+        };
         let (scene_id, kinds, warnings) = match kind {
             intent::Kind::MoveToken(m) => plain(self.move_token(actor_user_id, is_gm, m))?,
             intent::Kind::Chat(c) => plain(self.chat(actor_user_id, &c.text))?,
@@ -197,6 +230,7 @@ impl Campaign {
             intent::Kind::SetConditions(c) => self.set_conditions(is_gm, c)?,
             intent::Kind::CreateToken(t) => plain(self.create_token(is_gm, t, now_ms, ids))?,
             intent::Kind::RemoveToken(r) => plain(self.remove_token(is_gm, r))?,
+            intent::Kind::Undo(u) => plain(self.undo(is_gm, u))?,
             _ => {
                 return Err(Rejection::new(
                     "not_implemented",
@@ -221,15 +255,37 @@ impl Campaign {
             self.log.push(event.clone());
             events.push(event);
         }
+        let changed_token_ids = changed_ids(&tokens_before, &self.tokens, |t| &t.token_id);
+        let changed_creature_ids =
+            changed_ids(&creatures_before, &self.creatures, |c| &c.creature_id);
+        let undoable = matches!(group_kind, GroupKind::Move | GroupKind::Edit);
+        let (before_tokens, before_creatures) = if undoable {
+            (
+                tokens_before
+                    .iter()
+                    .filter(|t| changed_token_ids.contains(&t.token_id))
+                    .cloned()
+                    .collect(),
+                creatures_before
+                    .iter()
+                    .filter(|c| changed_creature_ids.contains(&c.creature_id))
+                    .cloned()
+                    .collect(),
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
         self.groups.push(AppliedGroup {
             first_seq,
             last_seq: self.seq,
             actor_user_id: actor_user_id.to_string(),
             client_intent_id,
-            changed_token_ids: changed_ids(&tokens_before, &self.tokens, |t| &t.token_id),
-            changed_creature_ids: changed_ids(&creatures_before, &self.creatures, |c| {
-                &c.creature_id
-            }),
+            changed_token_ids,
+            changed_creature_ids,
+            kind: group_kind,
+            before_tokens,
+            before_creatures,
+            undone: false,
         });
         Ok(events)
     }
@@ -794,6 +850,168 @@ impl Campaign {
                 distance_feet,
             })],
         ))
+    }
+
+    /// `UndoIntent` (GM only): reverse one earlier group with compensating
+    /// events. Order of refusals: `not_permitted`, `unknown_event`,
+    /// `not_first_event`, `not_undoable`, `already_undone`, `undo_blocked`.
+    ///
+    /// A later group blocks the undo when it has not been undone and lists
+    /// one of the same tokens or creatures. Undo groups never block: each one
+    /// restored exactly the state of the group it reversed, so with that
+    /// group marked undone the pair changes nothing for earlier groups.
+    fn undo(&mut self, is_gm: bool, u: UndoIntent) -> Outcome {
+        if !is_gm {
+            return Err(Rejection::not_permitted());
+        }
+        let seq = u.event_seq;
+        let Some(gi) = self
+            .groups
+            .iter()
+            .position(|g| g.first_seq <= seq && seq <= g.last_seq)
+        else {
+            return Err(Rejection::new(
+                "unknown_event",
+                format!("no event with seq {seq}"),
+            ));
+        };
+        let g = &self.groups[gi];
+        if g.first_seq != seq {
+            return Err(Rejection::new(
+                "not_first_event",
+                format!(
+                    "event {seq} is part of the group that starts at seq {}; name that one",
+                    g.first_seq
+                ),
+            ));
+        }
+        if !matches!(g.kind, GroupKind::Move | GroupKind::Edit) {
+            return Err(Rejection::new(
+                "not_undoable",
+                "only an ability use, set hit points, set conditions, move, token create or token remove can be undone",
+            ));
+        }
+        if g.undone {
+            return Err(Rejection::new(
+                "already_undone",
+                format!("the group at seq {seq} was already undone"),
+            ));
+        }
+        let shares = |l: &AppliedGroup| {
+            l.changed_token_ids
+                .iter()
+                .any(|id| g.changed_token_ids.contains(id))
+                || l.changed_creature_ids
+                    .iter()
+                    .any(|id| g.changed_creature_ids.contains(id))
+        };
+        if let Some(later) = self.groups[gi + 1..]
+            .iter()
+            .find(|l| !l.undone && l.kind != GroupKind::Undo && shares(l))
+        {
+            return Err(Rejection::new(
+                "undo_blocked",
+                format!(
+                    "the group at seq {} changed the same tokens or creatures; undo it first",
+                    later.first_seq
+                ),
+            ));
+        }
+
+        // Validated: mutate.
+        let g = self.groups[gi].clone();
+        let scene_id = self
+            .log
+            .iter()
+            .find(|e| e.seq == g.first_seq)
+            .map(|e| e.scene_id.clone())
+            .unwrap_or_default();
+        // Sheets first, so a restored token's sheet event carries the state
+        // the sheet has after the undo.
+        for before in &g.before_creatures {
+            match self
+                .creatures
+                .iter_mut()
+                .find(|c| c.creature_id == before.creature_id)
+            {
+                Some(stored) => *stored = before.clone(),
+                None => self.creatures.push(before.clone()),
+            }
+        }
+        let mut kinds: Vec<event::Kind> = Vec::new();
+        for id in &g.changed_token_ids {
+            let current = self.tokens.iter().position(|t| &t.token_id == id);
+            let before = g.before_tokens.iter().find(|t| &t.token_id == id);
+            match (current, before) {
+                // Created by the group: take it away again.
+                (Some(idx), None) => {
+                    let token = self.tokens.remove(idx);
+                    self.removed_token_hidden
+                        .insert(token.token_id.clone(), token.hidden);
+                    kinds.push(event::Kind::TokenRemoved(TokenRemoved {
+                        token_id: token.token_id,
+                    }));
+                }
+                // Removed by the group: put it back whole.
+                (None, Some(before)) => {
+                    self.tokens.push(before.clone());
+                    self.removed_token_hidden.remove(id);
+                    kinds.push(event::Kind::TokenUpserted(TokenUpserted {
+                        token: Some(before.clone()),
+                    }));
+                    let sheet = self.creatures.iter().find(|c| {
+                        !before.creature_id.is_empty() && c.creature_id == before.creature_id
+                    });
+                    if let Some(sheet) = sheet {
+                        // A sheet this undo restores is sent below anyway.
+                        if !before.controller_user_ids.is_empty()
+                            && !g.changed_creature_ids.contains(&sheet.creature_id)
+                        {
+                            kinds.push(event::Kind::CreatureUpserted(CreatureUpserted {
+                                creature: Some(sheet.clone()),
+                            }));
+                        }
+                    }
+                }
+                (Some(idx), Some(before)) => {
+                    let moved_from = self.tokens[idx].position;
+                    let compensation = match (g.kind, before.position) {
+                        (GroupKind::Move, Some(to)) => {
+                            let (cell, feet) = self
+                                .scenes
+                                .iter()
+                                .find(|s| s.scene_id == before.scene_id)
+                                .and_then(|s| s.grid.as_ref())
+                                .map_or((0.0, 0.0), |gr| (gr.cell_size, gr.feet_per_cell));
+                            let distance_feet = moved_from
+                                .map_or(0.0, |f| path_distance_feet(&f, &[to], cell, feet));
+                            event::Kind::TokenMoved(TokenMoved {
+                                token_id: id.clone(),
+                                path: vec![to],
+                                level_id: before.level_id.clone(),
+                                distance_feet,
+                            })
+                        }
+                        _ => event::Kind::TokenUpserted(TokenUpserted {
+                            token: Some(before.clone()),
+                        }),
+                    };
+                    self.tokens[idx] = before.clone();
+                    kinds.push(compensation);
+                }
+                (None, None) => {}
+            }
+        }
+        for before in &g.before_creatures {
+            kinds.push(event::Kind::CreatureUpserted(CreatureUpserted {
+                creature: Some(before.clone()),
+            }));
+        }
+        for undone_seq in g.first_seq..=g.last_seq {
+            kinds.push(event::Kind::EventUndone(EventUndone { undone_seq }));
+        }
+        self.groups[gi].undone = true;
+        Ok((scene_id, kinds))
     }
 
     fn chat(&mut self, actor: &str, text: &str) -> Outcome {

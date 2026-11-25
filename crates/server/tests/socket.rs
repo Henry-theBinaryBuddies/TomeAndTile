@@ -16,8 +16,8 @@ use tt_contracts::v1::{
     client_message, event, intent, server_message, ChatIntent, ClientMessage, CreateTokenIntent,
     Creature, Event, HealthState, Hello, HitOutcome, Intent, Level, MediaToken, MediaTokenRequest,
     Member, MoveTokenIntent, RemoveTokenIntent, ResolutionState, Role, RollDiceIntent, RollMode,
-    RollVisibility, Scene, ServerMessage, SetControllersIntent, Snapshot, Token, UseAbilityIntent,
-    Vec2,
+    RollVisibility, Scene, ServerMessage, SetControllersIntent, Snapshot, Token, UndoIntent,
+    UseAbilityIntent, Vec2,
 };
 use tt_server::media::MediaConfig;
 use tt_server::net::MAX_MESSAGE_BYTES;
@@ -983,4 +983,73 @@ async fn a_hidden_token_is_created_and_removed_for_the_gm_alone() {
             other => panic!("expected TokenRemoved, got {other:?}"),
         }
     }
+}
+
+#[tokio::test]
+async fn the_gm_undoes_a_players_attack_and_both_see_it() {
+    let server = start_pregen(vec![14, 2]).await;
+    let (mut gm, _) = join(&server, "mock-gm").await;
+    let (mut player, _) = join(&server, "mock-player").await;
+    player
+        .send_intent(
+            "atk-1",
+            intent::Kind::UseAbility(UseAbilityIntent {
+                source_token_id: "token-brannoch".into(),
+                ability_id: "longsword".into(),
+                target_token_ids: vec!["token-goblin".into()],
+                ..Default::default()
+            }),
+        )
+        .await;
+    let resolution = player.recv_event().await;
+    assert_eq!(gm.recv_event().await.seq, resolution.seq);
+    assert!(matches!(
+        resolution.kind,
+        Some(event::Kind::ResolutionUpdated(_))
+    ));
+    let hit = player.recv_event().await;
+    assert_eq!(token_event(&gm.recv_event().await).hp_current, Some(3));
+    assert_eq!(token_event(&hit).hp_current, None);
+
+    // A player may not undo; only the sender hears the refusal.
+    player
+        .send_intent(
+            "undo-p",
+            intent::Kind::Undo(UndoIntent {
+                event_seq: resolution.seq,
+            }),
+        )
+        .await;
+    assert_eq!(player.recv_rejection().await.code, "not_permitted");
+
+    gm.send_intent(
+        "undo-1",
+        intent::Kind::Undo(UndoIntent {
+            event_seq: resolution.seq,
+        }),
+    )
+    .await;
+    for (client, is_gm) in [(&mut gm, true), (&mut player, false)] {
+        let restored = client.recv_event().await;
+        assert_eq!(restored.client_intent_id, "undo-1");
+        let t = token_event(&restored);
+        assert_eq!(t.token_id, "token-goblin");
+        assert_eq!(t.health_state, HealthState::Healthy as i32);
+        if is_gm {
+            assert_eq!((t.hp_current, t.hp_max), (Some(9), Some(9)));
+        } else {
+            assert_eq!((t.hp_current, t.hp_max, t.hp_temp), (None, None, None));
+        }
+        let mut undone = Vec::new();
+        for _ in 0..2 {
+            match client.recv_event().await.kind {
+                Some(event::Kind::EventUndone(u)) => undone.push(u.undone_seq),
+                other => panic!("expected EventUndone, got {other:?}"),
+            }
+        }
+        assert_eq!(undone, [resolution.seq, resolution.seq + 1]);
+    }
+    let s = sentinel(&mut gm, 1).await;
+    player.expect_chat(&s).await;
+    gm.expect_chat(&s).await;
 }
