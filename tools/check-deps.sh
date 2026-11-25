@@ -63,41 +63,48 @@ if [ -f "$manifest" ] && grep -nE '^\s*(tt-server|tt-rules|tt-plugin-host)\s*=' 
   report "$manifest depends on the server, the rules engine or the plugin host"
 fi
 
-# 7. crates/server may use the asset pipeline (ADR 0014) and no other crate
-#    under integrations/: any path dependency into integrations/<x> with
-#    x other than asset-pipeline is a violation.
+# 7. crates/server may use the asset pipeline (ADR 0014) and the Creature
+#    Cauldron importer (ADR 0015), and no other crate under integrations/:
+#    any other path dependency into integrations/<x> is a violation.
 manifest="crates/server/Cargo.toml"
 if [ -f "$manifest" ]; then
   while IFS= read -r line; do
     dep_dir=$(printf '%s\n' "$line" | sed -E 's|.*integrations/([^/"]+).*|\1|')
-    if [ "$dep_dir" != "asset-pipeline" ]; then
-      report "$manifest depends on integrations/$dep_dir (only asset-pipeline is allowed, ADR 0014)"
-    fi
+    case "$dep_dir" in
+      asset-pipeline|cauldron-import) ;;
+      *) report "$manifest depends on integrations/$dep_dir (only asset-pipeline and cauldron-import are allowed, ADR 0014 and ADR 0015)" ;;
+    esac
   done < <(grep -E 'path\s*=\s*"[^"]*integrations/' "$manifest" || true)
 fi
 
-# 8. The asset pipeline must stay pure: no async or I/O crates, and no
-#    tt- crate other than tt-contracts.
-manifest="integrations/asset-pipeline/Cargo.toml"
+# 8. The integrations crates the server may use must stay pure: no async or
+#    I/O crates, and no tt- crate other than tt-contracts. Parsing crates
+#    such as serde and serde_json are fine.
 # True if the manifest names dependency $2 (an ERE for the crate name) as an
 # inline key, a dotted key (`name.version = ..`) or a table header
 # (`[dependencies.name]`, also dev- and build-).
 names_dep() {
   grep -qE "^\s*(${2})\s*=|^\s*(${2})\.|^\s*\[(dev-|build-)?dependencies\.(${2})\]" "$1"
 }
-if [ -f "$manifest" ]; then
+# check_pure <manifest> <what> <adr>
+check_pure() {
+  local manifest="$1" what="$2" adr="$3"
+  [ -f "$manifest" ] || return 0
   if names_dep "$manifest" '(tokio|axum|hyper|reqwest|tower|async-std)[A-Za-z0-9_-]*'; then
-    report "$manifest depends on an async or I/O crate (the pipeline must stay pure, ADR 0014)"
+    report "$manifest depends on an async or I/O crate ($what must stay pure, $adr)"
   fi
   if names_dep "$manifest" 'tt-[A-Za-z0-9_-]+'; then
     # Every tt- name it uses must be tt-contracts.
+    local others
     others=$(grep -oE '^\s*(\[(dev-|build-)?dependencies\.)?tt-[A-Za-z0-9_-]+' "$manifest" \
       | grep -oE 'tt-[A-Za-z0-9_-]+' | grep -vxE 'tt-contracts' || true)
     if [ -n "$others" ]; then
       report "$manifest depends on a tt- crate other than tt-contracts"
     fi
   fi
-fi
+}
+check_pure "integrations/asset-pipeline/Cargo.toml" "the pipeline" "ADR 0014"
+check_pure "integrations/cauldron-import/Cargo.toml" "the importer" "ADR 0015"
 
 if [ "$fail" -ne 0 ]; then
   echo

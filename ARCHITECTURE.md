@@ -23,7 +23,7 @@ crates/rules  crates/plugin-host
 |---|---|---|
 | `contracts/` | Message and file-format definitions. Versioned; breaking changes are rejected by CI. | nothing |
 | `crates/rules` | Pure 5e rules engine: takes state plus an intent, returns events. No I/O, no clock, no network. Dice come from an injected roller. | contracts |
-| `crates/server` | WebSocket sessions, accounts, permissions, the event log, per-viewer filtering, persistence, video join tokens. | contracts, rules, plugin-host, and the asset pipeline ([ADR 0014](docs/adr/0014-asset-upload.md)) |
+| `crates/server` | WebSocket sessions, accounts, permissions, the event log, per-viewer filtering, persistence, video join tokens. | contracts, rules, plugin-host, the asset pipeline ([ADR 0014](docs/adr/0014-asset-upload.md)), and the Creature Cauldron importer ([ADR 0015](docs/adr/0015-cauldron-import.md)) |
 | `crates/renderer` | Draws scenes: map, grid, tokens, templates, later walls, lighting and fog. Compiled to WASM. Takes events in, emits pointer-level intents out. | contracts |
 | `crates/plugin-host` | Runs third-party WASM plugins in a sandbox with an explicit capability list. | contracts |
 | `integrations/` | Pure functions from a foreign file (Creature Cauldron export, Universal VTT map, image) to contract messages. Plus the asset upload pipeline. | contracts only |
@@ -32,7 +32,7 @@ crates/rules  crates/plugin-host
 
 ## The dependency rule
 
-Everything depends on `contracts/`. Nothing in `integrations/` or `web/` may import from `crates/server`, `crates/rules`, `crates/renderer` internals or `crates/plugin-host`. `tools/check-deps.sh` enforces this in CI. The one exception, recorded in [ADR 0014](docs/adr/0014-asset-upload.md): `crates/server` may depend on `integrations/asset-pipeline` (and on no other crate under `integrations/`), and that pipeline must stay pure: no network, no disk, no clock, and no I/O or async crates.
+Everything depends on `contracts/`. Nothing in `integrations/` or `web/` may import from `crates/server`, `crates/rules`, `crates/renderer` internals or `crates/plugin-host`. `tools/check-deps.sh` enforces this in CI. Two named exceptions, recorded in [ADR 0014](docs/adr/0014-asset-upload.md) and [ADR 0015](docs/adr/0015-cauldron-import.md): `crates/server` may depend on `integrations/asset-pipeline` and `integrations/cauldron-import` (and on no other crate under `integrations/`), and both must stay pure: no network, no disk, no clock, and no I/O or async crates.
 
 If two components need to share something, it goes into `contracts/` through a reviewed change. It never goes in through a direct import.
 
