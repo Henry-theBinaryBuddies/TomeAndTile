@@ -183,6 +183,7 @@ pub(crate) fn roll_result(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_one(
     source: &Creature,
     ability: &Ability,
@@ -190,6 +191,7 @@ pub(crate) fn resolve_one(
     target_token_id: &str,
     target: &Creature,
     mode: RollMode,
+    auto_crit: bool,
     rng: &mut dyn Rng,
 ) -> TargetOutcome {
     let attack_roll = roll_result(
@@ -204,6 +206,9 @@ pub(crate) fn resolve_one(
         HitOutcome::CriticalHit
     } else if attack_roll.fumble || attack_roll.total < target.armor_class {
         HitOutcome::Miss
+    } else if auto_crit {
+        // Paralyzed or unconscious target within 5 feet (conditions.rs).
+        HitOutcome::CriticalHit
     } else {
         HitOutcome::Hit
     };
@@ -439,6 +444,7 @@ pub fn resolve_attacks(
             &token.token_id,
             creature,
             attack_mode,
+            false,
             rng,
         ));
     }
@@ -611,6 +617,7 @@ mod tests {
             targets,
             grid,
             mode,
+            None,
             &mut new_rng,
         );
         assert_eq!(old_rng.calls, new_rng.calls, "dice drawn differ");
