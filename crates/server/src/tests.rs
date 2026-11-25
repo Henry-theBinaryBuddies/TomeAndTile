@@ -12,7 +12,7 @@ use tt_rules::dice::Rng;
 
 use crate::auth::{authenticate, parse_dev_token, AuthError};
 use crate::campaign::{Campaign, Rejection, MAX_CHAT_CHARS, MAX_PATH_POINTS};
-use crate::ids::SequentialIds;
+use crate::ids::{IdSource as _, SequentialIds};
 use crate::net::{encode, rejection_message};
 use crate::rng::RollSource;
 use crate::view::Viewer;
@@ -571,7 +571,6 @@ fn unimplemented_intents_are_rejected() {
         intent::Kind::EndTurn(pb::EndTurnIntent::default()),
         intent::Kind::SetInitiative(pb::SetInitiativeIntent::default()),
         intent::Kind::Undo(pb::UndoIntent::default()),
-        intent::Kind::SetHitPoints(pb::SetHitPointsIntent::default()),
     ];
     for k in all {
         assert_eq!(
@@ -1142,8 +1141,8 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        // No resource spent: exactly one event, nothing else.
-        assert_eq!(events.len(), 1);
+        // No resource spent: the resolution, then the goblin's token.
+        assert_eq!(events.len(), 2);
         let e = &events[0];
         assert_eq!((e.seq, e.scene_id.as_str()), (1, "s1"));
         assert_eq!(e.actor_user_id, "alice");
@@ -1160,15 +1159,37 @@ mod use_ability {
         assert_eq!(o.roll.as_ref().expect("attack").total, 20);
         assert_eq!(o.damage_rolls.len(), 1);
         assert_eq!(o.damage_rolls[0].total, 7);
-        // Nothing but the log changed: no hit points, no tokens.
+        // Damage lands on the token only: 7 hits 1 temporary then 6 hit
+        // points (10 to 4), so Bloodied. Creature sheets never change.
         let hp_after: Vec<(i32, i32)> = c
             .creatures
             .iter()
             .map(|x| (x.hp_current, x.hp_max))
             .collect();
         assert_eq!(hp_before, hp_after);
-        assert_eq!(c.tokens, tokens_before);
-        assert!(o.damage.is_empty() && !o.dropped_to_zero);
+        assert!(!o.dropped_to_zero);
+        assert_eq!(o.damage.len(), 1);
+        assert_eq!(o.damage[0].applied, 7);
+        let goblin = c.tokens.iter().find(|t| t.token_id == "t-goblin").unwrap();
+        assert_eq!(
+            (goblin.hp_current, goblin.hp_temp, goblin.health_state),
+            (Some(4), Some(0), pb::HealthState::Bloodied as i32)
+        );
+        match events[1].kind.as_ref() {
+            Some(event::Kind::TokenUpserted(u)) => {
+                assert_eq!(u.token.as_ref(), Some(goblin));
+            }
+            other => panic!("expected TokenUpserted, got {other:?}"),
+        }
+        assert_eq!(events[1].seq, 2);
+        assert_eq!(events[1].client_intent_id, "ci-1");
+        let others: Vec<&Token> = tokens_before
+            .iter()
+            .filter(|t| t.token_id != "t-goblin")
+            .collect();
+        for t in others {
+            assert!(c.tokens.contains(t), "{} is unchanged", t.token_id);
+        }
     }
 
     #[test]
@@ -1181,7 +1202,7 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
         assert_eq!(resolution_of(&events[0]).ability_id, "claw");
         assert_eq!(events[0].actor_user_id, "gm");
     }
@@ -1196,10 +1217,10 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
         assert_eq!(
             events.iter().map(|e| e.seq).collect::<Vec<_>>(),
-            [1, 2],
+            [1, 2, 3],
             "consecutive seq"
         );
         assert!(events.iter().all(|e| e.client_intent_id == "ci-1"));
@@ -1207,7 +1228,11 @@ mod use_ability {
             events[0].kind,
             Some(event::Kind::ResolutionUpdated(_))
         ));
-        match events[1].kind.as_ref() {
+        assert!(matches!(
+            events[1].kind,
+            Some(event::Kind::TokenUpserted(_))
+        ));
+        match events[2].kind.as_ref() {
             Some(event::Kind::CreatureUpserted(u)) => {
                 let cr = u.creature.as_ref().expect("creature");
                 assert_eq!(cr.creature_id, "c-alice");
@@ -1247,9 +1272,9 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        assert_eq!(events.len(), 2, "resolution then creature upsert");
+        assert_eq!(events.len(), 3, "resolution, goblin token, creature");
         assert!(matches!(
-            events[1].kind,
+            events[2].kind,
             Some(event::Kind::CreatureUpserted(_))
         ));
         assert_eq!(slots(&c), 0, "slots floor at zero");
@@ -1258,7 +1283,7 @@ mod use_ability {
         assert_eq!(codes, ["not_enough_resource", "out_of_range"]);
         assert_eq!(events[0].warnings, r.warnings);
         // Only the first event carries them.
-        assert!(events[1].warnings.is_empty());
+        assert!(events[1].warnings.is_empty() && events[2].warnings.is_empty());
         assert_eq!(r.outcomes.len(), 1, "still rolled");
     }
 
@@ -1336,16 +1361,29 @@ mod use_ability {
             )
             .unwrap(),
         );
-        assert_eq!(all.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 2, 3, 4]);
+        assert_eq!(
+            all.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            [1, 2, 3, 4, 5, 6]
+        );
         assert_eq!(c.log, all);
-        assert_eq!(c.seq, 4);
+        assert_eq!(c.seq, 6);
         let kept = resolution_of(&c.log[1]);
         assert_eq!(kept.outcomes[0].damage_rolls.len(), 1);
+        assert!(matches!(c.log[2].kind, Some(event::Kind::TokenUpserted(_))));
         assert!(matches!(
-            c.log[2].kind,
+            c.log[3].kind,
             Some(event::Kind::CreatureUpserted(_))
         ));
-        assert_eq!(resolution_of(&c.log[3]).outcomes[0].token_id, "t-hidden");
+        assert_eq!(resolution_of(&c.log[4]).outcomes[0].token_id, "t-hidden");
+        // The hidden token's numbers are in the log, unredacted.
+        match c.log[5].kind.as_ref() {
+            Some(event::Kind::TokenUpserted(u)) => {
+                let t = u.token.as_ref().expect("token");
+                assert_eq!((t.token_id.as_str(), t.hp_max), ("t-hidden", Some(12)));
+                assert!(t.hp_current.is_some());
+            }
+            other => panic!("expected TokenUpserted, got {other:?}"),
+        }
     }
 
     /// A rejected use leaves seq, log, tokens and creatures untouched.
@@ -1483,7 +1521,7 @@ mod use_ability {
     #[test]
     fn unsupported_abilities_are_not_implemented() {
         let mut c = armed();
-        for id in ["fireball", "save", "bad-dice"] {
+        for id in ["save", "bad-dice"] {
             assert_rejected(
                 &mut c,
                 "alice",
@@ -1701,9 +1739,904 @@ mod use_ability {
         )
         .unwrap();
         // alice's sheet: GM and alice (owner and controller) only.
-        assert!(c.event_for(&events[1], &viewer(&c, "gm")).is_some());
-        assert!(c.event_for(&events[1], &viewer(&c, "alice")).is_some());
-        assert!(c.event_for(&events[1], &viewer(&c, "bob")).is_none());
-        assert!(c.event_for(&events[1], &viewer(&c, "spec")).is_none());
+        assert!(c.event_for(&events[2], &viewer(&c, "gm")).is_some());
+        assert!(c.event_for(&events[2], &viewer(&c, "alice")).is_some());
+        assert!(c.event_for(&events[2], &viewer(&c, "bob")).is_none());
+        assert!(c.event_for(&events[2], &viewer(&c, "spec")).is_none());
+    }
+}
+
+// ------------------------------------------------- applied results (#100)
+
+/// Everything a rejected intent must leave alone.
+type State = (
+    u64,
+    usize,
+    Vec<Token>,
+    Vec<Creature>,
+    usize,
+    std::collections::HashMap<String, bool>,
+);
+
+fn state_of(c: &Campaign) -> State {
+    (
+        c.seq,
+        c.log.len(),
+        c.tokens.clone(),
+        c.creatures.clone(),
+        c.groups.len(),
+        c.removed_token_hidden.clone(),
+    )
+}
+
+/// Abilities that change state, run against the plain test campaign.
+mod applying {
+    use super::*;
+    use tt_contracts::v1 as pb;
+
+    fn part(dice: &str, ty: pb::DamageType) -> pb::DamagePart {
+        pb::DamagePart {
+            dice: dice.into(),
+            r#type: ty as i32,
+        }
+    }
+
+    fn ability(id: &str, shape: pb::TargetShape, steps: Vec<pb::effect_step::Step>) -> pb::Ability {
+        pb::Ability {
+            ability_id: id.into(),
+            name: id.into(),
+            targeting: Some(pb::Targeting {
+                shape: shape as i32,
+                range_feet: 0.0,
+                max_targets: 0,
+                ..Default::default()
+            }),
+            steps: steps
+                .into_iter()
+                .map(|s| pb::EffectStep { step: Some(s) })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    fn attack() -> pb::effect_step::Step {
+        pb::effect_step::Step::Attack(pb::AttackStep {
+            to_hit_bonus: 5,
+            damage: vec![part("1d8+3", pb::DamageType::Slashing)],
+        })
+    }
+
+    fn save(half: bool) -> pb::effect_step::Step {
+        pb::effect_step::Step::Save(pb::SaveStep {
+            ability: pb::AbilityScore::Dexterity as i32,
+            dc: 100,
+            damage: vec![part("2d6", pb::DamageType::Fire)],
+            half_on_success: half,
+        })
+    }
+
+    fn effect(id: &str, unit: pb::DurationUnit, amount: u32) -> pb::effect_step::Step {
+        pb::effect_step::Step::ApplyEffect(pb::ApplyEffectStep {
+            effect_id: id.into(),
+            duration: Some(pb::Duration {
+                unit: unit as i32,
+                amount,
+                concentration: false,
+            }),
+            only_on_failure: false,
+        })
+    }
+
+    /// Alice's creature gets: `sword` (attack), `burn` (a Dex save DC 100 for
+    /// 2d6 fire, then `burning` for a minute), `blast` (the same save, cone),
+    /// `ward` (a two round `warded` effect and nothing else).
+    fn world() -> Campaign {
+        let mut c = campaign();
+        let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
+        alice.expect("c-alice").abilities = vec![
+            ability("sword", pb::TargetShape::Creatures, vec![attack()]),
+            ability(
+                "burn",
+                pb::TargetShape::Creatures,
+                vec![save(false), effect("burning", pb::DurationUnit::Minutes, 1)],
+            ),
+            ability("blast", pb::TargetShape::Cone, vec![save(true)]),
+            ability(
+                "ward",
+                pb::TargetShape::Creatures,
+                vec![effect("warded", pb::DurationUnit::Rounds, 2)],
+            ),
+        ];
+        c
+    }
+
+    fn use_ab(source: &str, ability: &str, targets: &[&str]) -> Intent {
+        intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+            source_token_id: source.into(),
+            ability_id: ability.into(),
+            target_token_ids: targets.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }))
+    }
+
+    fn resolution_of(e: &Event) -> &pb::Resolution {
+        match e.kind.as_ref() {
+            Some(event::Kind::ResolutionUpdated(u)) => u.resolution.as_ref().expect("resolution"),
+            other => panic!("not a resolution event: {other:?}"),
+        }
+    }
+
+    fn token_of(e: &Event) -> &Token {
+        match e.kind.as_ref() {
+            Some(event::Kind::TokenUpserted(u)) => u.token.as_ref().expect("token"),
+            other => panic!("not a token event: {other:?}"),
+        }
+    }
+
+    fn stored<'a>(c: &'a Campaign, id: &str) -> &'a Token {
+        c.tokens.iter().find(|t| t.token_id == id).expect("token")
+    }
+
+    #[test]
+    fn a_shared_damage_roll_has_one_id_and_every_other_roll_its_own() {
+        let mut c = world();
+        // Every die shows 6: the save fails (6 + 0 < 100), 2d6 = 12.
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "burn", &["t-goblin", "t-hidden"]),
+            &mut Scripted::new(&[5]),
+        )
+        .unwrap();
+        let r = resolution_of(&events[0]);
+        let burn: Vec<_> = r.outcomes.iter().filter(|o| o.step_index == 0).collect();
+        assert_eq!(burn.len(), 2);
+        let (a, b) = (&burn[0], &burn[1]);
+        assert_eq!(a.damage_rolls.len(), 1);
+        assert_eq!(a.damage_rolls[0], b.damage_rolls[0], "a copy, id included");
+        assert!(!a.damage_rolls[0].roll_id.is_empty());
+        let saves = [&a.roll, &b.roll].map(|r| r.as_ref().expect("save").roll_id.clone());
+        assert_ne!(saves[0], saves[1], "each save roll has its own id");
+        assert!(!saves.contains(&a.damage_rolls[0].roll_id));
+
+        // Attack damage is rolled per target: equal-looking rolls stay apart.
+        let mut c = world();
+        c.creatures[0].abilities[0] = ability(
+            "sword",
+            pb::TargetShape::Creatures,
+            vec![attack(), attack()],
+        );
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "sword", &["t-goblin", "t-hidden"]),
+            // Each hit: d20 15 (+5 beats AC 15), then 1d8 = 6.
+            &mut Scripted::new(&[14, 5, 14, 5]),
+        )
+        .unwrap();
+        let r = resolution_of(&events[0]);
+        assert_eq!(r.outcomes.len(), 2);
+        let (x, y) = (&r.outcomes[0], &r.outcomes[1]);
+        assert_eq!(x.damage_rolls[0].total, y.damage_rolls[0].total);
+        assert_ne!(x.damage_rolls[0].roll_id, y.damage_rolls[0].roll_id);
+        let mut ids: Vec<&str> = r
+            .outcomes
+            .iter()
+            .flat_map(|o| o.roll.iter().chain(o.damage_rolls.iter()))
+            .map(|x| x.roll_id.as_str())
+            .collect();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n, "four rolls, four ids");
+    }
+
+    #[test]
+    fn damage_and_conditions_land_on_each_target_token_in_engine_order() {
+        let mut c = world();
+        let creatures_before = c.creatures.clone();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "burn", &["t-goblin", "t-alice"]),
+            &mut Scripted::new(&[5]),
+        )
+        .unwrap();
+        // alice may target a visible goblin and herself.
+        assert_eq!(events.len(), 3);
+        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 2, 3]);
+        assert!(events.iter().all(|e| e.client_intent_id == "ci-1"));
+        let r = resolution_of(&events[0]);
+        assert_eq!(r.state, pb::ResolutionState::Done as i32);
+        let (goblin, alice) = (token_of(&events[1]), token_of(&events[2]));
+        assert_eq!(goblin.token_id, "t-goblin");
+        assert_eq!(alice.token_id, "t-alice");
+        // 12 fire: 1 temporary, 11 of 10 hit points, floor at 0.
+        for t in [goblin, alice] {
+            assert_eq!(
+                (t.hp_current, t.hp_temp, t.health_state),
+                (Some(0), Some(0), pb::HealthState::Down as i32)
+            );
+            assert_eq!(t.conditions, ["burning"]);
+            assert_eq!(stored(&c, &t.token_id), t);
+        }
+        assert_eq!(c.creatures, creatures_before, "sheets are not changed");
+        assert!(r.outcomes.iter().all(|o| o.dropped_to_zero));
+        // The one group names exactly the two tokens.
+        let g = c.groups.last().expect("group");
+        assert_eq!((g.first_seq, g.last_seq), (1, 3));
+        assert_eq!(g.changed_token_ids, ["t-alice", "t-goblin"]);
+        assert!(g.changed_creature_ids.is_empty());
+    }
+
+    #[test]
+    fn a_target_whose_state_did_not_change_gets_no_token_event() {
+        let mut c = world();
+        // A miss: d20 shows 1, no damage, nothing applied.
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            &mut Scripted::new(&[0]),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 1);
+        let g = c.groups.last().expect("group");
+        assert!(g.changed_token_ids.is_empty() && g.changed_creature_ids.is_empty());
+    }
+
+    #[test]
+    fn an_area_ability_resolves_with_area_not_checked() {
+        let mut c = world();
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "blast", &["t-goblin"]),
+            &mut Scripted::new(&[5]),
+        )
+        .unwrap();
+        let r = resolution_of(&events[0]);
+        let codes: Vec<&str> = r.warnings.iter().map(|w| w.code.as_str()).collect();
+        assert_eq!(codes, ["area_not_checked"]);
+        assert_eq!(events[0].warnings, r.warnings);
+        assert_eq!(token_of(&events[1]).token_id, "t-goblin");
+    }
+
+    #[test]
+    fn a_token_with_no_hit_points_warns_and_gets_no_token_event() {
+        let mut c = world();
+        let mut ghost = token("t-ghost", "c-goblin", &[], false, 455.0);
+        (ghost.hp_current, ghost.hp_max, ghost.hp_temp) = (None, None, None);
+        c.tokens.push(ghost);
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "burn", &["t-ghost"]),
+            &mut Scripted::new(&[5]),
+        )
+        .unwrap();
+        let r = resolution_of(&events[0]);
+        assert!(r.warnings.iter().any(|w| w.code == "no_hit_points"));
+        assert!(events
+            .iter()
+            .all(|e| !matches!(&e.kind, Some(event::Kind::TokenUpserted(u))
+                if u.token.as_ref().is_some_and(|t| t.hp_current.is_some()))));
+    }
+
+    #[test]
+    fn the_scenes_running_encounter_decides_the_timers() {
+        let mut c = world();
+        c.encounters.push(Encounter {
+            encounter_id: "enc-1".into(),
+            scene_id: "s1".into(),
+            round: 3,
+            combatants: vec![
+                Combatant {
+                    token_id: "t-alice".into(),
+                    ..Default::default()
+                },
+                Combatant {
+                    token_id: "t-goblin".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
+        let events = run(&mut c, "alice", use_ab("t-alice", "ward", &["t-goblin"])).unwrap();
+        let g = token_of(&events[1]);
+        assert_eq!(g.conditions, ["warded"]);
+        assert_eq!(g.condition_timers.len(), 1);
+        let t = &g.condition_timers[0];
+        assert_eq!(
+            (t.effect_id.as_str(), t.encounter_id.as_str(), t.ends_round),
+            ("warded", "enc-1", 5)
+        );
+        assert_eq!(t.source_token_id, "t-alice");
+        // An encounter on another scene does not count.
+        let mut c = world();
+        c.encounters.push(Encounter {
+            encounter_id: "enc-2".into(),
+            scene_id: "s2".into(),
+            round: 1,
+            ..Default::default()
+        });
+        let events = run(&mut c, "alice", use_ab("t-alice", "ward", &["t-goblin"])).unwrap();
+        assert!(token_of(&events[1]).condition_timers.is_empty());
+        assert!(resolution_of(&events[0])
+            .warnings
+            .iter()
+            .any(|w| w.code == "duration_not_tracked"));
+    }
+
+    #[test]
+    fn rejected_abilities_leave_everything_unchanged() {
+        let mut c = world();
+        let before = state_of(&c);
+        let mut rng = Scripted::new(&[5]);
+        rng.fail = true;
+        let r = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-alice", "burn", &["t-goblin"]),
+            &mut rng,
+        );
+        assert_eq!(code(r), "rng_unavailable");
+        assert_eq!(state_of(&c), before);
+    }
+}
+
+// ------------------------------------------- set hp, conditions, tokens
+
+mod intents {
+    use super::*;
+    use tt_contracts::v1 as pb;
+
+    fn refuse(c: &mut Campaign, actor: &str, i: Intent, expect: &str) {
+        let before = state_of(c);
+        assert_eq!(code(run(c, actor, i)), expect);
+        assert_eq!(state_of(c), before, "{expect}: state changed");
+    }
+
+    fn set_hp(token_id: &str, cur: i32, temp: i32) -> Intent {
+        intent_of(intent::Kind::SetHitPoints(pb::SetHitPointsIntent {
+            token_id: token_id.into(),
+            hp_current: cur,
+            hp_temp: temp,
+        }))
+    }
+
+    fn set_cond(token_id: &str, add: &[&str], remove: &[&str]) -> Intent {
+        let own = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+        intent_of(intent::Kind::SetConditions(pb::SetConditionsIntent {
+            token_id: token_id.into(),
+            add: own(add),
+            remove: own(remove),
+        }))
+    }
+
+    fn create(f: impl FnOnce(&mut pb::CreateTokenIntent)) -> Intent {
+        let mut t = pb::CreateTokenIntent {
+            scene_id: "s1".into(),
+            position: Some(p(35.0, 35.0)),
+            ..Default::default()
+        };
+        f(&mut t);
+        intent_of(intent::Kind::CreateToken(t))
+    }
+
+    fn remove(token_id: &str) -> Intent {
+        intent_of(intent::Kind::RemoveToken(pb::RemoveTokenIntent {
+            token_id: token_id.into(),
+        }))
+    }
+
+    fn stored<'a>(c: &'a Campaign, id: &str) -> &'a Token {
+        c.tokens.iter().find(|t| t.token_id == id).expect("token")
+    }
+
+    fn token_of(e: &Event) -> &Token {
+        match e.kind.as_ref() {
+            Some(event::Kind::TokenUpserted(u)) => u.token.as_ref().expect("token"),
+            other => panic!("not a token event: {other:?}"),
+        }
+    }
+
+    // -------------------------------------------------------- set_hit_points
+
+    #[test]
+    fn gm_and_controller_set_hit_points() {
+        let mut c = campaign();
+        let sheets = c.creatures.clone();
+        let events = run(&mut c, "alice", set_hp("t-alice", 3, 0)).unwrap();
+        assert_eq!(events.len(), 1);
+        let t = token_of(&events[0]);
+        // 3 of 12 is a quarter or less: near death. Temporary HP cleared.
+        assert_eq!(
+            (t.hp_current, t.hp_max, t.hp_temp, t.health_state),
+            (
+                Some(3),
+                Some(12),
+                Some(0),
+                pb::HealthState::NearDeath as i32
+            )
+        );
+        assert_eq!(stored(&c, "t-alice"), t);
+        assert_eq!((events[0].seq, events[0].scene_id.as_str()), (1, "s1"));
+        assert_eq!(events[0].client_intent_id, "ci-1");
+        // The GM sets any token, even a hidden one, up to the maximum.
+        let events = run(&mut c, "gm", set_hp("t-hidden", 12, 999)).unwrap();
+        let t = token_of(&events[0]);
+        assert_eq!(
+            (t.hp_current, t.hp_temp, t.health_state),
+            (Some(12), Some(999), pb::HealthState::Healthy as i32)
+        );
+        let events = run(&mut c, "gm", set_hp("t-goblin", 0, 0)).unwrap();
+        assert_eq!(
+            token_of(&events[0]).health_state,
+            pb::HealthState::Down as i32
+        );
+        assert_eq!(c.creatures, sheets, "Creature.hp_* is not changed");
+        assert_eq!(c.groups.len(), 3);
+        assert_eq!(c.groups[0].changed_token_ids, ["t-alice"]);
+        assert!(c.groups[0].changed_creature_ids.is_empty());
+    }
+
+    #[test]
+    fn set_hit_points_rejections_change_nothing() {
+        let mut c = campaign();
+        c.tokens.push(token("t-prop", "", &[], false, 175.0));
+        let prop = c.tokens.last_mut().expect("prop");
+        (prop.hp_current, prop.hp_max, prop.hp_temp) = (None, None, None);
+        // A player: someone else's, a hidden one, a missing one.
+        for id in ["t-goblin", "t-hidden", "t-nobody"] {
+            refuse(&mut c, "alice", set_hp(id, 1, 0), "not_permitted");
+        }
+        refuse(&mut c, "bob", set_hp("t-alice", 1, 0), "not_permitted");
+        refuse(&mut c, "spec", set_hp("t-alice", 1, 0), "not_permitted");
+        refuse(&mut c, "gm", set_hp("t-nobody", 1, 0), "unknown_token");
+        refuse(&mut c, "gm", set_hp("t-prop", 1, 0), "no_hit_points");
+        refuse(&mut c, "gm", set_hp("t-alice", -1, 0), "bad_hit_points");
+        refuse(&mut c, "gm", set_hp("t-alice", 13, 0), "bad_hit_points");
+        refuse(&mut c, "gm", set_hp("t-alice", 5, -1), "bad_hit_points");
+        refuse(&mut c, "gm", set_hp("t-alice", 5, 1000), "bad_hit_points");
+        // A controller of a token that is hidden gets not_permitted too.
+        c.tokens[0].hidden = true;
+        refuse(&mut c, "alice", set_hp("t-alice", 1, 0), "not_permitted");
+    }
+
+    // ---------------------------------------------------------- set_conditions
+
+    #[test]
+    fn conditions_are_added_removed_and_their_timers_go() {
+        let mut c = campaign();
+        c.tokens[1].conditions = vec!["prone".into(), "blessed".into()];
+        c.tokens[1].condition_timers = vec![
+            pb::ConditionTimer {
+                effect_id: "blessed".into(),
+                ends_round: 4,
+                ..Default::default()
+            },
+            pb::ConditionTimer {
+                effect_id: "prone".into(),
+                ends_round: 2,
+                ..Default::default()
+            },
+        ];
+        let events = run(
+            &mut c,
+            "gm",
+            set_cond(
+                "t-goblin",
+                &["poisoned", "prone", "poisoned"],
+                &["blessed", "absent"],
+            ),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].warnings.is_empty());
+        let t = token_of(&events[0]);
+        assert_eq!(t.conditions, ["prone", "poisoned"]);
+        assert_eq!(t.condition_timers.len(), 1);
+        assert_eq!(t.condition_timers[0].effect_id, "prone");
+        assert_eq!(stored(&c, "t-goblin"), t);
+        // Nothing to change still answers with the token.
+        let events = run(&mut c, "gm", set_cond("t-goblin", &["prone"], &["absent"])).unwrap();
+        assert_eq!(token_of(&events[0]).conditions, ["prone", "poisoned"]);
+        assert!(c.groups.last().unwrap().changed_token_ids.is_empty());
+    }
+
+    #[test]
+    fn an_immune_condition_is_added_with_a_warning() {
+        let mut c = campaign();
+        c.creatures[1].condition_immunities = vec!["poisoned".into()];
+        let events = run(
+            &mut c,
+            "gm",
+            set_cond("t-goblin", &["poisoned", "prone"], &[]),
+        )
+        .unwrap();
+        assert_eq!(events[0].warnings.len(), 1);
+        assert_eq!(events[0].warnings[0].code, "condition_immune");
+        assert_eq!(stored(&c, "t-goblin").conditions, ["poisoned", "prone"]);
+    }
+
+    #[test]
+    fn set_conditions_rejections_change_nothing() {
+        let mut c = campaign();
+        refuse(
+            &mut c,
+            "alice",
+            set_cond("t-alice", &["prone"], &[]),
+            "not_permitted",
+        );
+        refuse(
+            &mut c,
+            "alice",
+            set_cond("t-nobody", &["prone"], &[]),
+            "not_permitted",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            set_cond("t-nobody", &["prone"], &[]),
+            "unknown_token",
+        );
+        for bad in ["", "Prone", "has space", "dash-ed", &"a".repeat(41)] {
+            refuse(
+                &mut c,
+                "gm",
+                set_cond("t-goblin", &[bad], &[]),
+                "bad_condition_id",
+            );
+            refuse(
+                &mut c,
+                "gm",
+                set_cond("t-goblin", &[], &[bad]),
+                "bad_condition_id",
+            );
+        }
+        refuse(
+            &mut c,
+            "gm",
+            set_cond("t-goblin", &["prone"], &["prone"]),
+            "conflicting_conditions",
+        );
+        let many: Vec<String> = (0..33).map(|n| format!("c{n}")).collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        refuse(
+            &mut c,
+            "gm",
+            set_cond("t-goblin", &many, &[]),
+            "too_many_conditions",
+        );
+        // Exactly 32 is fine.
+        run(&mut c, "gm", set_cond("t-goblin", &many[..32], &[])).unwrap();
+        assert_eq!(stored(&c, "t-goblin").conditions.len(), 32);
+        refuse(
+            &mut c,
+            "gm",
+            set_cond("t-goblin", &["one_more"], &[]),
+            "too_many_conditions",
+        );
+    }
+
+    // ------------------------------------------------------------ create_token
+
+    #[test]
+    fn create_token_copies_hit_points_and_mints_the_id() {
+        let mut c = campaign();
+        c.creatures[1].hp_current = 6;
+        c.creatures[1].hp_temp = 2;
+        c.creatures[1].size = pb::CreatureSize::Large as i32;
+        let events = run(
+            &mut c,
+            "gm",
+            create(|t| {
+                t.creature_id = "c-goblin".into();
+                t.hidden = true;
+            }),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 1, "no controllers, no creature event");
+        let t = token_of(&events[0]);
+        assert_eq!(t.token_id, SequentialIds::new().next_id(1_000));
+        assert_eq!(
+            (t.scene_id.as_str(), t.level_id.as_str(), t.name.as_str()),
+            ("s1", "l1", "c-goblin")
+        );
+        assert_eq!(t.position, Some(p(35.0, 35.0)));
+        assert_eq!(t.size, pb::CreatureSize::Large as i32);
+        assert_eq!(
+            (t.hp_current, t.hp_max, t.hp_temp, t.health_state),
+            (Some(6), Some(12), Some(2), pb::HealthState::Bloodied as i32)
+        );
+        assert!(t.hidden && t.conditions.is_empty() && t.condition_timers.is_empty());
+        assert_eq!(c.tokens.last(), Some(t));
+        assert_eq!(
+            c.groups.last().unwrap().changed_token_ids,
+            std::slice::from_ref(&t.token_id)
+        );
+        assert_eq!(events[0].scene_id, "s1");
+    }
+
+    #[test]
+    fn create_token_with_controllers_also_sends_the_sheet() {
+        let mut c = campaign();
+        let events = run(
+            &mut c,
+            "gm",
+            create(|t| {
+                t.creature_id = "c-bob".into();
+                t.name = "Bob the Bold".into();
+                t.size = pb::CreatureSize::Small as i32;
+                t.controller_user_ids = vec!["bob".into(), "bob".into()];
+            }),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2);
+        let t = token_of(&events[0]);
+        assert_eq!(t.name, "Bob the Bold");
+        assert_eq!(t.size, pb::CreatureSize::Small as i32);
+        assert_eq!(t.controller_user_ids, ["bob"]);
+        match events[1].kind.as_ref() {
+            Some(event::Kind::CreatureUpserted(u)) => {
+                assert_eq!(u.creature.as_ref().unwrap().creature_id, "c-bob");
+            }
+            other => panic!("expected CreatureUpserted, got {other:?}"),
+        }
+        assert!(c.event_for(&events[1], &viewer(&c, "bob")).is_some());
+        assert!(c.event_for(&events[1], &viewer(&c, "alice")).is_none());
+    }
+
+    #[test]
+    fn create_token_prop_has_no_creature_and_no_hit_points() {
+        let mut c = campaign();
+        let events = run(&mut c, "gm", create(|t| t.level_id = String::new())).unwrap();
+        let t = token_of(&events[0]);
+        assert_eq!((t.name.as_str(), t.creature_id.as_str()), ("Token", ""));
+        assert_eq!(t.size, pb::CreatureSize::Medium as i32);
+        assert_eq!((t.hp_current, t.hp_max, t.hp_temp), (None, None, None));
+        // Controllers on a prop: no creature to send.
+        let events = run(
+            &mut c,
+            "gm",
+            create(|t| t.controller_user_ids = vec!["alice".into()]),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn create_token_rejections_change_nothing() {
+        let mut c = campaign();
+        refuse(&mut c, "alice", create(|_| {}), "not_permitted");
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.scene_id = "nope".into()),
+            "unknown_scene",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.level_id = "nope".into()),
+            "unknown_level",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.creature_id = "nope".into()),
+            "unknown_creature",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.position = None),
+            "bad_coordinate",
+        );
+        for bad in [f32::NAN, f32::INFINITY, 1_000_001.0, -1_000_001.0] {
+            refuse(
+                &mut c,
+                "gm",
+                create(|t| t.position = Some(p(bad, 0.0))),
+                "bad_coordinate",
+            );
+            refuse(
+                &mut c,
+                "gm",
+                create(|t| t.position = Some(p(0.0, bad))),
+                "bad_coordinate",
+            );
+        }
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.name = "x".repeat(121)),
+            "name_too_long",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.controller_user_ids = vec!["ghost".into()]),
+            "unknown_user",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            create(|t| t.controller_user_ids = vec!["spec".into()]),
+            "invalid_controller",
+        );
+        // Edges that are accepted.
+        run(&mut c, "gm", create(|t| t.name = "x".repeat(120))).unwrap();
+        run(
+            &mut c,
+            "gm",
+            create(|t| t.position = Some(p(1_000_000.0, -1_000_000.0))),
+        )
+        .unwrap();
+        // 500 tokens is the limit.
+        while c.tokens.len() < 500 {
+            run(&mut c, "gm", create(|_| {})).unwrap();
+        }
+        refuse(&mut c, "gm", create(|_| {}), "too_many_tokens");
+        assert_eq!(c.tokens.len(), 500);
+    }
+
+    // ------------------------------------------------------------ remove_token
+
+    #[test]
+    fn remove_token_keeps_the_creature_and_who_could_see_it() {
+        let mut c = campaign();
+        let creatures = c.creatures.clone();
+        let events = run(&mut c, "gm", remove("t-goblin")).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0].kind,
+            Some(event::Kind::TokenRemoved(r)) if r.token_id == "t-goblin"
+        ));
+        assert_eq!(events[0].scene_id, "s1");
+        assert!(c.tokens.iter().all(|t| t.token_id != "t-goblin"));
+        assert_eq!(c.creatures, creatures);
+        // It was visible: everyone gets the removal, the log keeps it.
+        for who in ["gm", "alice", "bob", "spec"] {
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_some(), "{who}");
+        }
+        assert_eq!(c.log[0], events[0]);
+        assert_eq!(c.groups[0].changed_token_ids, ["t-goblin"]);
+        // A hidden token: the GM only.
+        let events = run(&mut c, "gm", remove("t-hidden")).unwrap();
+        assert!(c.event_for(&events[0], &viewer(&c, "gm")).is_some());
+        for who in ["alice", "bob", "spec"] {
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_none(), "{who}");
+        }
+        assert!(c.removed_token_hidden["t-hidden"]);
+        assert!(!c.removed_token_hidden["t-goblin"]);
+    }
+
+    #[test]
+    fn remove_token_rejections_change_nothing() {
+        let mut c = campaign();
+        c.encounters.push(Encounter {
+            encounter_id: "enc".into(),
+            scene_id: "s1".into(),
+            combatants: vec![Combatant {
+                token_id: "t-alice".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        refuse(&mut c, "alice", remove("t-alice"), "not_permitted");
+        refuse(&mut c, "alice", remove("t-nobody"), "not_permitted");
+        refuse(&mut c, "gm", remove("t-nobody"), "unknown_token");
+        refuse(&mut c, "gm", remove("t-alice"), "in_encounter");
+        run(&mut c, "gm", remove("t-goblin")).unwrap();
+    }
+
+    // ------------------------------------------------- load and visibility
+
+    #[test]
+    fn loading_recomputes_health_state_from_the_numbers() {
+        let mut snap = campaign().snapshot_for(&viewer(&campaign(), "gm"));
+        for t in &mut snap.tokens {
+            t.health_state = pb::HealthState::Down as i32;
+        }
+        snap.tokens[0].hp_current = Some(12);
+        snap.tokens[1].hp_current = Some(6);
+        snap.tokens[2].hp_current = Some(3);
+        let mut prop = token("t-prop", "", &[], false, 1.0);
+        (prop.hp_current, prop.hp_max, prop.hp_temp) = (None, None, None);
+        prop.health_state = pb::HealthState::Down as i32;
+        snap.tokens.push(prop);
+        snap.tokens.push(Token {
+            hp_current: None,
+            hp_max: Some(8),
+            ..token("t-fresh", "", &[], false, 1.0)
+        });
+        let c = Campaign::from_snapshot(snap);
+        let states: Vec<i32> = c.tokens.iter().map(|t| t.health_state).collect();
+        assert_eq!(
+            states,
+            [
+                pb::HealthState::Healthy as i32,
+                pb::HealthState::Bloodied as i32,
+                pb::HealthState::NearDeath as i32,
+                pb::HealthState::Down as i32, // no hp_max: left as stored
+                pb::HealthState::Healthy as i32, // no hp_current: full
+            ]
+        );
+    }
+
+    #[test]
+    fn a_player_never_receives_a_monsters_hit_points() {
+        let mut c = campaign();
+        c.creatures[0].abilities = vec![pb::Ability {
+            ability_id: "sword".into(),
+            name: "sword".into(),
+            targeting: Some(pb::Targeting {
+                shape: pb::TargetShape::Creatures as i32,
+                ..Default::default()
+            }),
+            steps: vec![pb::EffectStep {
+                step: Some(pb::effect_step::Step::Attack(pb::AttackStep {
+                    to_hit_bonus: 5,
+                    damage: vec![pb::DamagePart {
+                        dice: "1d8+3".into(),
+                        r#type: pb::DamageType::Slashing as i32,
+                    }],
+                })),
+            }],
+            ..Default::default()
+        }];
+        let mut events = Vec::new();
+        events.extend(
+            run_with(
+                &mut c,
+                "alice",
+                {
+                    intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+                        source_token_id: "t-alice".into(),
+                        ability_id: "sword".into(),
+                        target_token_ids: vec!["t-goblin".into()],
+                        ..Default::default()
+                    }))
+                },
+                &mut Scripted::new(&[14, 3]),
+            )
+            .unwrap(),
+        );
+        events.extend(run(&mut c, "gm", set_hp("t-goblin", 5, 3)).unwrap());
+        events.extend(run(&mut c, "gm", set_cond("t-goblin", &["prone"], &[])).unwrap());
+        let made = run(&mut c, "gm", create(|t| t.creature_id = "c-goblin".into())).unwrap();
+        let new_id = token_of(&made[0]).token_id.clone();
+        events.extend(made);
+        let mut seen = 0;
+        for who in ["alice", "bob", "spec"] {
+            let v = viewer(&c, who);
+            let snap = c.snapshot_for(&v);
+            for t in snap.tokens.iter().filter(|t| t.creature_id == "c-goblin") {
+                assert_eq!(
+                    (t.hp_current, t.hp_max, t.hp_temp),
+                    (None, None, None),
+                    "{who} snapshot"
+                );
+                assert_ne!(t.health_state, pb::HealthState::Unspecified as i32);
+            }
+            assert!(snap.tokens.iter().any(|t| t.token_id == new_id));
+            for e in events.iter().filter_map(|e| c.event_for(e, &v)) {
+                if let Some(event::Kind::TokenUpserted(u)) = &e.kind {
+                    let t = u.token.as_ref().unwrap();
+                    if t.creature_id == "c-goblin" {
+                        seen += 1;
+                        assert_eq!((t.hp_current, t.hp_max, t.hp_temp), (None, None, None));
+                        assert_ne!(t.health_state, pb::HealthState::Unspecified as i32);
+                    }
+                }
+            }
+        }
+        assert_eq!(seen, 3 * 4, "every viewer got the four goblin token events");
+        // The GM got the numbers.
+        let gm = viewer(&c, "gm");
+        let e = c.event_for(&events[1], &gm).unwrap();
+        assert!(token_of(&e).hp_current.is_some());
     }
 }

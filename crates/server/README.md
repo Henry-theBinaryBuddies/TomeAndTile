@@ -38,20 +38,43 @@ There are no accounts yet (ADR 0008). With `TT_DEV_AUTH=1` a `Hello.session_toke
 
 ## Using an ability (`UseAbilityIntent`)
 
-A GM, or a player who controls the (visible) source token, sends `use_ability` with `source_token_id`, `ability_id`, `target_token_ids` and optionally `mode`. The server finds the creatures behind the tokens, runs `tt-rules` (`resolve_attacks`, attack steps only) and appends, in this order, with consecutive `seq` and the intent's `client_intent_id`:
+A GM, or a player who controls the (visible) source token, sends `use_ability` with `source_token_id`, `ability_id`, `target_token_ids` and optionally `mode`. The server finds the creatures behind the tokens, runs `tt_rules::resolve_ability` (attack, save, flat and apply-effect steps; damage, healing and conditions are applied by the engine) and appends, in this order, with consecutive `seq` and the intent's `client_intent_id`:
 
 1. one `ResolutionUpdated` in state `DONE`;
-2. a `CreatureUpserted` for the source creature, only if the ability spent a resource.
+2. one `TokenUpserted` for each target token whose HP, temporary HP, conditions or timers changed, in the order the engine returns them (the order outcomes first touched them; a source that hits or heals itself appears once);
+3. a `CreatureUpserted` for the source creature, only if a resource was spent or `recharge_spent` changed.
 
-Nothing else changes: **no hit points, temporary hit points or health states change in M2** (applying damage is M3, ADR 0013). `TargetOutcome.damage` stays empty and no target creature is modified.
-
-- Ids and attribution: the server fills `Resolution.resolution_id` and every `RollResult.roll_id` (attack and damage) from its id source, sets `roller_user_id` to the sender and `visibility` to `PUBLIC` (the intent has no visibility field; hiding a GM's ability roll is later).
+- **Hit points live on the token** (`Token.hp_*`), never on the creature: three goblins share one stat block. `Creature.hp_*` is the stat block's value and no intent changes it. The token's `health_state` is recomputed with every change and goes to everyone who may see the token; the numbers only to the GM and the token's controllers.
+- Death saves stay manual. Reaching 0 sets `HEALTH_STATE_DOWN` (and `dropped_to_zero` on the outcome) and nothing else: no death save, no instant death.
+- Encounter: the encounter in state whose `scene_id` is the source token's scene, with its `round`, is passed to the engine (it decides condition timers). Encounters cannot be started yet (#102), so today there is none and timed conditions get a `duration_not_tracked` warning.
+- Ids and attribution: the server fills `Resolution.resolution_id` and every `RollResult.roll_id` from its id source, sets `roller_user_id` to the sender and `visibility` to `PUBLIC`. A damage roll that the engine copies into every outcome of one save or flat step gets ONE `roll_id`, the same in every copy. Every other roll (attack rolls, saving throws, each target's attack damage) has its own.
 - Scene grid: taken from the scene of the source token. Without a grid, range is not checked.
-- Warnings never stop the action. The engine's warnings are in `Resolution.warnings` and also in `Event.warnings` of the `ResolutionUpdated` event (only that event). Codes: `out_of_range`, `too_many_targets`, `not_enough_resource`, `extra_targets_ignored` (see `common.proto`). A viewer who may not see the source creature's sheet (a player, for a monster) gets the resolution without `not_enough_resource`, because that warning names the creature's resource and how many uses are left.
-- Refusals go to the sender only and append nothing. Order of checks: permission, `unknown_token`, `no_creature`, `unknown_ability`, `unknown_target`, then the engine (`no_targets`, `not_implemented`), then `rng_unavailable`. Codes are in the table below.
+- Warnings never stop the action. The engine's warnings are in `Resolution.warnings` and also in `Event.warnings` of the `ResolutionUpdated` event (only that event). Codes: `out_of_range`, `too_many_targets`, `not_enough_resource`, `extra_targets_ignored`, `area_not_checked`, `no_hit_points`, `condition_immune`, `duration_not_tracked`, `ability_recharging` (see `common.proto`). A viewer who may not see the source creature's sheet (a player, for a monster) gets the resolution without `not_enough_resource`, because that warning names the creature's resource and how many uses are left.
+- Area shapes (sphere, cone, line, cube) resolve: the listed tokens are the targets, no template is placed, and `area_not_checked` is given once.
+- Refusals go to the sender only and append nothing. Order of checks: permission, `unknown_token`, `no_creature`, `unknown_ability`, `unknown_target`, then the engine (`no_targets`, `not_implemented`), then `rng_unavailable`. `not_implemented` is now only for plugin steps, mixed multi-attack abilities (several attack steps with a save or flat step) and ability data the engine cannot use (including dice that do not parse). Codes are in the table below.
 - A player naming a source token that is missing, hidden or not theirs always gets `not_permitted`, so a player can never learn what abilities a GM creature has.
-- Dice that do not parse in the ability's own data (not the client's request) are reported as `not_implemented`.
-- Visibility: `ResolutionUpdated` goes to every viewer (spectators included, like public chat) when neither the source token nor any target token is hidden; otherwise to the GM only. `CreatureUpserted` keeps the normal sheet rule, so a player never receives a monster's `Creature` (AC, HP) in a snapshot or an event. The log keeps every event unredacted.
+- Visibility: `ResolutionUpdated` goes to every viewer (spectators included, like public chat) when neither the source token nor any target token is hidden; otherwise to the GM only. `TokenUpserted` and `CreatureUpserted` keep their normal rules (below), so a player never receives a monster's `Creature` (AC, HP) or hit point numbers in a snapshot or an event. The log keeps every event unredacted.
+
+## Hit points, conditions and tokens
+
+All four intents validate first and change state last: a refusal leaves state, `seq`, the log and the change records untouched. Each is answered with the events below (consecutive `seq`, the intent's `client_intent_id`).
+
+| Intent | Who | Events | Notes |
+|---|---|---|---|
+| `set_hit_points` | the GM, or a controller of a visible token | one `TokenUpserted` | sets `hp_current` and `hp_temp` (both always sent; `hp_temp` 0 clears it), recomputes `health_state`. `hp_max` cannot be changed. The token is the only thing that changes: `Creature.hp_*` stays |
+| `set_conditions` | GM | one `TokenUpserted` | `add` and `remove` condition ids. Adding a present id or removing an absent one changes nothing but still answers. Removing a condition removes its timer. Added ids have no timer |
+| `create_token` | GM | `TokenUpserted`, then `CreatureUpserted` when `controller_user_ids` is not empty and there is a creature | the server mints `token_id`; HP is copied from the creature (a creature with `hp_max` 0 and a prop get none) and `health_state` computed; conditions start empty; empty `name` is the creature's name or "Token"; unspecified size is the creature's or Medium; empty `level_id` is the scene's first level. `position` is required (unset is `bad_coordinate`) |
+| `remove_token` | GM | one `TokenRemoved` | the creature stays. Refused with `in_encounter` while the token is a combatant of an encounter in state |
+
+Warning: `condition_immune` on `set_conditions` (an id in `add` is in the creature's `condition_immunities`; it is added anyway). It is given for each distinct such id in `add`, whether or not the token already had it. It rides on the one event.
+
+On load (`Campaign::from_snapshot`) `health_state` is recomputed for every token with an `hp_max` (a missing `hp_current` counts as full); a stored value is never trusted.
+
+Limits: 500 tokens per campaign, token name 120 characters, 32 conditions per token, `hp_temp` up to 999, coordinates within `MAX_COORDINATE`.
+
+### Change records (for undo, #101)
+
+`Campaign.groups` has one `AppliedGroup` per applied intent, in `seq` order, next to `Campaign.log`: `first_seq`, `last_seq`, `actor_user_id`, `client_intent_id`, `changed_token_ids` and `changed_creature_ids`. The id lists are not written by the handlers: `apply` compares `tokens` and `creatures` before and after the handler and lists every id that is new, different or gone. So they are exact for every intent (a miss, or "no change" set, has empty lists) and cannot drift from what the handlers do. Undo's dependency rule reads them: a group cannot be undone while a later group that was not undone lists any of the same ids. `Campaign.removed_token_hidden` (token id to "was hidden") belongs to `remove_token`; undo must delete the entry when it brings a token back.
 
 ## Video and voice (join tokens, ADR 0007)
 
@@ -103,26 +126,35 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 
 | Code | When |
 |---|---|
-| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token) they do not control, that is hidden, or that does not exist; non-GM `set_controllers` or `set_level_background` |
+| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token, or setting its hit points) they do not control, that is hidden, or that does not exist; non-GM `set_controllers`, `set_level_background`, `set_conditions`, `create_token` or `remove_token` |
 | `malformed_intent` | the intent has no kind |
-| `not_implemented` | any intent kind other than move, chat, roll, use_ability, set_controllers, set_level_background; for `use_ability`, an area shape, a non-attack step, or ability data the engine cannot use (including dice that do not parse) |
-| `unknown_token` | GM names a token that does not exist (move, set_controllers, the source of use_ability) |
+| `not_implemented` | any intent kind other than move, chat, roll, use_ability, set_controllers, set_level_background, set_hit_points, set_conditions, create_token, remove_token (the encounter intents and undo are not built yet); for `use_ability`, a plugin step, several attack steps together with a save or flat step, or ability data the engine cannot use (including dice that do not parse) |
+| `unknown_token` | GM names a token that does not exist (move, set_controllers, set_hit_points, set_conditions, remove_token, the source of use_ability) |
+| `no_hit_points` | `set_hit_points`: the token has no `hp_max` |
+| `bad_hit_points` | `set_hit_points`: `hp_current` below 0 or above `hp_max`, or `hp_temp` below 0 or above 999 |
+| `bad_condition_id` | `set_conditions`: an id in `add` or `remove` is not `[a-z0-9_]{1,40}` |
+| `conflicting_conditions` | `set_conditions`: the same id in `add` and `remove` |
+| `too_many_conditions` | `set_conditions`: more than 32 conditions on the token afterwards |
+| `unknown_creature` | `create_token` names a creature that does not exist |
+| `name_too_long` | `create_token`: name over 120 characters |
+| `too_many_tokens` | `create_token`: the campaign already has 500 tokens |
+| `in_encounter` | `remove_token`: the token is a combatant of an encounter in state |
 | `no_creature` | `use_ability`: the source token has no creature |
 | `unknown_ability` | `use_ability`: the ability id is not on the source creature |
 | `no_targets` | `use_ability`: a creature-targeting ability with no targets |
 | `unknown_target` | `use_ability`: a target token that does not exist, is hidden from a player sender, or has no creature |
 | `empty_path` | move with no waypoints |
 | `path_too_long` | more than 256 waypoints |
-| `bad_coordinate` | NaN, infinite, or beyond 1,000,000 units |
-| `unknown_level` | `level_id` not a level of the token's scene (move) or of the named scene (set_level_background) |
+| `bad_coordinate` | NaN, infinite, or beyond 1,000,000 units (also `create_token` with no position) |
+| `unknown_level` | `level_id` not a level of the token's scene (move) or of the named scene (set_level_background, create_token) |
 | `empty_chat` | blank after trimming |
 | `chat_too_long` | over 2000 characters |
 | `label_too_long` | roll label over 120 characters |
 | `dice_empty`, `dice_syntax`, `dice_bad_sides`, `dice_bad_count`, `dice_too_many_dice`, `dice_too_many_terms`, `dice_bad_keep`, `dice_number_too_large`, `dice_too_long` | bad notation (`tt_rules::dice::ParseError::code`) |
 | `rng_unavailable` | the OS gave no entropy; nothing changed, nothing was rolled |
-| `unknown_user` | `set_controllers` names a non-member |
-| `invalid_controller` | `set_controllers` names a spectator |
-| `unknown_scene` | `set_level_background` names a scene that does not exist |
+| `unknown_user` | `set_controllers` or `create_token` names a non-member |
+| `invalid_controller` | `set_controllers` or `create_token` names a spectator |
+| `unknown_scene` | `set_level_background` or `create_token` names a scene that does not exist |
 | `unknown_asset` | `set_level_background` names an `asset_id` this server never issued (empty clears) |
 
 ## Filtering rules and judgement calls
@@ -130,11 +162,12 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 See ADR 0006 and `view.rs`. Where the contract is silent the more restrictive behaviour was chosen:
 
 - Hidden tokens go to the GM only (snapshot and events), and players cannot move them. Controlling a hidden token reveals neither it nor its creature sheet.
-- `hp_current`, `hp_max`, `hp_temp` go to the GM and listed controllers only. The contract has no reveal mechanism, so none is implemented. Spectators never get hp, even if listed as controller.
+- `hp_current`, `hp_max`, `hp_temp` go to the GM and listed controllers only, in snapshots and in every `TokenUpserted` (after damage, set HP and create too). `health_state`, `conditions` and `condition_timers` go to everyone who may see the token. The contract has no reveal mechanism, so none is implemented. Spectators never get hp, even if listed as controller. Hidden tokens go to the GM only.
 - Full creature sheets go to the GM, to the owner, and to controllers of a visible linked token. Not to spectators.
 - `set_controllers` also emits a `CreatureUpserted` for the token's creature, so a newly added controller receives the sheet. The filter decides who actually gets it. A controller who is removed keeps what they were already sent.
 - Unspecified roll visibility is treated as not public (GM only) when filtering.
-- `TokenRemoved`, `EventUndone` and events with no kind go to the GM only until a feature emits them with enough information to filter.
+- `TokenRemoved`: the token is gone when the event is filtered, so `remove_token` records whether it was hidden (`Campaign.removed_token_hidden`). A removal of a visible token goes to everyone (spectators included); of a hidden one, or of an id never removed through an intent, to the GM only.
+- `EventUndone` and events with no kind go to the GM only until a feature emits them with enough information to filter.
 - An encounter reaches a non-GM only if every combatant is a known, non-hidden token.
 - All scenes and members go to every viewer; chat and public rolls go to everyone including spectators.
 - Also stricter than the mock: unknown `level_id` is rejected; a non-GM gets `not_permitted` for a missing token; coordinates are bounded.
@@ -146,7 +179,8 @@ The core is tested in `src/tests.rs`. `tests/serve.rs` checks `/healthz` and `/`
 - join: Snapshot identity and role; dev auth off; unknown user, malformed token, wrong campaign id; first frame not a Hello (an intent, garbage, empty); a text frame before the Hello; the 10 second Hello timeout (run on a paused tokio clock, so it takes no real time);
 - broadcast: chat reaches everyone with the same `seq`; a rejection goes only to the sender, with its `client_intent_id` and code, and uses no `seq`; `seq` strictly increases;
 - filtering over the wire: hidden tokens and hp in the Snapshot; a `GM_ONLY` roll and a hidden-token move reach the GM only; `set_controllers` delivers the token and creature to the new controller, who can then move it;
-- use_ability: with the pregen seed and a scripted roller, a player's attack reaches the GM and the player as the same `ResolutionUpdated` and nothing else (no token or creature event, no goblin sheet);
+- use_ability: with the pregen seed and a fixed roller, a player's longsword hit for 6 reaches the GM and the player as the same `ResolutionUpdated` (a `DamageApplied` of 6), then a `TokenUpserted` for the goblin with `HEALTH_STATE_BLOODIED`: `hp_current` 3 for the GM, no hit point fields for the player, and no goblin sheet or other event;
+- create and remove: the GM creates a hidden token and removes it, and the player receives neither event while the GM receives both; for a visible token everyone receives both (the player's copy has no hit points);
 - media: a player and a spectator get tokens with the right URL, room and grants (payload decoded in the test) and nobody else sees anything; no `seq` used; repeated requests; media off gives `media_not_configured` to the requester only; a request before Hello closes the socket;
 - hostile input: a message over 64 KiB (before and after joining), garbage after joining, text frames and a second Hello (ignored);
 - a client that stops reading is dropped (broadcast lag, found by flooding until the socket buffers fill; 12000 chats of 2000 characters).
