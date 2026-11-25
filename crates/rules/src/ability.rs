@@ -4,8 +4,8 @@
 //! [`resolve_attacks`](crate::attack::resolve_attacks) (which stays as it was
 //! for `crates/server`) and also resolves save and flat steps. Pure: no I/O,
 //! no clock, no id minting; randomness is an injected [`Rng`]. `roll_id` and
-//! `resolution_id` are left empty for the server to fill. Conditions are
-//! #99's job.
+//! `resolution_id` are left empty for the server to fill. Conditions, their
+//! timers and their effect on rolls are in [`crate::conditions`].
 //!
 //! # Output and applying hit points
 //!
@@ -66,21 +66,36 @@
 //!
 //! # Steps
 //!
-//! - Save: per target a d20 (always `Normal`; the roll mode is for attacks)
-//!   plus the target's ability modifier (`(score - 10)` divided by 2, rounded
+//! - Save: per target a d20 (`Normal`, or disadvantage for a restrained
+//!   target's Dexterity save; a target that automatically fails has no roll
+//!   at all, see [`crate::conditions`]) plus the target's ability modifier (`(score - 10)` divided by 2, rounded
 //!   down; a missing `scores` counts as 10s) plus `proficiency_bonus` when
 //!   the ability is in `save_proficiencies`. The `RollResult` has purpose
 //!   `SAVE`, label `<Ability> save` (e.g. "Dexterity save"), modifiers named
 //!   by source (`Dexterity`, `proficiency`) and the target creature as
 //!   roller. A total below `dc` is `SAVE_FAILED`, otherwise `SAVE_SUCCEEDED`;
-//!   a natural 20 or 1 means nothing. Roll order: every target's save, then
+//!   a natural 20 or 1 means nothing. An automatic failure (`paralyzed`,
+//!   `petrified`, `stunned`, `unconscious` on a Strength or Dexterity save)
+//!   is `SAVE_FAILED` with `roll` unset and no d20 drawn. Roll order: every target's save, then
 //!   the damage parts once. The damage `RollResult`s (purpose `DAMAGE`) are
 //!   rolled once per step, even if every save succeeds and none halves, and a
 //!   copy goes in `damage_rolls` of every outcome of that step.
 //! - Flat: one `AUTOMATIC` outcome per target. Damage parts are rolled once
 //!   and copied to every outcome as above, then `healing_dice` is rolled once
 //!   (purpose `HEALING`) and its total, floored at 0, is `TargetOutcome.healing`.
-//! - Apply-effect: accepted, no outcome, nothing happens until #99.
+//! - Apply-effect: see [`crate::conditions`]. With an earlier attack or save
+//!   step it adds the condition to that step's targets (an id goes into the
+//!   outcome's `effects_applied`) and adds no outcome; with none it gives each
+//!   target an `AUTOMATIC` outcome. The target tokens come back with the
+//!   condition and any timer. `turn` is `Some((encounter_id, round))` when an
+//!   encounter runs on the scene, `None` otherwise; it decides the timers.
+//!
+//! # Attack modes
+//!
+//! Each attack's mode combines the intent's `mode`, long-range
+//! disadvantage and both tokens' conditions by the 5e rule (see
+//! [`crate::conditions`]). A hit from within 5 feet on a paralyzed or
+//! unconscious target is a critical hit.
 //!
 //! # Recharge and resources
 //!
@@ -91,7 +106,8 @@
 //!
 //! In this order: `ability_recharging`, `not_enough_resource`,
 //! `area_not_checked`, then `too_many_targets` or `extra_targets_ignored`,
-//! then one `out_of_range` per out-of-range target, then one `no_hit_points`
+//! then one `out_of_range` per out-of-range target, then `condition_immune`
+//! and `duration_not_tracked` (apply-effect steps), then one `no_hit_points`
 //! per target token without hit points (in first-touched order).
 //!
 //! | code                    | given when |
@@ -102,6 +118,8 @@
 //! | `too_many_targets`      | an ability with at most one attack step lists more targets than a non-zero `max_targets` (not for area shapes, `SELF` or no `Targeting`). |
 //! | `extra_targets_ignored` | an ability with several attack steps lists more targets than it has steps. |
 //! | `out_of_range`          | a target is beyond range, as in [`attack`](crate::attack); not for area shapes, and once per target however many steps use it. |
+//! | `condition_immune`      | an effect was not applied because the target creature's `condition_immunities` has it. Once per target and step. |
+//! | `duration_not_tracked`  | an effect's duration gets no timer (minutes, hours, until dispelled, or rounds outside an encounter). Once per step. |
 //! | `no_hit_points`         | a target token has no `hp_max`; its damage and healing are shown, not applied. Once per token. |
 //!
 //! All dice text (attack, save damage, flat damage and healing, and each
@@ -113,17 +131,20 @@
 //! ability, or several attack steps together with a save or flat step) and
 //! the dice codes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use tt_contracts::v1::{
-    effect_step, Ability, AbilityScore, AbilityScores, Creature, DamagePart, DamageType, Grid,
-    HitOutcome, Modifier, Resolution, ResolutionState, RollMode, RollPurpose, RollResult,
-    TargetOutcome, TargetShape, Token,
+    effect_step, Ability, AbilityScore, AbilityScores, ConditionTimer, Creature, DamagePart,
+    DamageType, Duration, Grid, HitOutcome, Modifier, Resolution, ResolutionState, RollMode,
+    RollPurpose, RollResult, TargetOutcome, TargetShape, Token, Warning,
 };
 
 use crate::attack::{
     check_range, prepare_attack, resolve_one, roll_result, spend_resource, warning, Prepared,
+};
+use crate::conditions::{
+    apply_condition, attack_mode, auto_crit, auto_fails_save, save_mode, timer_for, Timing,
 };
 use crate::damage::{apply_damage, apply_healing, DamageRoll};
 use crate::dice::{Expr, ParseError, Rng};
@@ -228,7 +249,12 @@ enum Plan {
         damage: Parts,
         healing: Option<Expr>,
     },
-    Effect,
+    Effect {
+        step_index: u32,
+        effect_id: String,
+        duration: Option<Duration>,
+        only_on_failure: bool,
+    },
 }
 
 fn damage_type(raw: i32) -> DamageType {
@@ -341,9 +367,11 @@ fn roll_parts(
 
 /// Resolve `ability_id` on `source`: attack, save, flat and apply-effect
 /// steps. See the module docs for the target rules, warnings and the
-/// `pending` damage handed to #98.
+/// `pending` damage handed to #98. `turn` is `Some((encounter_id, round))`
+/// when an encounter is running on the scene, `None` otherwise.
 ///
 /// Errors are detected before anything is spent or rolled.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_ability(
     source_token: &Token,
     source: &Creature,
@@ -351,6 +379,7 @@ pub fn resolve_ability(
     targets: &[(Token, Creature)],
     grid: &Grid,
     mode: RollMode,
+    turn: Option<(&str, u32)>,
     rng: &mut dyn Rng,
 ) -> Result<AbilityResolution, ResolveError> {
     let ability = source
@@ -435,7 +464,12 @@ pub fn resolve_ability(
                     healing,
                 }
             }
-            Some(effect_step::Step::ApplyEffect(_)) => Plan::Effect,
+            Some(effect_step::Step::ApplyEffect(e)) => Plan::Effect {
+                step_index,
+                effect_id: e.effect_id.clone(),
+                duration: e.duration,
+                only_on_failure: e.only_on_failure,
+            },
             Some(effect_step::Step::Plugin(_)) | None => return Err(ResolveError::NotImplemented),
         };
         plans.push(plan);
@@ -498,17 +532,27 @@ pub fn resolve_ability(
         }
     }
 
-    // Range, once per paired target; the mode only matters to attack steps.
+    // Range, once per paired target. Long-range disadvantage is read off a
+    // Normal roll; the attack's mode is worked out from it per attack.
     let paired = if multi {
         attacks.min(effective.len())
     } else {
         effective.len()
     };
-    let modes: Vec<RollMode> = effective[..paired]
+    let long_range: Vec<bool> = effective[..paired]
         .iter()
         .map(|(token, _)| match checked {
-            Some(t) => check_range(t, grid, source_token, token, mode, &mut warnings),
-            None => mode,
+            Some(t) => {
+                check_range(
+                    t,
+                    grid,
+                    source_token,
+                    token,
+                    RollMode::Normal,
+                    &mut warnings,
+                ) == RollMode::Disadvantage
+            }
+            None => false,
         })
         .collect();
 
@@ -517,6 +561,11 @@ pub fn resolve_ability(
     // Index into `effective` of each outcome's target.
     let mut owners: Vec<usize> = Vec::new();
     let mut attack_ordinal = 0;
+    // The nearest earlier attack or save step that rolled, and what each
+    // outcome's effects are (outcome index to id and timer).
+    let mut last_rolled: Option<u32> = None;
+    let mut effects: HashMap<usize, Vec<(String, Option<ConditionTimer>)>> = HashMap::new();
+    let mut effect_warnings: Vec<Warning> = Vec::new();
     for plan in &plans {
         // With nobody to affect, a save or flat step rolls nothing.
         if effective.is_empty() && matches!(plan, Plan::Save { .. } | Plan::Flat { .. }) {
@@ -539,7 +588,8 @@ pub fn resolve_ability(
                         step,
                         &token.token_id,
                         creature,
-                        modes[n],
+                        attack_mode(mode, long_range[n], grid, source_token, token),
+                        auto_crit(grid, source_token, token),
                         rng,
                     );
                     let damage = if o.outcome == HitOutcome::Miss as i32 {
@@ -551,6 +601,7 @@ pub fn resolve_ability(
                     outcomes.push(o);
                     owners.push(n);
                 }
+                last_rolled = Some(step.step_index);
             }
             Plan::Save {
                 step_index,
@@ -560,13 +611,18 @@ pub fn resolve_ability(
                 damage,
                 rolls,
             } => {
-                let saves: Vec<RollResult> = rolls
+                let physical = matches!(score, AbilityScore::Strength | AbilityScore::Dexterity);
+                let saves: Vec<Option<RollResult>> = rolls
                     .iter()
                     .zip(&effective)
-                    .map(|((expr, mods), (_, creature))| {
+                    .map(|((expr, mods), (token, creature))| {
+                        if auto_fails_save(token, physical) {
+                            return None;
+                        }
+                        let dexterity = *score == AbilityScore::Dexterity;
                         let mut r = roll_result(
                             expr,
-                            RollMode::Normal,
+                            save_mode(token, dexterity),
                             rng,
                             RollPurpose::Save,
                             &creature.creature_id,
@@ -576,13 +632,14 @@ pub fn resolve_ability(
                         // A save has no critical or fumble.
                         r.critical = false;
                         r.fumble = false;
-                        r
+                        Some(r)
                     })
                     .collect();
                 let damage_rolls = roll_parts(damage, rng, source, ability);
                 let types: Vec<DamageType> = damage.iter().map(|(_, t)| *t).collect();
                 for (n, (save, (token, _))) in saves.into_iter().zip(&effective).enumerate() {
-                    let (kind, taken) = if save.total < *dc {
+                    let failed = save.as_ref().is_none_or(|r| r.total < *dc);
+                    let (kind, taken) = if failed {
                         (HitOutcome::SaveFailed, full_damage(&damage_rolls, &types))
                     } else if *half {
                         (
@@ -595,7 +652,7 @@ pub fn resolve_ability(
                     let o = TargetOutcome {
                         token_id: token.token_id.clone(),
                         outcome: kind as i32,
-                        roll: Some(save),
+                        roll: save,
                         damage_rolls: damage_rolls.clone(),
                         damage: Vec::new(),
                         healing: 0,
@@ -607,6 +664,7 @@ pub fn resolve_ability(
                     outcomes.push(o);
                     owners.push(n);
                 }
+                last_rolled = Some(*step_index);
             }
             Plan::Flat {
                 step_index,
@@ -644,14 +702,82 @@ pub fn resolve_ability(
                     owners.push(n);
                 }
             }
-            Plan::Effect => {}
+            Plan::Effect {
+                step_index,
+                effect_id,
+                duration,
+                only_on_failure,
+            } => {
+                if effect_id.is_empty() {
+                    continue;
+                }
+                let chosen: Vec<usize> = match last_rolled {
+                    Some(s) => (0..outcomes.len())
+                        .filter(|&i| outcomes[i].step_index == s)
+                        .filter(|&i| {
+                            !*only_on_failure
+                                || matches!(
+                                    HitOutcome::try_from(outcomes[i].outcome),
+                                    Ok(HitOutcome::Hit
+                                        | HitOutcome::CriticalHit
+                                        | HitOutcome::SaveFailed)
+                                )
+                        })
+                        .collect(),
+                    None => (0..effective.len())
+                        .map(|n| {
+                            let o = TargetOutcome {
+                                token_id: effective[n].0.token_id.clone(),
+                                outcome: HitOutcome::Automatic as i32,
+                                step_index: *step_index,
+                                ..Default::default()
+                            };
+                            pending.push(pending_for(&o, Vec::new(), 0));
+                            outcomes.push(o);
+                            owners.push(n);
+                            outcomes.len() - 1
+                        })
+                        .collect(),
+                };
+                let timing = timer_for(effect_id, duration.as_ref(), &source_token.token_id, turn);
+                let timer = match &timing {
+                    Timing::Timer(t) => Some(t.clone()),
+                    _ => None,
+                };
+                let mut applied_any = false;
+                for i in chosen {
+                    let creature = effective[owners[i]].1;
+                    if creature.condition_immunities.contains(effect_id) {
+                        effect_warnings.push(warning(
+                            "condition_immune",
+                            format!(
+                                "token {} is immune to {}: not applied",
+                                outcomes[i].token_id, effect_id
+                            ),
+                        ));
+                        continue;
+                    }
+                    applied_any = true;
+                    outcomes[i].effects_applied.push(effect_id.clone());
+                    effects
+                        .entry(i)
+                        .or_default()
+                        .push((effect_id.clone(), timer.clone()));
+                }
+                if applied_any && timing == Timing::Untracked {
+                    effect_warnings.push(warning(
+                        "duration_not_tracked",
+                        format!("the duration of {effect_id} is not tracked: no timer was set"),
+                    ));
+                }
+            }
         }
     }
 
     // Apply every outcome in order to its target's token.
     let mut touched: Vec<Token> = Vec::new();
     let mut no_hp: Vec<String> = Vec::new();
-    for ((o, p), &n) in outcomes.iter_mut().zip(&pending).zip(&owners) {
+    for (i, ((o, p), &n)) in outcomes.iter_mut().zip(&pending).zip(&owners).enumerate() {
         let (listed, creature) = effective[n];
         let at = match touched.iter().position(|t| t.token_id == listed.token_id) {
             Some(i) => i,
@@ -666,10 +792,14 @@ pub fn resolve_ability(
         o.dropped_to_zero = hit.dropped_to_zero;
         o.healing = healed.restored;
         touched[at] = healed.token;
+        for (id, timer) in effects.remove(&i).unwrap_or_default() {
+            apply_condition(&mut touched[at], &id, timer);
+        }
         if (hit.no_hit_points || healed.no_hit_points) && !no_hp.contains(&listed.token_id) {
             no_hp.push(listed.token_id.clone());
         }
     }
+    warnings.extend(effect_warnings);
     for id in no_hp {
         warnings.push(warning(
             "no_hit_points",
@@ -927,6 +1057,7 @@ mod tests {
             targets,
             &grid(),
             RollMode::Normal,
+            None,
             &mut Scripted::faces(faces),
         )
     }
@@ -1343,13 +1474,17 @@ mod tests {
     }
 
     #[test]
-    fn apply_effect_only_abilities_resolve_with_no_outcomes() {
+    fn apply_effect_only_abilities_give_each_target_an_automatic_outcome() {
         let mut src = sacred_flame();
         src.abilities[0].steps = vec![effect_only("bless")];
         let t = [at("t", 1.0, brannoch())];
         let r = run(&src, "cantrip-sacred-flame", &t, &[]).unwrap();
-        assert!(r.resolution.outcomes.is_empty());
-        assert!(r.pending.is_empty());
+        let o = &r.resolution.outcomes;
+        assert_eq!(o.len(), 1);
+        assert_eq!(kind(&o[0]), HitOutcome::Automatic);
+        assert_eq!(o[0].effects_applied, ["bless"]);
+        assert_eq!(r.pending.len(), 1);
+        assert_eq!(r.targets[0].conditions, ["bless"]);
     }
 
     #[test]
@@ -1408,6 +1543,7 @@ mod tests {
                 &t,
                 &grid(),
                 RollMode::Normal,
+                None,
                 &mut rng,
             )
             .unwrap_err();
@@ -1436,6 +1572,7 @@ mod tests {
             &[at("t", 1.0, huge)],
             &grid(),
             RollMode::Normal,
+            None,
             &mut rng,
         )
         .unwrap_err();
@@ -1812,6 +1949,7 @@ mod tests {
             &[],
             &grid(),
             RollMode::Normal,
+            None,
             &mut Scripted::faces(&[3, 5]),
         )
         .unwrap();
@@ -1831,6 +1969,7 @@ mod tests {
             &[],
             &grid(),
             RollMode::Normal,
+            None,
             &mut Scripted::faces(&[9]),
         )
         .unwrap();
