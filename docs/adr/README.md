@@ -22,3 +22,4 @@ One file per group of related decisions. Each records what was chosen, why, and 
 | [0012](0012-workflow.md) | Agentic workflow, review and records | Accepted |
 | [0013](0013-scope-and-schedule.md) | Class scope and schedule | Accepted |
 | [0014](0014-asset-upload.md) | Where asset upload runs | Accepted |
+| [0015](0015-cauldron-import.md) | Where the Creature Cauldron import runs | Accepted |
