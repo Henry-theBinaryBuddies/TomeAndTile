@@ -61,8 +61,8 @@
 use std::fmt;
 
 use tt_contracts::v1::{
-    effect_step, Ability, Creature, Grid, HitOutcome, Resolution, ResolutionState, RollMode,
-    RollPurpose, RollResult, TargetOutcome, TargetShape, Targeting, Token, Warning,
+    effect_step, Ability, AttackStep, Creature, Grid, HitOutcome, Resolution, ResolutionState,
+    RollMode, RollPurpose, RollResult, TargetOutcome, TargetShape, Targeting, Token, Warning,
 };
 
 use crate::dice::{self, Expr, ParseError, Rng};
@@ -119,11 +119,31 @@ impl From<ParseError> for AttackError {
 
 /// One attack step with its dice parsed ahead of any rolling, so bad dice
 /// text fails the whole resolution before a die is thrown.
-struct Prepared {
-    step_index: u32,
-    attack: Expr,
+pub(crate) struct Prepared {
+    pub(crate) step_index: u32,
+    pub(crate) attack: Expr,
     /// Each damage part as written, and with its dice doubled for a critical.
-    damage: Vec<(Expr, Expr)>,
+    pub(crate) damage: Vec<(Expr, Expr)>,
+}
+
+/// Parse one attack step's dice (the attack roll, each damage part and its
+/// critical double) without rolling anything.
+pub(crate) fn prepare_attack(step_index: usize, a: &AttackStep) -> Result<Prepared, ParseError> {
+    let attack = Expr::parse(&format!("1d20{:+}", a.to_hit_bonus))?;
+    let mut damage = Vec::with_capacity(a.damage.len());
+    for part in &a.damage {
+        let normal = Expr::parse(&part.dice)?;
+        // A critical that would exceed the dice limit is an error found
+        // now, not only when a critical happens to be rolled.
+        let doubled = normal.doubled_dice().ok_or(ParseError::TooManyDice)?;
+        damage.push((normal, doubled));
+    }
+    Ok(Prepared {
+        // A step list is far shorter than u32::MAX; saturate regardless.
+        step_index: u32::try_from(step_index).unwrap_or(u32::MAX),
+        attack,
+        damage,
+    })
 }
 
 fn prepare(ability: &Ability) -> Result<Vec<Prepared>, AttackError> {
@@ -132,26 +152,12 @@ fn prepare(ability: &Ability) -> Result<Vec<Prepared>, AttackError> {
         let Some(effect_step::Step::Attack(a)) = &step.step else {
             return Err(AttackError::NotImplemented);
         };
-        let attack = Expr::parse(&format!("1d20{:+}", a.to_hit_bonus))?;
-        let mut damage = Vec::with_capacity(a.damage.len());
-        for part in &a.damage {
-            let normal = Expr::parse(&part.dice)?;
-            // A critical that would exceed the dice limit is an error found
-            // now, not only when a critical happens to be rolled.
-            let doubled = normal.doubled_dice().ok_or(ParseError::TooManyDice)?;
-            damage.push((normal, doubled));
-        }
-        out.push(Prepared {
-            // A step list is far shorter than u32::MAX; saturate regardless.
-            step_index: u32::try_from(i).unwrap_or(u32::MAX),
-            attack,
-            damage,
-        });
+        out.push(prepare_attack(i, a)?);
     }
     Ok(out)
 }
 
-fn roll_result(
+pub(crate) fn roll_result(
     expr: &Expr,
     mode: RollMode,
     rng: &mut dyn Rng,
@@ -177,7 +183,7 @@ fn roll_result(
     }
 }
 
-fn resolve_one(
+pub(crate) fn resolve_one(
     source: &Creature,
     ability: &Ability,
     step: &Prepared,
@@ -242,7 +248,7 @@ pub struct AttackResolution {
     pub source: Creature,
 }
 
-fn warning(code: &str, message: String) -> Warning {
+pub(crate) fn warning(code: &str, message: String) -> Warning {
     Warning {
         code: code.to_string(),
         message,
@@ -262,7 +268,7 @@ fn range_limit(t: &Targeting) -> f64 {
 
 /// Apply the range check for one target: the attack's mode, and a warning
 /// when the target is out of range.
-fn check_range(
+pub(crate) fn check_range(
     targeting: &Targeting,
     grid: &Grid,
     source: &Token,
@@ -295,6 +301,43 @@ fn check_range(
         ),
     ));
     mode
+}
+
+/// Spend `ability`'s resource once from `updated`, warning (never blocking)
+/// when it is missing or too low. Does nothing when no `resource_key` is set.
+pub(crate) fn spend_resource(
+    updated: &mut Creature,
+    ability: &Ability,
+    warnings: &mut Vec<Warning>,
+) {
+    if !ability.resource_key.is_empty() {
+        let amount = ability.resource_amount.max(0);
+        match updated
+            .resources
+            .iter_mut()
+            .find(|r| r.key == ability.resource_key)
+        {
+            Some(r) => {
+                if r.current < amount {
+                    warnings.push(warning(
+                        "not_enough_resource",
+                        format!(
+                            "{} needs {} {} but only {} left",
+                            ability.name, amount, ability.resource_key, r.current
+                        ),
+                    ));
+                }
+                r.current = r.current.saturating_sub(amount).max(0);
+            }
+            None => warnings.push(warning(
+                "not_enough_resource",
+                format!(
+                    "{} needs {} {} but the creature has none",
+                    ability.name, amount, ability.resource_key
+                ),
+            )),
+        }
+    }
 }
 
 /// Resolve `ability_id` on `source`, an ability made only of attack steps.
@@ -348,34 +391,7 @@ pub fn resolve_attacks(
     let mut updated = source.clone();
 
     // Resource: spent once per use, before rolling.
-    if !ability.resource_key.is_empty() {
-        let amount = ability.resource_amount.max(0);
-        match updated
-            .resources
-            .iter_mut()
-            .find(|r| r.key == ability.resource_key)
-        {
-            Some(r) => {
-                if r.current < amount {
-                    warnings.push(warning(
-                        "not_enough_resource",
-                        format!(
-                            "{} needs {} {} but only {} left",
-                            ability.name, amount, ability.resource_key, r.current
-                        ),
-                    ));
-                }
-                r.current = r.current.saturating_sub(amount).max(0);
-            }
-            None => warnings.push(warning(
-                "not_enough_resource",
-                format!(
-                    "{} needs {} {} but the creature has none",
-                    ability.name, amount, ability.resource_key
-                ),
-            )),
-        }
-    }
+    spend_resource(&mut updated, ability, &mut warnings);
 
     // Which (step, target) pairs are rolled.
     let pairs: Vec<(&Prepared, &(Token, Creature))> = if let [only] = steps.as_slice() {
@@ -573,7 +589,75 @@ mod tests {
         )
     }
 
+    /// Run `resolve_attacks` and `resolve_ability` on the same input and
+    /// script, and require them to agree on the result (or the error code)
+    /// and on how many dice they drew. Returns the old result and the number
+    /// of draws, so every M2 test also exercises `resolve_ability`.
+    fn dual(
+        source: &Creature,
+        id: &str,
+        targets: &[(Token, Creature)],
+        grid: &Grid,
+        mode: RollMode,
+        faces: &[u64],
+    ) -> (Result<AttackResolution, AttackError>, usize) {
+        let mut old_rng = Scripted::faces(faces);
+        let mut new_rng = Scripted::faces(faces);
+        let old = resolve_attacks(&src_token(), source, id, targets, grid, mode, &mut old_rng);
+        let new = crate::ability::resolve_ability(
+            &src_token(),
+            source,
+            id,
+            targets,
+            grid,
+            mode,
+            &mut new_rng,
+        );
+        assert_eq!(old_rng.calls, new_rng.calls, "dice drawn differ");
+        match (&old, &new) {
+            (Ok(o), Ok(n)) => {
+                assert_eq!(o.resolution, n.resolution);
+                assert_eq!(o.source, n.source);
+                assert_eq!(n.pending.len(), n.resolution.outcomes.len());
+            }
+            (Err(o), Err(n)) => assert_eq!(o.code(), n.code()),
+            _ => panic!("resolve_attacks and resolve_ability disagree: {old:?} vs {new:?}"),
+        }
+        (old, old_rng.calls)
+    }
+
     fn run_full(
+        source: &Creature,
+        id: &str,
+        targets: &[(Token, Creature)],
+        mode: RollMode,
+        faces: &[u64],
+    ) -> Result<AttackResolution, AttackError> {
+        dual(source, id, targets, &grid(), mode, faces).0
+    }
+
+    /// `resolve_attacks` alone, for the cases where `resolve_ability` now
+    /// differs on purpose (area shapes, save/flat/apply-effect steps).
+    fn run_old(
+        source: &Creature,
+        id: &str,
+        targets: &[(Token, Creature)],
+        mode: RollMode,
+        faces: &[u64],
+    ) -> Result<Resolution, AttackError> {
+        resolve_attacks(
+            &src_token(),
+            source,
+            id,
+            targets,
+            &grid(),
+            mode,
+            &mut Scripted::faces(faces),
+        )
+        .map(|r| r.resolution)
+    }
+
+    fn resolve_old_full(
         source: &Creature,
         id: &str,
         targets: &[(Token, Creature)],
@@ -993,7 +1077,7 @@ mod tests {
             // Even after a valid attack step, and even with no targets.
             let mut src = brannoch();
             src.abilities[0].steps = vec![attack_step(5, &["1d8"], DamageType::Slashing), odd];
-            let e = run(&src, "longsword", &[], RollMode::Normal, &[]).unwrap_err();
+            let e = run_old(&src, "longsword", &[], RollMode::Normal, &[]).unwrap_err();
             assert_eq!(e, AttackError::NotImplemented);
             assert_eq!(e.code(), "not_implemented");
         }
@@ -1010,7 +1094,7 @@ mod tests {
         for odd in [apply, plugin] {
             let mut src = brannoch();
             src.abilities[0].steps = vec![odd];
-            let e = run(&src, "longsword", &[], RollMode::Normal, &[]).unwrap_err();
+            let e = run_old(&src, "longsword", &[], RollMode::Normal, &[]).unwrap_err();
             assert_eq!(e, AttackError::NotImplemented);
         }
     }
@@ -1019,20 +1103,18 @@ mod tests {
     fn bad_dice_text_carries_the_dice_code_before_any_roll() {
         let mut src = brannoch();
         src.abilities[0].steps = vec![attack_step(5, &["1d7"], DamageType::Slashing)];
-        let mut rng = Scripted::faces(&[]);
-        let e = resolve_attacks(
-            &src_token(),
+        let (e, calls) = dual(
             &src,
             "longsword",
             &[tgt("t", 10)],
             &grid(),
             RollMode::Normal,
-            &mut rng,
-        )
-        .unwrap_err();
+            &[],
+        );
+        let e = e.unwrap_err();
         assert_eq!(e, AttackError::Dice(ParseError::BadSides));
         assert_eq!(e.code(), "dice_bad_sides");
-        assert_eq!(rng.calls, 0);
+        assert_eq!(calls, 0);
 
         src.abilities[0].steps = vec![attack_step(5, &[""], DamageType::Slashing)];
         let e = run(&src, "longsword", &[], RollMode::Normal, &[]).unwrap_err();
@@ -1509,20 +1591,11 @@ mod tests {
     #[test]
     fn creatures_shape_with_no_targets_is_an_error_and_spends_nothing() {
         let src = ilvaren_with_slots(2);
-        let mut rng = Scripted::faces(&[]);
-        let e = resolve_attacks(
-            &src_token(),
-            &src,
-            "scorching-ray",
-            &[],
-            &grid(),
-            RollMode::Normal,
-            &mut rng,
-        )
-        .unwrap_err();
+        let (e, calls) = dual(&src, "scorching-ray", &[], &grid(), RollMode::Normal, &[]);
+        let e = e.unwrap_err();
         assert_eq!(e, AttackError::NoTargets);
         assert_eq!(e.code(), "no_targets");
-        assert_eq!(rng.calls, 0);
+        assert_eq!(calls, 0);
     }
 
     #[test]
@@ -1535,7 +1608,7 @@ mod tests {
         ] {
             let mut src = ilvaren_with_slots(2);
             src.abilities[0].targeting = Some(targeting(shape, 60.0, 0.0, 0));
-            let e = run_full(
+            let e = resolve_old_full(
                 &src,
                 "scorching-ray",
                 &[tgt_at("a", 30, 3.0)],
@@ -1545,7 +1618,8 @@ mod tests {
             .unwrap_err();
             assert_eq!(e, AttackError::NotImplemented);
             // Also with no targets: the shape error comes first.
-            let e = run_full(&src, "scorching-ray", &[], RollMode::Normal, &[]).unwrap_err();
+            let e =
+                resolve_old_full(&src, "scorching-ray", &[], RollMode::Normal, &[]).unwrap_err();
             assert_eq!(e.code(), "not_implemented");
         }
     }
@@ -1619,16 +1693,9 @@ mod tests {
                 ..grid()
             },
         ] {
-            let r = resolve_attacks(
-                &src_token(),
-                &src,
-                "longbow",
-                &far,
-                &g,
-                RollMode::Normal,
-                &mut Scripted::faces(&[10]),
-            )
-            .unwrap();
+            let r = dual(&src, "longbow", &far, &g, RollMode::Normal, &[10])
+                .0
+                .unwrap();
             assert!(r.resolution.warnings.is_empty());
             assert_eq!(roll_mode(&r.resolution.outcomes[0]), RollMode::Normal);
         }
@@ -1638,19 +1705,17 @@ mod tests {
     fn validation_errors_leave_the_rng_and_resources_alone() {
         let mut src = ilvaren_with_slots(2);
         src.abilities[0].steps[1] = attack_step(5, &["1d7"], DamageType::Fire);
-        let mut rng = Scripted::faces(&[]);
-        let e = resolve_attacks(
-            &src_token(),
+        let (e, calls) = dual(
             &src,
             "scorching-ray",
             &[tgt_at("a", 30, 3.0)],
             &grid(),
             RollMode::Normal,
-            &mut rng,
-        )
-        .unwrap_err();
+            &[],
+        );
+        let e = e.unwrap_err();
         assert_eq!(e.code(), "dice_bad_sides");
-        assert_eq!(rng.calls, 0);
+        assert_eq!(calls, 0);
     }
 
     #[test]
