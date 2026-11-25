@@ -103,6 +103,21 @@ export type Warning = Message<"tomeandtile.v1.Warning"> & {
    *   extra_targets_ignored  an ability with several attack steps lists more
    *                          targets than it has attack steps; the extra
    *                          entries are ignored
+   *   area_not_checked       an area shape (SPHERE, CONE, LINE, CUBE): the
+   *                          listed tokens are the targets; no template is
+   *                          placed or checked. Given once per use
+   *   no_hit_points          a target token has no hp_max; damage or healing
+   *                          is shown, not applied
+   *   condition_immune       an effect was not applied because the target's
+   *                          creature is immune (UseAbilityIntent), or an
+   *                          added condition id is in the creature's
+   *                          condition_immunities and was added anyway
+   *                          (SetConditionsIntent)
+   *   duration_not_tracked   an effect's duration gets no timer (see
+   *                          ConditionTimer in scene.proto); the condition is
+   *                          still applied
+   *   ability_recharging     the ability's recharge_spent was already true;
+   *                          it still resolves
    *
    * @generated from field: string code = 1;
    */

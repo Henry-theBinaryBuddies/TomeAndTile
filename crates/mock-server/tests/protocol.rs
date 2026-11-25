@@ -144,9 +144,10 @@ async fn hello_gets_snapshot_with_scene_and_pregen_tokens() {
     assert_eq!(snapshot.user_id, "mock-player");
     assert_eq!(snapshot.role, tt_contracts::v1::Role::Player as i32);
     assert_eq!(snapshot.scenes.len(), 1);
-    assert_eq!(snapshot.tokens.len(), 7);
+    assert_eq!(snapshot.tokens.len(), 8);
     let goblin = snapshot.tokens.iter().find(|t| t.name == "Goblin").unwrap();
-    assert_eq!(goblin.hp_current, None);
+    // The mock does not redact HP yet (#96 adds it), so the seed's 9 shows.
+    assert_eq!(goblin.hp_current, Some(9));
     let aria = snapshot.tokens.iter().find(|t| t.name == "Aria").unwrap();
     assert_eq!(aria.hp_current, Some(24));
 

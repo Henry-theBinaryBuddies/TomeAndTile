@@ -95,6 +95,20 @@ enum CreatureSize {
 }
 
 // What a viewer who does not control the token sees of its health.
+//
+// The server computes it from the token's hp_current and hp_max after every
+// HP change, in integer arithmetic. Temporary HP does not count.
+//   HEALTH_STATE_DOWN        hp_current is 0
+//   HEALTH_STATE_NEAR_DEATH  hp_current * 4 <= hp_max (at or below a quarter)
+//   HEALTH_STATE_BLOODIED    hp_current * 2 <= hp_max (at or below half)
+//   HEALTH_STATE_HEALTHY     above half
+// A token with no hp_max, or hp_max 0, keeps the state it has.
+// Example, hp_max 9: 5 to 9 Healthy, 3 and 4 Bloodied, 1 and 2 Near death,
+// 0 Down.
+//
+// health_state goes to every viewer who receives the token; the numbers only
+// to the GM and controllers (ADR 0006). Reaching 0 sets Down and nothing
+// else: death saves are rolled by hand (ADR 0005).
 enum HealthState {
   HEALTH_STATE_UNSPECIFIED = 0;
   HEALTH_STATE_HEALTHY = 1;
@@ -108,6 +122,37 @@ message Aura {
   float radius_feet = 2;
   // CSS colour string.
   string color = 3;
+}
+
+// When a timed condition on a token ends. A condition with no timer stays
+// until it is removed. Only round-based durations get a timer, and only
+// while an encounter is running on the token's scene.
+//
+// Rules, applied in round R of a running encounter, from the ability's
+// ApplyEffectStep.duration:
+//   DURATION_UNIT_ROUNDS, amount N                 ends_round R + N, at the
+//                                                  start of the source's turn
+//   DURATION_UNIT_UNTIL_START_OF_SOURCE_NEXT_TURN  ends_round R + 1, at the
+//                                                  start
+//   DURATION_UNIT_UNTIL_END_OF_SOURCE_NEXT_TURN    ends_round R + 1, at the
+//                                                  end
+// If the source is not a combatant, the timer ends at the start of
+// ends_round (when the turn order wraps).
+// MINUTES, HOURS, UNTIL_DISPELLED, INSTANT, UNSPECIFIED, and any round-based
+// duration outside an encounter: no timer, and the warning
+// duration_not_tracked (except INSTANT and UNSPECIFIED, which give no
+// warning). Duration.concentration is ignored in M3.
+// Ending an encounter removes its timers and leaves the conditions on the
+// tokens.
+message ConditionTimer {
+  string effect_id = 1;
+  string encounter_id = 2;
+  // The token whose turn ends the condition (the ability's source).
+  string source_token_id = 3;
+  // The encounter round in which it ends.
+  uint32 ends_round = 4;
+  // False: at the start of the source's turn in ends_round. True: at the end.
+  bool at_end_of_turn = 5;
 }
 
 // A token as sent to one viewer. Fields the viewer may not see are left
@@ -130,13 +175,28 @@ message Token {
   // Always present.
   HealthState health_state = 12;
   // Present only for controllers, the GM, or when revealed.
+  //
+  // hp_current, hp_max, hp_temp, conditions and condition_timers are the live
+  // values. Damage, healing, SetHitPointsIntent and SetConditionsIntent change
+  // the token only. Several tokens can share one creature (three goblins, one
+  // stat block), so the creature cannot hold live HP. The HP values are copied
+  // from the creature when the token is created (CreateTokenIntent). A token
+  // with no hp_max has no HP to change: damage and healing are shown on the
+  // result card but not applied (warning no_hit_points).
   optional int32 hp_current = 13;
   optional int32 hp_max = 14;
   optional int32 hp_temp = 15;
-  // Condition ids, e.g. "prone", "poisoned".
+  // Condition ids. The SRD conditions are: blinded, charmed, deafened,
+  // exhaustion, frightened, grappled, incapacitated, invisible, paralyzed,
+  // petrified, poisoned, prone, restrained, stunned, unconscious. Any other id
+  // matching [a-z0-9_]{1,40} (bless, hunters_mark, shield) is a label: shown,
+  // stored and timed, with no rules effect.
   repeated string conditions = 16;
   // User ids allowed to move and act with this token (control handover).
   repeated string controller_user_ids = 17;
   // Hidden tokens are sent only to the GM.
   bool hidden = 18;
+  // When the timed entries of `conditions` end (see ConditionTimer). Filtered
+  // like `conditions`: sent to everyone who receives the token.
+  repeated ConditionTimer condition_timers = 19;
 }

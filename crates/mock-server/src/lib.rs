@@ -981,16 +981,16 @@ mod tests {
         let grid = snapshot.scenes[0].grid.as_ref().unwrap();
         assert_eq!(grid.cell_size, 70.0);
         assert_eq!(grid.feet_per_cell, 5.0);
-        assert_eq!(snapshot.tokens.len(), 7);
-        assert_eq!(snapshot.creatures.len(), 6);
+        assert_eq!(snapshot.tokens.len(), 8);
+        assert_eq!(snapshot.creatures.len(), 7);
         let aria = &snapshot.tokens[0];
         assert_eq!(aria.name, "Aria");
         assert_eq!(aria.hp_current, Some(24));
         assert_eq!(aria.controller_user_ids, ["mock-player"]);
         let goblin = &snapshot.tokens[1];
         assert_eq!(goblin.name, "Goblin");
-        assert_eq!(goblin.hp_current, None);
-        assert_eq!(goblin.hp_max, None);
+        assert_eq!(goblin.hp_current, Some(9));
+        assert_eq!(goblin.hp_max, Some(9));
         assert!(goblin.controller_user_ids.is_empty());
         assert_eq!(goblin.health_state, HealthState::Healthy as i32);
     }
