@@ -4,28 +4,45 @@
 //! [`resolve_attacks`](crate::attack::resolve_attacks) (which stays as it was
 //! for `crates/server`) and also resolves save and flat steps. Pure: no I/O,
 //! no clock, no id minting; randomness is an injected [`Rng`]. `roll_id` and
-//! `resolution_id` are left empty for the server to fill. Dice only: nothing
-//! here changes hit points, so `TargetOutcome.damage` stays empty and
-//! `dropped_to_zero` stays false (#98 applies damage; #99 conditions).
+//! `resolution_id` are left empty for the server to fill. Conditions are
+//! #99's job.
 //!
-//! # Output and the damage kept for #98
+//! # Output and applying hit points
 //!
 //! The result is an [`AbilityResolution`]: the wire [`Resolution`], the
-//! updated source creature, and [`AbilityResolution::pending`], a plain Rust
-//! list with exactly one [`Pending`] per `Resolution.outcomes` entry, in the
-//! same order. Each [`Pending`] holds the damage that target should take
-//! (per damage part, in the step's order, with its type) and the healing it
-//! should receive, already adjusted for the save or hit. This is the only
-//! place the adjusted amounts live; the wire contract carries just the rolls.
+//! updated source creature, the updated target tokens, and
+//! [`AbilityResolution::pending`], a plain Rust list with exactly one
+//! [`Pending`] per `Resolution.outcomes` entry, in the same order. Each
+//! [`Pending`] records what that outcome asked for: the damage parts (type,
+//! the roll's total, and whether a successful save halved it) and the
+//! healing. [`crate::damage`] then applies them. `pending` is kept for the
+//! caller (a result card or log); the applied numbers are in the outcomes.
 //! Rules for `pending`:
 //!
-//! - save step: a failed save takes every part in full; a successful save
-//!   takes each part halved, rounded down, when `half_on_success`, and
-//!   nothing (no parts) otherwise;
-//! - flat step: every part in full, and `healing` is the healing total;
+//! - save step: a failed save has every part, not halved; a successful save
+//!   has each part with `halved` set when `half_on_success`, and no parts
+//!   otherwise;
+//! - flat step: every part, not halved, and `healing` is the healing total;
 //! - attack step: every part rolled (already doubled on a critical) on a hit
 //!   or critical hit, nothing on a miss;
-//! - negative totals count as 0; resistances and the rest are #98's job.
+//! - `rolled` is the roll's total as rolled, which can be negative.
+//!
+//! Outcomes are applied in order, each to its target's token: damage first
+//! (resistance, immunity, vulnerability, temporary HP, floor at 0; see
+//! [`crate::damage`]), then healing. The outcome's `damage`, `healing` (the
+//! amount actually restored) and `dropped_to_zero` are filled in; the last is
+//! true only for the outcome that took the token from above 0 to 0, so of
+//! three hits on one token only the one that reaches 0 has it.
+//! [`AbilityResolution::targets`] has one updated [`Token`] per token that
+//! changed, in the order each was first touched by an outcome. A token that
+//! is both source and target (Second Wind) appears once with every change.
+//! Tokens are matched by `token_id`; if the same id is listed twice, the
+//! first listed copy is the one updated. The target's creature (for
+//! resistances) is the one it was listed with. A target token with no
+//! hit points gets nothing applied and one `no_hit_points` warning, however
+//! many outcomes touch it, but its outcomes still show `applied` amounts.
+//! Creature hit points are never changed. No death-save, instant-death or
+//! massive-damage rule runs (ADR 0005).
 //!
 //! # Targets per step
 //!
@@ -74,7 +91,8 @@
 //!
 //! In this order: `ability_recharging`, `not_enough_resource`,
 //! `area_not_checked`, then `too_many_targets` or `extra_targets_ignored`,
-//! then one `out_of_range` per out-of-range target.
+//! then one `out_of_range` per out-of-range target, then one `no_hit_points`
+//! per target token without hit points (in first-touched order).
 //!
 //! | code                    | given when |
 //! |-------------------------|------------|
@@ -84,6 +102,7 @@
 //! | `too_many_targets`      | an ability with at most one attack step lists more targets than a non-zero `max_targets` (not for area shapes, `SELF` or no `Targeting`). |
 //! | `extra_targets_ignored` | an ability with several attack steps lists more targets than it has steps. |
 //! | `out_of_range`          | a target is beyond range, as in [`attack`](crate::attack); not for area shapes, and once per target however many steps use it. |
+//! | `no_hit_points`         | a target token has no `hp_max`; its damage and healing are shown, not applied. Once per token. |
 //!
 //! All dice text (attack, save damage, flat damage and healing, and each
 //! target's save roll) is parsed before anything is spent or rolled, so a
@@ -94,6 +113,7 @@
 //! ability, or several attack steps together with a save or flat step) and
 //! the dice codes.
 
+use std::collections::HashSet;
 use std::fmt;
 
 use tt_contracts::v1::{
@@ -105,6 +125,7 @@ use tt_contracts::v1::{
 use crate::attack::{
     check_range, prepare_attack, resolve_one, roll_result, spend_resource, warning, Prepared,
 };
+use crate::damage::{apply_damage, apply_healing, DamageRoll};
 use crate::dice::{Expr, ParseError, Rng};
 
 /// Why an ability could not be resolved.
@@ -155,16 +176,7 @@ impl From<ParseError> for ResolveError {
     }
 }
 
-/// Damage of one type that a target should take, after the save or hit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PendingDamage {
-    pub damage_type: DamageType,
-    /// Never negative.
-    pub amount: i32,
-}
-
-/// What one outcome should do to its target's hit points; see the module
-/// docs. Not applied here (#98).
+/// What one outcome asked of its target's hit points; see the module docs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pending {
     /// Same as the outcome's `token_id`.
@@ -172,8 +184,9 @@ pub struct Pending {
     /// Same as the outcome's `step_index`.
     pub step_index: u32,
     /// Damage parts in step order; empty when the target takes none.
-    pub damage: Vec<PendingDamage>,
-    /// Hit points to restore; never negative.
+    pub damage: Vec<DamageRoll>,
+    /// Hit points the ability offered to restore (before the cap at the
+    /// maximum); never negative.
     pub healing: i32,
 }
 
@@ -185,6 +198,10 @@ pub struct AbilityResolution {
     /// The source creature after resources were spent and `recharge_spent`
     /// set. Equal to the input when the ability costs nothing.
     pub source: Creature,
+    /// The target tokens after damage and healing: one per token that
+    /// changed, in the order outcomes first touched them. The source token
+    /// appears here only if it was hit or healed.
+    pub targets: Vec<Token>,
     /// One entry per `resolution.outcomes` entry, same order.
     pub pending: Vec<Pending>,
 }
@@ -272,7 +289,7 @@ fn save_roll(
     Ok((Expr::parse(&format!("1d20{total:+}"))?, modifiers))
 }
 
-fn pending_for(outcome: &TargetOutcome, damage: Vec<PendingDamage>, healing: i32) -> Pending {
+fn pending_for(outcome: &TargetOutcome, damage: Vec<DamageRoll>, healing: i32) -> Pending {
     Pending {
         token_id: outcome.token_id.clone(),
         step_index: outcome.step_index,
@@ -281,23 +298,24 @@ fn pending_for(outcome: &TargetOutcome, damage: Vec<PendingDamage>, healing: i32
     }
 }
 
-fn full_damage(rolls: &[RollResult], types: &[DamageType]) -> Vec<PendingDamage> {
+fn damage_parts(rolls: &[RollResult], types: &[DamageType], halved: bool) -> Vec<DamageRoll> {
     rolls
         .iter()
         .zip(types)
-        .map(|(r, &damage_type)| PendingDamage {
+        .map(|(r, &damage_type)| DamageRoll {
             damage_type,
-            amount: r.total.max(0),
+            rolled: r.total,
+            halved,
         })
         .collect()
 }
 
-fn half_damage(rolls: &[RollResult], types: &[DamageType]) -> Vec<PendingDamage> {
-    let mut d = full_damage(rolls, types);
-    for p in &mut d {
-        p.amount /= 2;
-    }
-    d
+fn full_damage(rolls: &[RollResult], types: &[DamageType]) -> Vec<DamageRoll> {
+    damage_parts(rolls, types, false)
+}
+
+fn half_damage(rolls: &[RollResult], types: &[DamageType]) -> Vec<DamageRoll> {
+    damage_parts(rolls, types, true)
 }
 
 fn roll_parts(
@@ -496,6 +514,8 @@ pub fn resolve_ability(
 
     let mut outcomes = Vec::new();
     let mut pending = Vec::new();
+    // Index into `effective` of each outcome's target.
+    let mut owners: Vec<usize> = Vec::new();
     let mut attack_ordinal = 0;
     for plan in &plans {
         // With nobody to affect, a save or flat step rolls nothing.
@@ -529,6 +549,7 @@ pub fn resolve_ability(
                     };
                     pending.push(pending_for(&o, damage, 0));
                     outcomes.push(o);
+                    owners.push(n);
                 }
             }
             Plan::Save {
@@ -560,7 +581,7 @@ pub fn resolve_ability(
                     .collect();
                 let damage_rolls = roll_parts(damage, rng, source, ability);
                 let types: Vec<DamageType> = damage.iter().map(|(_, t)| *t).collect();
-                for (save, (token, _)) in saves.into_iter().zip(&effective) {
+                for (n, (save, (token, _))) in saves.into_iter().zip(&effective).enumerate() {
                     let (kind, taken) = if save.total < *dc {
                         (HitOutcome::SaveFailed, full_damage(&damage_rolls, &types))
                     } else if *half {
@@ -584,6 +605,7 @@ pub fn resolve_ability(
                     };
                     pending.push(pending_for(&o, taken, 0));
                     outcomes.push(o);
+                    owners.push(n);
                 }
             }
             Plan::Flat {
@@ -605,7 +627,7 @@ pub fn resolve_ability(
                     .max(0)
                 });
                 let types: Vec<DamageType> = damage.iter().map(|(_, t)| *t).collect();
-                for (token, _) in &effective {
+                for (n, (token, _)) in effective.iter().enumerate() {
                     let o = TargetOutcome {
                         token_id: token.token_id.clone(),
                         outcome: HitOutcome::Automatic as i32,
@@ -619,11 +641,53 @@ pub fn resolve_ability(
                     };
                     pending.push(pending_for(&o, full_damage(&damage_rolls, &types), healed));
                     outcomes.push(o);
+                    owners.push(n);
                 }
             }
             Plan::Effect => {}
         }
     }
+
+    // Apply every outcome in order to its target's token.
+    let mut touched: Vec<Token> = Vec::new();
+    let mut no_hp: Vec<String> = Vec::new();
+    for ((o, p), &n) in outcomes.iter_mut().zip(&pending).zip(&owners) {
+        let (listed, creature) = effective[n];
+        let at = match touched.iter().position(|t| t.token_id == listed.token_id) {
+            Some(i) => i,
+            None => {
+                touched.push(listed.clone());
+                touched.len() - 1
+            }
+        };
+        let hit = apply_damage(&touched[at], creature, &p.damage);
+        let healed = apply_healing(&hit.token, p.healing);
+        o.damage = hit.damage;
+        o.dropped_to_zero = hit.dropped_to_zero;
+        o.healing = healed.restored;
+        touched[at] = healed.token;
+        if (hit.no_hit_points || healed.no_hit_points) && !no_hp.contains(&listed.token_id) {
+            no_hp.push(listed.token_id.clone());
+        }
+    }
+    for id in no_hp {
+        warnings.push(warning(
+            "no_hit_points",
+            format!("token {id} has no hit points: damage and healing are shown, not applied"),
+        ));
+    }
+    // Only tokens that changed go back, in first-touched order.
+    let mut seen = HashSet::new();
+    let targets: Vec<Token> = touched
+        .into_iter()
+        .filter(|t| seen.insert(t.token_id.clone()))
+        .filter(|t| {
+            effective
+                .iter()
+                .find(|(l, _)| l.token_id == t.token_id)
+                .is_some_and(|(l, _)| *l != t)
+        })
+        .collect();
 
     Ok(AbilityResolution {
         resolution: Resolution {
@@ -636,6 +700,7 @@ pub fn resolve_ability(
             warnings,
         },
         source: updated,
+        targets,
         pending,
     })
 }
@@ -645,7 +710,7 @@ mod tests {
     use super::*;
     use tt_contracts::v1::{
         ApplyEffectStep, AttackStep, CreatureSize, DiagonalRule, EffectStep, FlatStep, GridKind,
-        PluginStep, Recharge, Resource, SaveStep, Targeting, Vec2,
+        HealthState, PluginStep, Recharge, Resource, SaveStep, Targeting, Vec2,
     };
 
     struct Scripted {
@@ -823,6 +888,10 @@ mod tests {
                 y: 35.0,
             }),
             size: CreatureSize::Medium as i32,
+            hp_current: Some(50),
+            hp_max: Some(100),
+            hp_temp: Some(0),
+            health_state: HealthState::Bloodied as i32,
             ..Default::default()
         }
     }
@@ -874,10 +943,19 @@ mod tests {
         HitOutcome::try_from(o.outcome).unwrap()
     }
 
-    fn dmg(ty: DamageType, amount: i32) -> PendingDamage {
-        PendingDamage {
+    fn dmg(ty: DamageType, rolled: i32) -> DamageRoll {
+        DamageRoll {
             damage_type: ty,
-            amount,
+            rolled,
+            halved: false,
+        }
+    }
+
+    fn halved(ty: DamageType, rolled: i32) -> DamageRoll {
+        DamageRoll {
+            damage_type: ty,
+            rolled,
+            halved: true,
         }
     }
 
@@ -929,7 +1007,9 @@ mod tests {
         assert_eq!(o.damage_rolls[0].purpose, RollPurpose::Damage as i32);
         assert_eq!(o.damage_rolls[0].total, 5);
         assert_eq!(o.damage_rolls[0].roller_creature_id, "maribel");
-        assert!(o.damage.is_empty());
+        assert_eq!(o.damage.len(), 1);
+        assert_eq!((o.damage[0].rolled, o.damage[0].applied), (5, 5));
+        assert_eq!(r.targets[0].hp_current, Some(45));
         assert_eq!(
             r.pending,
             vec![Pending {
@@ -1038,7 +1118,8 @@ mod tests {
         assert_eq!(b.roll.as_ref().unwrap().notation, "1d20+4");
         assert_eq!(r.pending[0].damage, vec![dmg(DamageType::Fire, 15)]);
         // Half of 15 rounds down.
-        assert_eq!(r.pending[1].damage, vec![dmg(DamageType::Fire, 7)]);
+        assert_eq!(r.pending[1].damage, vec![halved(DamageType::Fire, 15)]);
+        assert_eq!(r.resolution.outcomes[1].damage[0].applied, 7);
     }
 
     #[test]
@@ -1062,7 +1143,8 @@ mod tests {
             .map(|m| (m.source.as_str(), m.value))
             .collect();
         assert_eq!(mods, [("Constitution", 2), ("proficiency", 2)]);
-        assert_eq!(r.pending[0].damage, vec![dmg(DamageType::Poison, 3)]);
+        assert_eq!(r.pending[0].damage, vec![halved(DamageType::Poison, 7)]);
+        assert_eq!(r.resolution.outcomes[0].damage[0].applied, 3);
         // 6 + 4 = 10 < 11 fails and takes all 7.
         let r = run(&wisp, "choking-ash", &t, &[6, 3, 4]).unwrap();
         assert_eq!(kind(&r.resolution.outcomes[0]), HitOutcome::SaveFailed);
@@ -1436,7 +1518,7 @@ mod tests {
             (HitOutcome::SaveSucceeded, 1)
         );
         assert!(r.pending[0].damage.is_empty());
-        assert_eq!(r.pending[1].damage, vec![dmg(DamageType::Poison, 3)]);
+        assert_eq!(r.pending[1].damage, vec![halved(DamageType::Poison, 7)]);
     }
 
     #[test]
@@ -1484,11 +1566,17 @@ mod tests {
         assert_eq!(
             r.pending[0].damage,
             vec![
-                dmg(DamageType::Fire, 0),
-                dmg(DamageType::Cold, 2),
-                dmg(DamageType::Acid, 0)
+                halved(DamageType::Fire, -4),
+                halved(DamageType::Cold, 5),
+                halved(DamageType::Acid, 1)
             ]
         );
+        let applied: Vec<i32> = r.resolution.outcomes[0]
+            .damage
+            .iter()
+            .map(|d| d.applied)
+            .collect();
+        assert_eq!(applied, [0, 2, 0]);
         assert_eq!(r.resolution.outcomes[0].damage_rolls.len(), 3);
     }
 
@@ -1518,5 +1606,267 @@ mod tests {
         assert!(!ResolveError::NotImplemented.to_string().is_empty());
         assert!(!ResolveError::UnknownAbility.to_string().is_empty());
         let _: &dyn std::error::Error = &ResolveError::UnknownAbility;
+    }
+
+    // ---- Applying hit points (#98) ----
+
+    fn hp_token(id: &str, cx: f32, current: i32, max: i32, temp: i32) -> Token {
+        Token {
+            hp_current: Some(current),
+            hp_max: Some(max),
+            hp_temp: Some(temp),
+            health_state: crate::damage::health_state(current, max) as i32,
+            ..token_at(id, cx)
+        }
+    }
+
+    fn typed_attack(bonus: i32, dice: &str, ty: DamageType) -> EffectStep {
+        EffectStep {
+            step: Some(effect_step::Step::Attack(AttackStep {
+                to_hit_bonus: bonus,
+                damage: vec![part(dice, ty)],
+            })),
+        }
+    }
+
+    fn monster(id: &str, ac: i32, res: &[DamageType], imm: &[DamageType]) -> Creature {
+        Creature {
+            creature_id: id.to_string(),
+            armor_class: ac,
+            resistances: res.iter().map(|d| *d as i32).collect(),
+            immunities: imm.iter().map(|d| *d as i32).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn health(t: &Token) -> HealthState {
+        HealthState::try_from(t.health_state).unwrap()
+    }
+
+    #[test]
+    fn longsword_takes_the_goblin_to_bloodied_then_to_zero() {
+        let src = caster(
+            "brannoch",
+            vec![ability(
+                "longsword",
+                "Longsword",
+                Some(targeting(TargetShape::Creatures, 5.0, 1)),
+                vec![typed_attack(5, "1d8+3", DamageType::Slashing)],
+            )],
+        );
+        let goblin = monster("creature-goblin", 15, &[], &[]);
+        // d20 12 + 5 = 17 hits AC 15; 1d8 = 3 + 3 = 6 of 9.
+        let t = [(hp_token("goblin", 1.0, 9, 9, 0), goblin.clone())];
+        let r = run(&src, "longsword", &t, &[12, 3]).unwrap();
+        assert!(r.resolution.warnings.is_empty());
+        let o = &r.resolution.outcomes[0];
+        assert_eq!(o.damage.len(), 1);
+        assert_eq!(
+            (o.damage[0].rolled, o.damage[0].applied, o.dropped_to_zero),
+            (6, 6, false)
+        );
+        assert_eq!(r.targets.len(), 1);
+        assert_eq!(r.targets[0].hp_current, Some(3));
+        assert_eq!(health(&r.targets[0]), HealthState::Bloodied);
+        // The input token is untouched.
+        assert_eq!(t[0].0.hp_current, Some(9));
+        // 1d8 = 4 + 3 = 7 against 3 HP: floors at 0.
+        let t = [(r.targets[0].clone(), goblin)];
+        let r = run(&src, "longsword", &t, &[12, 4]).unwrap();
+        assert!(r.resolution.outcomes[0].dropped_to_zero);
+        assert_eq!(r.targets[0].hp_current, Some(0));
+        assert_eq!(health(&r.targets[0]), HealthState::Down);
+    }
+
+    #[test]
+    fn rapier_is_resisted_and_fire_bolt_is_ignored_by_the_ember_wisp() {
+        let wisp = monster(
+            "creature-ember-wisp",
+            12,
+            &[DamageType::Piercing],
+            &[DamageType::Fire],
+        );
+        let t = [(hp_token("wisp", 1.0, 11, 11, 0), wisp)];
+        let tamsin = caster(
+            "tamsin",
+            vec![ability(
+                "rapier",
+                "Rapier",
+                Some(targeting(TargetShape::Creatures, 5.0, 1)),
+                vec![typed_attack(5, "1d8+3", DamageType::Piercing)],
+            )],
+        );
+        // d20 10 + 5 = 15 hits AC 12; 4 + 3 = 7, halved to 3.
+        let r = run(&tamsin, "rapier", &t, &[10, 4]).unwrap();
+        let d = &r.resolution.outcomes[0].damage[0];
+        assert_eq!((d.rolled, d.applied), (7, 3));
+        assert_eq!(r.targets[0].hp_current, Some(8));
+        let ilvaren = caster(
+            "ilvaren",
+            vec![ability(
+                "fire-bolt",
+                "Fire Bolt",
+                Some(targeting(TargetShape::Creatures, 120.0, 1)),
+                vec![typed_attack(5, "1d10", DamageType::Fire)],
+            )],
+        );
+        let r = run(&ilvaren, "fire-bolt", &t, &[10, 7]).unwrap();
+        let d = &r.resolution.outcomes[0].damage[0];
+        assert_eq!((d.rolled, d.applied), (7, 0));
+        // Nothing changed, so no token comes back.
+        assert!(r.targets.is_empty());
+    }
+
+    #[test]
+    fn burning_hands_halves_on_a_success_and_updates_each_target() {
+        let ilvaren = caster(
+            "ilvaren",
+            vec![ability(
+                "burning-hands",
+                "Burning Hands",
+                Some(targeting(TargetShape::Cone, 15.0, 0)),
+                vec![save_step(
+                    AbilityScore::Dexterity,
+                    13,
+                    "3d6",
+                    DamageType::Fire,
+                    true,
+                )],
+            )],
+        );
+        let t = [
+            (hp_token("a", 1.0, 50, 100, 0), brannoch()),
+            (hp_token("b", 2.0, 50, 100, 0), monster("m", 10, &[], &[])),
+        ];
+        // a: 11 + 2 = 13 succeeds; b: 5 + 0 = 5 fails; 3d6 = 5, 5, 5 = 15.
+        let r = run(&ilvaren, "burning-hands", &t, &[11, 5, 5, 5, 5]).unwrap();
+        assert_eq!(r.resolution.outcomes[0].damage[0].applied, 7);
+        assert_eq!(r.resolution.outcomes[1].damage[0].applied, 15);
+        let hp: Vec<_> = r
+            .targets
+            .iter()
+            .map(|t| (t.token_id.as_str(), t.hp_current))
+            .collect();
+        assert_eq!(hp, [("a", Some(43)), ("b", Some(35))]);
+    }
+
+    #[test]
+    fn choking_ash_is_halved_by_maribels_poison_resistance() {
+        let maribel = monster("maribel", 18, &[DamageType::Poison], &[]);
+        let t = [(hp_token("maribel-tok", 1.0, 27, 27, 0), maribel)];
+        // Con save 5 + 0 = 5 < 11 fails; 2d4 = 4 + 4 = 8, resisted to 4.
+        let r = run(&ember_wisp(), "choking-ash", &t, &[5, 4, 4]).unwrap();
+        let d = &r.resolution.outcomes[0].damage[0];
+        assert_eq!((d.rolled, d.applied), (8, 4));
+        assert_eq!(r.targets[0].hp_current, Some(23));
+        assert_eq!(health(&r.targets[0]), HealthState::Healthy);
+    }
+
+    #[test]
+    fn three_scorching_ray_hits_on_one_token_apply_in_order() {
+        let src = caster(
+            "ilvaren",
+            vec![ability(
+                "scorching-ray",
+                "Scorching Ray",
+                Some(targeting(TargetShape::Creatures, 120.0, 3)),
+                vec![
+                    typed_attack(5, "1d6", DamageType::Fire),
+                    typed_attack(5, "1d6", DamageType::Fire),
+                    typed_attack(5, "1d6", DamageType::Fire),
+                ],
+            )],
+        );
+        let one = (hp_token("t", 1.0, 10, 10, 0), monster("m", 10, &[], &[]));
+        let t = [one.clone(), one.clone(), one];
+        let r = run(&src, "scorching-ray", &t, &[15, 4, 15, 4, 15, 4]).unwrap();
+        let dropped: Vec<bool> = r
+            .resolution
+            .outcomes
+            .iter()
+            .map(|o| o.dropped_to_zero)
+            .collect();
+        assert_eq!(dropped, [false, false, true]);
+        assert_eq!(r.targets.len(), 1);
+        assert_eq!(r.targets[0].hp_current, Some(0));
+        assert_eq!(health(&r.targets[0]), HealthState::Down);
+    }
+
+    #[test]
+    fn a_token_that_is_source_and_target_updates_once_with_every_change() {
+        // Takes 3 fire first, then heals 1d10+3 = 8, on the source's own token.
+        let src = caster(
+            "brannoch",
+            vec![ability(
+                "second-wind",
+                "Second Wind",
+                Some(targeting(TargetShape::Self_, 0.0, 0)),
+                vec![flat_step(vec![part("1d4", DamageType::Fire)], "1d10+3")],
+            )],
+        );
+        let source_token = hp_token("tok-src", 0.0, 20, 28, 0);
+        let r = resolve_ability(
+            &source_token,
+            &src,
+            "second-wind",
+            &[],
+            &grid(),
+            RollMode::Normal,
+            &mut Scripted::faces(&[3, 5]),
+        )
+        .unwrap();
+        assert_eq!(r.targets.len(), 1);
+        assert_eq!(r.targets[0].token_id, "tok-src");
+        assert_eq!(r.targets[0].hp_current, Some(25));
+        let o = &r.resolution.outcomes[0];
+        assert_eq!((o.damage[0].applied, o.healing), (3, 8));
+    }
+
+    #[test]
+    fn healing_is_capped_and_reports_what_was_restored() {
+        let r = resolve_ability(
+            &hp_token("tok-src", 0.0, 25, 28, 4),
+            &brannoch_with_second_wind(),
+            "second-wind",
+            &[],
+            &grid(),
+            RollMode::Normal,
+            &mut Scripted::faces(&[9]),
+        )
+        .unwrap();
+        // 9 + 3 = 12 offered, 3 restored; temporary HP untouched.
+        assert_eq!(r.resolution.outcomes[0].healing, 3);
+        assert_eq!(r.pending[0].healing, 12);
+        assert_eq!(r.targets[0].hp_current, Some(28));
+        assert_eq!(r.targets[0].hp_temp, Some(4));
+    }
+
+    #[test]
+    fn a_token_without_hit_points_gets_one_warning_and_no_change() {
+        let src = caster(
+            "ilvaren",
+            vec![ability(
+                "scorching-ray",
+                "Scorching Ray",
+                Some(targeting(TargetShape::Creatures, 120.0, 3)),
+                vec![
+                    typed_attack(5, "1d6", DamageType::Fire),
+                    typed_attack(5, "1d6", DamageType::Fire),
+                ],
+            )],
+        );
+        let creature = monster("m", 10, &[DamageType::Fire], &[]);
+        let mut bare = token_at("t", 1.0);
+        bare.hp_current = None;
+        bare.hp_max = None;
+        bare.hp_temp = None;
+        let t = [(bare.clone(), creature.clone()), (bare, creature)];
+        let r = run(&src, "scorching-ray", &t, &[15, 6, 15, 6]).unwrap();
+        assert_eq!(codes(&r), ["no_hit_points"]);
+        for o in &r.resolution.outcomes {
+            assert_eq!((o.damage[0].rolled, o.damage[0].applied), (6, 3));
+            assert!(!o.dropped_to_zero);
+        }
+        assert!(r.targets.is_empty());
     }
 }

@@ -590,7 +590,7 @@ mod tests {
     }
 
     /// Run `resolve_attacks` and `resolve_ability` on the same input and
-    /// script, and require them to agree on the result (or the error code)
+    /// script, and require them to agree on the result (apart from applied hit points) (or the error code)
     /// and on how many dice they drew. Returns the old result and the number
     /// of draws, so every M2 test also exercises `resolve_ability`.
     fn dual(
@@ -616,7 +616,16 @@ mod tests {
         assert_eq!(old_rng.calls, new_rng.calls, "dice drawn differ");
         match (&old, &new) {
             (Ok(o), Ok(n)) => {
-                assert_eq!(o.resolution, n.resolution);
+                // resolve_ability also applies hit points (#98): compare
+                // without what that adds, which resolve_attacks never fills.
+                let mut applied = n.resolution.clone();
+                applied.warnings.retain(|w| w.code != "no_hit_points");
+                for out in &mut applied.outcomes {
+                    out.damage.clear();
+                    out.healing = 0;
+                    out.dropped_to_zero = false;
+                }
+                assert_eq!(o.resolution, applied);
                 assert_eq!(o.source, n.source);
                 assert_eq!(n.pending.len(), n.resolution.outcomes.len());
             }
