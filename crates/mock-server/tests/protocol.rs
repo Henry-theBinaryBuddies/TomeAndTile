@@ -10,9 +10,9 @@ use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
-    client_message, event, intent, server_message, ChatIntent, ClientMessage, Die, Event, Hello,
-    Intent, MoveTokenIntent, RollDiceIntent, RollMode, RollVisibility, ServerMessage,
-    SetInitiativeIntent, Snapshot, Vec2,
+    client_message, event, intent, server_message, ChatIntent, ClientMessage, Die, Event,
+    HealthState, Hello, Intent, MoveTokenIntent, RollDiceIntent, RollMode, RollVisibility,
+    ServerMessage, SetControllersIntent, Snapshot, Vec2,
 };
 use tt_mock_server::dice::XorShift64Star;
 
@@ -146,14 +146,17 @@ async fn hello_gets_snapshot_with_scene_and_pregen_tokens() {
     assert_eq!(snapshot.scenes.len(), 1);
     assert_eq!(snapshot.tokens.len(), 8);
     let goblin = snapshot.tokens.iter().find(|t| t.name == "Goblin").unwrap();
-    // The mock does not redact HP yet (#96 adds it), so the seed's 9 shows.
-    assert_eq!(goblin.hp_current, Some(9));
+    // The player does not control the goblin: no HP, only the health state.
+    assert_eq!(goblin.hp_current, None);
+    assert_eq!(goblin.health_state, HealthState::Healthy as i32);
     let aria = snapshot.tokens.iter().find(|t| t.name == "Aria").unwrap();
     assert_eq!(aria.hp_current, Some(24));
 
     let (_gm, snapshot) = join(addr, "gm").await;
     assert_eq!(snapshot.user_id, "mock-gm");
     assert_eq!(snapshot.role, tt_contracts::v1::Role::Gm as i32);
+    let goblin = snapshot.tokens.iter().find(|t| t.name == "Goblin").unwrap();
+    assert_eq!((goblin.hp_current, goblin.hp_max), (Some(9), Some(9)));
 }
 
 #[tokio::test]
@@ -369,7 +372,7 @@ async fn unsupported_intent_is_rejected_with_its_id() {
     send_intent(
         &mut ws,
         "u1",
-        intent::Kind::SetInitiative(SetInitiativeIntent::default()),
+        intent::Kind::SetControllers(SetControllersIntent::default()),
     )
     .await;
     let r = recv_rejected(&mut ws).await;
