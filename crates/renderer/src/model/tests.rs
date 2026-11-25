@@ -1594,6 +1594,168 @@ fn highlights_draw_with_picking_off_and_clearing_removes_them() {
     assert!(rings_of(&m, HIGHLIGHT_COLOR).is_empty());
 }
 
+// ------------------------------------------------------- health and conditions
+
+fn hurt(id: &str, state: HealthState) -> Token {
+    let mut t = token(id, 385.0, 245.0, CreatureSize::Small, &[]);
+    t.health_state = state as i32;
+    t
+}
+
+fn one_token_model(t: Token) -> Model {
+    model_as("p", Role::Player, vec![t])
+}
+
+/// Every ring drawn at the token's own edge (radius r, not the outer rings).
+fn edge_rings(m: &Model) -> Vec<([f32; 4], f32)> {
+    let r = (m.token_diameter(m.token("x").unwrap()) * 0.5 * m.camera().zoom) as f32;
+    m.draw_list()
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            DrawItem::Ring {
+                r: rr,
+                color,
+                thickness,
+                ..
+            } if (*rr - r).abs() < 1e-3 => Some((*color, *thickness)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn each_health_state_draws_its_ring_in_place_of_the_outline() {
+    for (state, colour, thickness) in [
+        (HealthState::Unspecified, OUTLINE_COLOR, 2.0),
+        (HealthState::Healthy, OUTLINE_COLOR, 2.0),
+        (HealthState::Bloodied, BLOODIED_COLOR, 3.0),
+        (HealthState::NearDeath, NEAR_DEATH_COLOR, 3.0),
+        (HealthState::Down, DOWN_COLOR, 3.0),
+    ] {
+        let m = one_token_model(hurt("x", state));
+        assert_eq!(edge_rings(&m), vec![(colour, thickness)], "{state:?}");
+    }
+}
+
+#[test]
+fn health_colours_never_match_the_selection_or_highlight_rings() {
+    for c in [BLOODIED_COLOR, NEAR_DEATH_COLOR, DOWN_COLOR] {
+        assert_ne!(c, SELECT_COLOUR);
+        assert_ne!(c, HIGHLIGHT_COLOR);
+    }
+}
+
+#[test]
+fn a_downed_token_is_drawn_faded() {
+    let disc_alpha = |m: &Model| {
+        m.draw_list()
+            .items
+            .iter()
+            .find_map(|i| match i {
+                DrawItem::Disc {
+                    color,
+                    image: None,
+                    r,
+                    ..
+                } if *r > CONDITION_MARKER_PX => Some(color[3]),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let up = one_token_model(hurt("x", HealthState::Bloodied));
+    let down = one_token_model(hurt("x", HealthState::Down));
+    assert!((disc_alpha(&down) - disc_alpha(&up) * DOWN_FADE).abs() < 1e-6);
+}
+
+#[test]
+fn hit_points_alone_never_draw_a_health_ring() {
+    let mut t = hurt("x", HealthState::Unspecified);
+    t.hp_current = Some(1);
+    t.hp_max = Some(40);
+    let m = one_token_model(t);
+    assert_eq!(edge_rings(&m), vec![(OUTLINE_COLOR, 2.0)]);
+}
+
+fn marker_count(m: &Model) -> usize {
+    m.draw_list()
+        .items
+        .iter()
+        .filter(|i| matches!(i, DrawItem::Disc { color, .. } if *color == CONDITION_MARKER_COLOR))
+        .count()
+}
+
+#[test]
+fn a_token_with_conditions_gets_one_marker_at_its_upper_right() {
+    let mut t = hurt("x", HealthState::Healthy);
+    let none = one_token_model(t.clone());
+    assert_eq!(marker_count(&none), 0);
+    t.conditions = vec!["poisoned".into(), "prone".into()];
+    let m = one_token_model(t);
+    assert_eq!(marker_count(&m), 1, "one marker, however many conditions");
+    let (cx, cy) = (385.0_f32, 245.0_f32);
+    let marker = m
+        .draw_list()
+        .items
+        .into_iter()
+        .find_map(|i| match i {
+            DrawItem::Disc {
+                cx: x,
+                cy: y,
+                r,
+                color,
+                ..
+            } if color == CONDITION_MARKER_COLOR => Some((x, y, r)),
+            _ => None,
+        })
+        .unwrap();
+    assert!(marker.0 > cx && marker.1 < cy, "upper right: {marker:?}");
+    assert!(marker.2 >= 6.0);
+}
+
+#[test]
+fn ring_and_marker_follow_token_upserted_and_go_with_token_removed() {
+    let mut m = one_token_model(hurt("x", HealthState::Healthy));
+    let mut changed = hurt("x", HealthState::NearDeath);
+    changed.conditions = vec!["blinded".into()];
+    m.apply_event(event_of(event::Kind::TokenUpserted(TokenUpserted {
+        token: Some(changed),
+    })));
+    assert_eq!(edge_rings(&m), vec![(NEAR_DEATH_COLOR, 3.0)]);
+    assert_eq!(marker_count(&m), 1);
+    m.apply_event(event_of(event::Kind::TokenRemoved(TokenRemoved {
+        token_id: "x".into(),
+    })));
+    assert_eq!(rings_of(&m, NEAR_DEATH_COLOR), Vec::<f32>::new());
+    assert_eq!(marker_count(&m), 0);
+}
+
+#[test]
+fn selected_highlighted_and_bloodied_draws_all_three_rings_inside_out() {
+    let mut m = one_token_model(hurt("x", HealthState::Bloodied));
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_up(385.0, 245.0, 0.0);
+    m.set_highlights(["x".to_owned()]);
+    let rings: Vec<([f32; 4], f32)> = m
+        .draw_list()
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            DrawItem::Ring { r, color, .. }
+                if [BLOODIED_COLOR, SELECT_COLOUR, HIGHLIGHT_COLOR].contains(color) =>
+            {
+                Some((*color, *r))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        rings.iter().map(|x| x.0).collect::<Vec<_>>(),
+        vec![BLOODIED_COLOR, SELECT_COLOUR, HIGHLIGHT_COLOR]
+    );
+    assert!(rings[0].1 < rings[1].1 && rings[1].1 < rings[2].1);
+}
+
 // --------------------------------------------------------------------- wire
 
 #[test]

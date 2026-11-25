@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use prost::Message as _;
 use tt_contracts::v1::{
     client_message, event, intent, server_message, ClientMessage, CreatureSize, Event, GridKind,
-    Intent, Level, MoveTokenIntent, Role, Scene, ServerMessage, Snapshot, Token, Vec2,
+    HealthState, Intent, Level, MoveTokenIntent, Role, Scene, ServerMessage, Snapshot, Token, Vec2,
 };
 
 use crate::camera::{clamp_coord, Camera, Pt};
@@ -40,6 +40,20 @@ pub const MIN_HIT_RADIUS_PX: f64 = 8.0;
 /// Ring colour for a token the host has marked as picked: cyan, so it cannot be
 /// mistaken for the yellow selection ring.
 const HIGHLIGHT_COLOR: [f32; 4] = [0.3, 0.85, 1.0, 1.0];
+/// The thin outline every token has, and the health rings that replace it.
+/// Drawn from `Token.health_state` only, never from HP numbers, so every
+/// viewer sees the same ring (ADR 0006).
+const OUTLINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
+const BLOODIED_COLOR: [f32; 4] = [1.0, 0.55, 0.1, 1.0];
+const NEAR_DEATH_COLOR: [f32; 4] = [0.9, 0.12, 0.12, 1.0];
+const DOWN_COLOR: [f32; 4] = [0.55, 0.55, 0.58, 1.0];
+/// A downed token's disc is drawn at this fraction of its opacity.
+const DOWN_FADE: f32 = 0.45;
+/// The condition marker: a small disc at the token's upper right edge.
+const CONDITION_MARKER_COLOR: [f32; 4] = [0.78, 0.42, 1.0, 1.0];
+/// Screen radius of the condition marker, fixed so it stays visible on a
+/// phone at any zoom.
+pub const CONDITION_MARKER_PX: f32 = 6.0;
 const BACKGROUND: [f32; 4] = [0.09, 0.09, 0.11, 1.0];
 const PLACEHOLDER: [f32; 4] = [0.15, 0.16, 0.19, 1.0];
 const PLACEHOLDER_FAILED: [f32; 4] = [0.26, 0.12, 0.12, 1.0];
@@ -918,6 +932,10 @@ impl Model {
         if t.hidden {
             color[3] = 0.5;
         }
+        let health = HealthState::try_from(t.health_state).unwrap_or(HealthState::Unspecified);
+        if health == HealthState::Down {
+            color[3] *= DOWN_FADE;
+        }
         let image = t.image.as_ref().and_then(|i| self.ready_image(&i.url));
         items.push(DrawItem::Disc {
             cx,
@@ -930,12 +948,19 @@ impl Model {
             },
             image,
         });
+        // The health ring takes the outline's place at the token's edge.
+        let (thickness, ring_color) = match health {
+            HealthState::Bloodied => (3.0, BLOODIED_COLOR),
+            HealthState::NearDeath => (3.0, NEAR_DEATH_COLOR),
+            HealthState::Down => (3.0, DOWN_COLOR),
+            HealthState::Healthy | HealthState::Unspecified => (2.0, OUTLINE_COLOR),
+        };
         items.push(DrawItem::Ring {
             cx,
             cy,
             r,
-            thickness: 2.0,
-            color: [0.0, 0.0, 0.0, 0.6],
+            thickness,
+            color: ring_color,
         });
         let dragging = matches!(&self.interaction, Interaction::Drag { token_id, moved: true, .. } if *token_id == t.token_id);
         if dragging || self.selected.as_deref() == Some(t.token_id.as_str()) {
@@ -954,6 +979,25 @@ impl Model {
                 r: r + 8.0,
                 thickness: 3.0,
                 color: HIGHLIGHT_COLOR,
+            });
+        }
+        if !t.conditions.is_empty() {
+            // Upper right, on the edge (45 degrees from the centre).
+            let d = r * std::f32::consts::FRAC_1_SQRT_2;
+            let (mx, my) = (cx + d, cy - d);
+            items.push(DrawItem::Disc {
+                cx: mx,
+                cy: my,
+                r: CONDITION_MARKER_PX,
+                color: CONDITION_MARKER_COLOR,
+                image: None,
+            });
+            items.push(DrawItem::Ring {
+                cx: mx,
+                cy: my,
+                r: CONDITION_MARKER_PX,
+                thickness: 1.5,
+                color: OUTLINE_COLOR,
             });
         }
     }
