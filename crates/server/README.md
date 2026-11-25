@@ -72,9 +72,17 @@ On load (`Campaign::from_snapshot`) `health_state` is recomputed for every token
 
 Limits: 500 tokens per campaign, token name 120 characters, 32 conditions per token, `hp_temp` up to 999, coordinates within `MAX_COORDINATE`.
 
-### Change records (for undo, #101)
+### Change records and undo (#101)
 
-`Campaign.groups` has one `AppliedGroup` per applied intent, in `seq` order, next to `Campaign.log`: `first_seq`, `last_seq`, `actor_user_id`, `client_intent_id`, `changed_token_ids` and `changed_creature_ids`. The id lists are not written by the handlers: `apply` compares `tokens` and `creatures` before and after the handler and lists every id that is new, different or gone. So they are exact for every intent (a miss, or "no change" set, has empty lists) and cannot drift from what the handlers do. Undo's dependency rule reads them: a group cannot be undone while a later group that was not undone lists any of the same ids. `Campaign.removed_token_hidden` (token id to "was hidden") belongs to `remove_token`; undo must delete the entry when it brings a token back.
+`Campaign.groups` has one `AppliedGroup` per applied intent, in `seq` order, next to `Campaign.log`: `first_seq`, `last_seq`, `actor_user_id`, `client_intent_id`, `changed_token_ids`, `changed_creature_ids`, a `kind` (`Move`, `Edit`, `NotUndoable`, `Undo`) and `undone`. The id lists are not written by the handlers: `apply` compares `tokens` and `creatures` before and after the handler and lists every id that is new, different or gone. So they are exact for every intent (a miss, or "no change" set, has empty lists) and cannot drift from what the handlers do.
+
+For an undoable group (`Move` or `Edit`) the group also keeps `before_tokens` and `before_creatures`: the whole stored token or creature, as it was before the intent, for each changed id that existed then (a removed token is kept whole). A token the group created has no entry. Nothing is trimmed; the log and these states live in memory only, so undo does not survive a restart.
+
+`UndoIntent` (GM only) names a group by its first event (for an ability use the `ResolutionUpdated`, not its `TokenUpserted`). What can be undone: an ability use, set hit points, set conditions, a move, a token create and a token remove. Not undoable: chat, dice rolls, set controllers, set level background, the encounter intents and an undo itself (no redo). Checks, in this order, each refusal going to the sender only and appending nothing: `not_permitted` (not the GM), `unknown_event` (no group holds that `seq`, including events before the seed), `not_first_event`, `not_undoable`, `already_undone`, `undo_blocked`.
+
+Dependency rule: a group cannot be undone while a later group that has not been undone changed any of the same tokens or creatures. `undo_blocked` names that later group's first `seq`; undo it first. Undo groups never block: each one restored exactly the state of the group it reversed, so with that group marked undone the pair changes nothing for earlier groups (this is what lets "attack twice, undo the second, then the first" work). An undo group is still recorded with the tokens and creatures it changed, and is `Undo` kind, so it cannot be undone.
+
+On success one group is appended with the undo intent's `client_intent_id`: for each token the group changed, in the group's id order, a `TokenUpserted` with its earlier state, or `TokenRemoved` for a token the group created, or `TokenUpserted` (plus `CreatureUpserted` when the token has controllers) for a token the group removed, or `TokenMoved` with a path of one point and the earlier level for a move; then a `CreatureUpserted` with the earlier sheet of each changed creature; then one `EventUndone` per event of the undone group in `seq` order. The state is restored before the events are appended. A put-back token goes to the end of `Campaign.tokens`, and its `removed_token_hidden` entry is deleted (a token removed by undoing a create gets one).
 
 ## Video and voice (join tokens, ADR 0007)
 
@@ -126,9 +134,9 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 
 | Code | When |
 |---|---|
-| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token, or setting its hit points) they do not control, that is hidden, or that does not exist; non-GM `set_controllers`, `set_level_background`, `set_conditions`, `create_token` or `remove_token` |
+| `not_permitted` | spectator or non-member sending anything; (for `MediaTokenRequest`, see above); player moving a token (or using an ability of a source token, or setting its hit points) they do not control, that is hidden, or that does not exist; non-GM `set_controllers`, `set_level_background`, `set_conditions`, `create_token`, `remove_token` or `undo` |
 | `malformed_intent` | the intent has no kind |
-| `not_implemented` | any intent kind other than move, chat, roll, use_ability, set_controllers, set_level_background, set_hit_points, set_conditions, create_token, remove_token (the encounter intents and undo are not built yet); for `use_ability`, a plugin step, several attack steps together with a save or flat step, or ability data the engine cannot use (including dice that do not parse) |
+| `not_implemented` | any intent kind other than move, chat, roll, use_ability, set_controllers, set_level_background, set_hit_points, set_conditions, create_token, remove_token, undo (the encounter intents are not built yet); for `use_ability`, a plugin step, several attack steps together with a save or flat step, or ability data the engine cannot use (including dice that do not parse) |
 | `unknown_token` | GM names a token that does not exist (move, set_controllers, set_hit_points, set_conditions, remove_token, the source of use_ability) |
 | `no_hit_points` | `set_hit_points`: the token has no `hp_max` |
 | `bad_hit_points` | `set_hit_points`: `hp_current` below 0 or above `hp_max`, or `hp_temp` below 0 or above 999 |
@@ -143,6 +151,11 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 | `unknown_ability` | `use_ability`: the ability id is not on the source creature |
 | `no_targets` | `use_ability`: a creature-targeting ability with no targets |
 | `unknown_target` | `use_ability`: a target token that does not exist, is hidden from a player sender, or has no creature |
+| `unknown_event` | `undo`: no event with that `seq` in the log |
+| `not_first_event` | `undo`: the event belongs to a group but is not its first |
+| `not_undoable` | `undo`: the group is a chat, roll, set controllers, set level background, encounter intent or undo |
+| `already_undone` | `undo`: the group was already undone |
+| `undo_blocked` | `undo`: a later group not undone changed one of the same tokens or creatures; the message names its first `seq` |
 | `empty_path` | move with no waypoints |
 | `path_too_long` | more than 256 waypoints |
 | `bad_coordinate` | NaN, infinite, or beyond 1,000,000 units (also `create_token` with no position) |
@@ -167,7 +180,7 @@ See ADR 0006 and `view.rs`. Where the contract is silent the more restrictive be
 - `set_controllers` also emits a `CreatureUpserted` for the token's creature, so a newly added controller receives the sheet. The filter decides who actually gets it. A controller who is removed keeps what they were already sent.
 - Unspecified roll visibility is treated as not public (GM only) when filtering.
 - `TokenRemoved`: the token is gone when the event is filtered, so `remove_token` records whether it was hidden (`Campaign.removed_token_hidden`). A removal of a visible token goes to everyone (spectators included); of a hidden one, or of an id never removed through an intent, to the GM only.
-- `EventUndone` and events with no kind go to the GM only until a feature emits them with enough information to filter.
+- `EventUndone` goes to a viewer exactly when that viewer may receive the undone original event (found in the log by `undone_seq`), filtered with the current state; one whose original is not in the log goes to the GM only. A `TokenRemoved` whose token undo has put back is judged by the restored token (its hidden flag), since the kept flag is deleted. Events with no kind go to the GM only.
 - An encounter reaches a non-GM only if every combatant is a known, non-hidden token.
 - All scenes and members go to every viewer; chat and public rolls go to everyone including spectators.
 - Also stricter than the mock: unknown `level_id` is rejected; a non-GM gets `not_permitted` for a missing token; coordinates are bounded.
@@ -180,6 +193,7 @@ The core is tested in `src/tests.rs`. `tests/serve.rs` checks `/healthz` and `/`
 - broadcast: chat reaches everyone with the same `seq`; a rejection goes only to the sender, with its `client_intent_id` and code, and uses no `seq`; `seq` strictly increases;
 - filtering over the wire: hidden tokens and hp in the Snapshot; a `GM_ONLY` roll and a hidden-token move reach the GM only; `set_controllers` delivers the token and creature to the new controller, who can then move it;
 - use_ability: with the pregen seed and a fixed roller, a player's longsword hit for 6 reaches the GM and the player as the same `ResolutionUpdated` (a `DamageApplied` of 6), then a `TokenUpserted` for the goblin with `HEALTH_STATE_BLOODIED`: `hp_current` 3 for the GM, no hit point fields for the player, and no goblin sheet or other event;
+- undo: the GM undoes a player's goblin hit; the player's undo is refused to the player alone; both receive the goblin's restored `TokenUpserted` (no hit points for the player) and the two `EventUndone`;
 - create and remove: the GM creates a hidden token and removes it, and the player receives neither event while the GM receives both; for a visible token everyone receives both (the player's copy has no hit points);
 - media: a player and a spectator get tokens with the right URL, room and grants (payload decoded in the test) and nobody else sees anything; no `seq` used; repeated requests; media off gives `media_not_configured` to the requester only; a request before Hello closes the socket;
 - hostile input: a message over 64 KiB (before and after joining), garbage after joining, text frames and a second Hello (ignored);
