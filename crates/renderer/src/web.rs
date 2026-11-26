@@ -9,7 +9,10 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{HtmlCanvasElement, ImageBitmap, PointerEvent, WheelEvent};
+use web_sys::{
+    HtmlCanvasElement, ImageBitmap, OffscreenCanvas, OffscreenCanvasRenderingContext2d,
+    PointerEvent, WheelEvent,
+};
 
 use crate::gpu::Gpu;
 use crate::model::{Applied, Model};
@@ -189,6 +192,7 @@ impl Renderer {
             .inner
             .try_borrow_mut()
             .map_err(|_| js_err("renderer is busy (re-entrant call)"))?;
+        inner.model.set_device_pixel_ratio(device_pixel_ratio);
         inner.model.resize(width, height);
         inner.gpu.resize(width, height, device_pixel_ratio);
         Ok(())
@@ -230,6 +234,25 @@ impl Renderer {
                 }
             }
             inner.model.expire_pending(now_ms());
+            // Name labels are drawn by the browser into small bitmaps, right here:
+            // there is no network wait, so they appear in the same frame.
+            for req in inner.model.take_label_requests() {
+                let outcome = render_label(&req.text, req.dpr, req.max_width).and_then(|bitmap| {
+                    let uploaded = inner.gpu.upload_image(&req.key, &bitmap);
+                    let size = (bitmap.width(), bitmap.height());
+                    spent.push(bitmap);
+                    uploaded.map(|()| size)
+                });
+                match outcome {
+                    Ok((w, h)) => inner.model.mark_label_loaded(&req.key, w, h),
+                    Err(e) => {
+                        web_sys::console::warn_1(
+                            &format!("tt-renderer: label {:?}: {e}", req.text).into(),
+                        );
+                        inner.model.mark_label_failed(&req.key);
+                    }
+                }
+            }
             for url in inner.model.take_image_requests() {
                 start_image_load(url, self.shared.loaded.clone());
             }
@@ -310,6 +333,85 @@ async fn load_bitmap(url: &str) -> Result<ImageBitmap, JsValue> {
         .await?
         .dyn_into()?;
     Ok(bitmap)
+}
+
+// ------------------------------------------------------------------ labels
+
+/// Label text size, padding and corner radius in CSS px. (The widest a label
+/// may be comes with each request.)
+const LABEL_FONT_PX: f64 = 12.0;
+const LABEL_PAD_X_PX: f64 = 6.0;
+const LABEL_PAD_Y_PX: f64 = 2.0;
+const LABEL_RADIUS_PX: f64 = 5.0;
+const ELLIPSIS: &str = "\u{2026}";
+
+fn js_text(e: JsValue) -> String {
+    e.as_string()
+        .or_else(|| js_sys::JSON::stringify(&e).ok().and_then(|s| s.as_string()))
+        .unwrap_or_else(|| "canvas error".into())
+}
+
+fn context_2d(canvas: &OffscreenCanvas) -> Result<OffscreenCanvasRenderingContext2d, String> {
+    canvas
+        .get_context("2d")
+        .map_err(js_text)?
+        .ok_or_else(|| "no 2d context".to_owned())?
+        .dyn_into::<OffscreenCanvasRenderingContext2d>()
+        .map_err(|_| "unexpected context type".to_owned())
+}
+
+/// Draw `text` on a dark rounded backing, light text, sized for `dpr`, and
+/// return it as a bitmap. The whole label is at most `max_width` CSS px wide; text wider than fits is cut with an
+/// ellipsis. Bitmap pixels / `dpr` is the size in CSS px.
+fn render_label(text: &str, dpr: f64, max_width: u32) -> Result<ImageBitmap, String> {
+    let font = format!("600 {}px sans-serif", LABEL_FONT_PX * dpr);
+    let measure = |ctx: &OffscreenCanvasRenderingContext2d, s: &str| -> f64 {
+        ctx.measure_text(s).map(|m| m.width()).unwrap_or(0.0)
+    };
+    // A scratch canvas to measure with, so the real one is sized exactly once.
+    let scratch = context_2d(&OffscreenCanvas::new(1, 1).map_err(js_text)?)?;
+    scratch.set_font(&font);
+    let max_w = (f64::from(max_width) - 2.0 * LABEL_PAD_X_PX).max(1.0) * dpr;
+    let chars: Vec<char> = text.chars().collect();
+    let mut shown: String = text.to_owned();
+    if measure(&scratch, &shown) > max_w {
+        // Longest prefix that fits with an ellipsis (binary search on char count).
+        let with_ellipsis = |n: usize| chars[..n].iter().collect::<String>() + ELLIPSIS;
+        let (mut lo, mut hi) = (0usize, chars.len());
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if measure(&scratch, &with_ellipsis(mid)) <= max_w {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        shown = chars[..lo].iter().collect::<String>().trim_end().to_owned() + ELLIPSIS;
+    }
+    let text_w = measure(&scratch, &shown).min(max_w);
+    let (pad_x, pad_y) = (LABEL_PAD_X_PX * dpr, LABEL_PAD_Y_PX * dpr);
+    let w = (text_w + 2.0 * pad_x).ceil().max(1.0);
+    let h = (LABEL_FONT_PX * dpr * 1.25 + 2.0 * pad_y).ceil().max(1.0);
+    let canvas = OffscreenCanvas::new(w as u32, h as u32).map_err(js_text)?;
+    let ctx = context_2d(&canvas)?;
+    // Rounded rectangle by arcs (no optional Canvas API needed).
+    let r = (LABEL_RADIUS_PX * dpr).min(h * 0.5);
+    ctx.begin_path();
+    ctx.move_to(r, 0.0);
+    let _ = ctx.arc_to(w, 0.0, w, h, r);
+    let _ = ctx.arc_to(w, h, 0.0, h, r);
+    let _ = ctx.arc_to(0.0, h, 0.0, 0.0, r);
+    let _ = ctx.arc_to(0.0, 0.0, w, 0.0, r);
+    ctx.close_path();
+    ctx.set_fill_style_str("rgba(16, 16, 22, 0.78)");
+    ctx.fill();
+    ctx.set_font(&font);
+    ctx.set_text_align("center");
+    ctx.set_text_baseline("middle");
+    ctx.set_fill_style_str("#f2f2f5");
+    ctx.fill_text(&shown, w * 0.5, h * 0.5 + dpr * 0.5)
+        .map_err(js_text)?;
+    canvas.transfer_to_image_bitmap().map_err(js_text)
 }
 
 // ------------------------------------------------------------------- input
