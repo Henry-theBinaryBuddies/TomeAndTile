@@ -54,8 +54,14 @@ fn cinderkite_the_simplest_case() {
     assert_eq!(c.swim_speed_feet, 0.0);
     assert!(!c.can_hover);
     let scores = c.scores.as_ref().expect("scores");
-    assert_eq!((scores.strength, scores.dexterity, scores.constitution), (6, 16, 10));
-    assert_eq!((scores.intelligence, scores.wisdom, scores.charisma), (2, 14, 6));
+    assert_eq!(
+        (scores.strength, scores.dexterity, scores.constitution),
+        (6, 16, 10)
+    );
+    assert_eq!(
+        (scores.intelligence, scores.wisdom, scores.charisma),
+        (2, 14, 6)
+    );
     assert!(c.save_proficiencies.is_empty());
     assert_eq!(c.skills.len(), 1);
     assert_eq!(c.skills[0].skill, "perception");
@@ -93,7 +99,11 @@ fn cinderkite_the_simplest_case() {
     assert_eq!(targeting.max_targets, 1);
     assert!(c.resources.is_empty());
 
-    assert!(import.report.is_empty(), "nothing should need reporting for Cinderkite: {:?}", import.report);
+    assert!(
+        import.report.is_empty(),
+        "nothing should need reporting for Cinderkite: {:?}",
+        import.report
+    );
 }
 
 #[test]
@@ -107,7 +117,10 @@ fn dune_leviathan_a_high_cr_creature_with_large_numbers() {
     assert_eq!(c.speed_feet, 40.0);
     assert_eq!(c.burrow_speed_feet, 40.0);
     assert_eq!(c.fly_speed_feet, 0.0);
-    assert_eq!(c.save_proficiencies, vec![AbilityScore::Constitution as i32]);
+    assert_eq!(
+        c.save_proficiencies,
+        vec![AbilityScore::Constitution as i32]
+    );
     assert_eq!(c.condition_immunities, vec!["blinded".to_string()]);
     assert_eq!(c.passive_perception, 11);
     assert_eq!(c.summary, "Gargantuan monstrosity, CR 16 (15,000 XP)");
@@ -203,12 +216,21 @@ fn stormhide_drake_multiattack_recharge_resistances() {
     assert!(c.resistances.is_empty());
     let mut save_profs = c.save_proficiencies.clone();
     save_profs.sort();
-    let mut expected = vec![AbilityScore::Dexterity as i32, AbilityScore::Constitution as i32];
+    let mut expected = vec![
+        AbilityScore::Dexterity as i32,
+        AbilityScore::Constitution as i32,
+    ];
     expected.sort();
     assert_eq!(save_profs, expected);
     assert_eq!(c.skills.len(), 2);
-    assert!(c.skills.iter().any(|s| s.skill == "perception" && s.bonus == 3));
-    assert!(c.skills.iter().any(|s| s.skill == "stealth" && s.bonus == 3));
+    assert!(c
+        .skills
+        .iter()
+        .any(|s| s.skill == "perception" && s.bonus == 3));
+    assert!(c
+        .skills
+        .iter()
+        .any(|s| s.skill == "stealth" && s.bonus == 3));
     assert_eq!(c.passive_perception, 13);
     assert_eq!(c.summary, "Large dragon, CR 4 (1,100 XP)");
 
@@ -266,7 +288,10 @@ fn voidbloom_seer_legendary_actions_spellcasting_hover() {
     assert_eq!(c.condition_immunities, vec!["prone".to_string()]);
     let mut save_profs = c.save_proficiencies.clone();
     save_profs.sort();
-    let mut expected = vec![AbilityScore::Intelligence as i32, AbilityScore::Wisdom as i32];
+    let mut expected = vec![
+        AbilityScore::Intelligence as i32,
+        AbilityScore::Wisdom as i32,
+    ];
     expected.sort();
     assert_eq!(save_profs, expected);
     assert_eq!(c.passive_perception, 13);

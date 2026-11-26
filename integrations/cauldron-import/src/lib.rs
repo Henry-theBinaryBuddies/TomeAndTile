@@ -138,14 +138,21 @@ pub fn import_monster(bytes: &[u8]) -> Result<Import, ImportError> {
     if kind != "monster" {
         return Err(ImportError::UnsupportedKind(describe(&root["kind"])));
     }
-    let format_version = root.get("format_version").ok_or_else(|| ImportError::MissingField("format_version".into()))?;
+    let format_version = root
+        .get("format_version")
+        .ok_or_else(|| ImportError::MissingField("format_version".into()))?;
     if format_version.as_i64() != Some(1) {
         return Err(ImportError::WrongFormatVersion(describe(format_version)));
     }
 
-    let monster = root.get("monster").ok_or_else(|| ImportError::MissingField("monster".into()))?;
+    let monster = root
+        .get("monster")
+        .ok_or_else(|| ImportError::MissingField("monster".into()))?;
     if !monster.is_object() {
-        return Err(ImportError::WrongType { field: "monster".into(), expected: "object" });
+        return Err(ImportError::WrongType {
+            field: "monster".into(),
+            expected: "object",
+        });
     }
 
     import_stat_block(monster)
@@ -155,7 +162,9 @@ pub fn import_monster(bytes: &[u8]) -> Result<Import, ImportError> {
 /// string sizes a hostile file could use to waste time or memory.
 fn check_limits(value: &Value, path: &str, depth: usize) -> Result<(), ImportError> {
     if depth > MAX_NESTING_DEPTH {
-        return Err(ImportError::NestingTooDeep { max_depth: MAX_NESTING_DEPTH });
+        return Err(ImportError::NestingTooDeep {
+            max_depth: MAX_NESTING_DEPTH,
+        });
     }
     match value {
         Value::String(s) => {
@@ -168,7 +177,10 @@ fn check_limits(value: &Value, path: &str, depth: usize) -> Result<(), ImportErr
         }
         Value::Array(items) => {
             if items.len() > MAX_LIST_LEN {
-                return Err(ImportError::ListTooLong { field: path.to_string(), max_len: MAX_LIST_LEN });
+                return Err(ImportError::ListTooLong {
+                    field: path.to_string(),
+                    max_len: MAX_LIST_LEN,
+                });
             }
             for (i, item) in items.iter().enumerate() {
                 check_limits(item, &format!("{path}[{i}]"), depth + 1)?;
@@ -176,7 +188,10 @@ fn check_limits(value: &Value, path: &str, depth: usize) -> Result<(), ImportErr
         }
         Value::Object(map) => {
             if map.len() > MAX_LIST_LEN {
-                return Err(ImportError::ListTooLong { field: path.to_string(), max_len: MAX_LIST_LEN });
+                return Err(ImportError::ListTooLong {
+                    field: path.to_string(),
+                    max_len: MAX_LIST_LEN,
+                });
             }
             for (k, v) in map {
                 check_limits(v, &format!("{path}.{k}"), depth + 1)?;
@@ -190,7 +205,10 @@ fn check_limits(value: &Value, path: &str, depth: usize) -> Result<(), ImportErr
 fn require_str<'a>(value: &'a Value, key: &str) -> Result<&'a str, ImportError> {
     match value.get(key) {
         Some(Value::String(s)) => Ok(s.as_str()),
-        Some(_) => Err(ImportError::WrongType { field: key.to_string(), expected: "string" }),
+        Some(_) => Err(ImportError::WrongType {
+            field: key.to_string(),
+            expected: "string",
+        }),
         None => Err(ImportError::MissingField(key.to_string())),
     }
 }
@@ -205,17 +223,27 @@ pub(crate) fn optional_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 fn require_i32(value: &Value, path: &str, key: &str) -> Result<i32, ImportError> {
     let field = format!("{path}.{key}");
     match value.get(key) {
-        Some(Value::Number(n)) => n
-            .as_i64()
-            .and_then(|n| i32::try_from(n).ok())
-            .ok_or(ImportError::WrongType { field, expected: "integer" }),
-        Some(_) => Err(ImportError::WrongType { field, expected: "integer" }),
+        Some(Value::Number(n)) => {
+            n.as_i64()
+                .and_then(|n| i32::try_from(n).ok())
+                .ok_or(ImportError::WrongType {
+                    field,
+                    expected: "integer",
+                })
+        }
+        Some(_) => Err(ImportError::WrongType {
+            field,
+            expected: "integer",
+        }),
         None => Err(ImportError::MissingField(field)),
     }
 }
 
 pub(crate) fn optional_i32(value: &Value, key: &str) -> Option<i32> {
-    value.get(key).and_then(Value::as_i64).and_then(|n| i32::try_from(n).ok())
+    value
+        .get(key)
+        .and_then(Value::as_i64)
+        .and_then(|n| i32::try_from(n).ok())
 }
 
 pub(crate) fn optional_f32(value: &Value, key: &str) -> Option<f32> {
@@ -319,7 +347,8 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
     let origin_notes = origin_notes(monster);
 
     let size_str = require_str(monster, "size")?;
-    let size = creature_size(size_str).ok_or_else(|| ImportError::UnknownSize(size_str.to_string()))?;
+    let size =
+        creature_size(size_str).ok_or_else(|| ImportError::UnknownSize(size_str.to_string()))?;
 
     let armor_class_obj = monster
         .get("armor_class")
@@ -336,7 +365,9 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
     let fly_speed_feet = speeds.and_then(|s| optional_f32(s, "fly")).unwrap_or(0.0);
     let swim_speed_feet = speeds.and_then(|s| optional_f32(s, "swim")).unwrap_or(0.0);
     let climb_speed_feet = speeds.and_then(|s| optional_f32(s, "climb")).unwrap_or(0.0);
-    let burrow_speed_feet = speeds.and_then(|s| optional_f32(s, "burrow")).unwrap_or(0.0);
+    let burrow_speed_feet = speeds
+        .and_then(|s| optional_f32(s, "burrow"))
+        .unwrap_or(0.0);
     let can_hover = speeds.map(|s| optional_bool(s, "hover")).unwrap_or(false);
 
     let abilities_obj = monster
@@ -360,7 +391,9 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
     let mut save_proficiencies = Vec::new();
     if let Some(saves_obj) = saves_obj {
         for (key, modifier_fn, ability_score) in SIX_ABILITIES {
-            let Some(printed) = optional_i32(saves_obj, key) else { continue };
+            let Some(printed) = optional_i32(saves_obj, key) else {
+                continue;
+            };
             save_proficiencies.push(ability_score);
             let expected = ability_modifier(modifier_fn(&scores)) + proficiency_bonus;
             if expected != printed {
@@ -384,8 +417,14 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
                 });
                 continue;
             };
-            match SKILL_IDS.iter().find(|(cauldron_name, _)| *cauldron_name == name.as_str()) {
-                Some((_, skill_id)) => skills.push(SkillBonus { skill: (*skill_id).to_string(), bonus }),
+            match SKILL_IDS
+                .iter()
+                .find(|(cauldron_name, _)| *cauldron_name == name.as_str())
+            {
+                Some((_, skill_id)) => skills.push(SkillBonus {
+                    skill: (*skill_id).to_string(),
+                    bonus,
+                }),
                 None => report.push(ReportEntry {
                     field: format!("skills.{name}"),
                     reason: "not one of the 18 SRD skills".to_string(),
@@ -403,11 +442,18 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
     let condition_immunities: Vec<String> = monster
         .get("condition_immunities")
         .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
 
     let senses = monster.get("senses");
-    let passive_perception = senses.and_then(|s| optional_i32(s, "passive_perception")).unwrap_or(0);
+    let passive_perception = senses
+        .and_then(|s| optional_i32(s, "passive_perception"))
+        .unwrap_or(0);
     if let Some(senses) = senses {
         for key in ["darkvision", "blindsight", "tremorsense", "truesight"] {
             if let Some(range) = optional_i32(senses, key) {
@@ -492,7 +538,9 @@ fn origin_notes(monster: &Value) -> String {
 }
 
 fn damage_type_list(monster: &Value, key: &str, report: &mut Vec<ReportEntry>) -> Vec<DamageType> {
-    let Some(Value::Array(list)) = monster.get(key) else { return Vec::new() };
+    let Some(Value::Array(list)) = monster.get(key) else {
+        return Vec::new();
+    };
     list.iter()
         .filter_map(|v| {
             let name = v.as_str()?;
@@ -584,13 +632,19 @@ mod tests {
         let bytes = vec![b' '; MAX_FILE_BYTES + 1];
         assert_eq!(
             import_monster(&bytes),
-            Err(ImportError::TooLarge { max_bytes: MAX_FILE_BYTES, actual_bytes: MAX_FILE_BYTES + 1 })
+            Err(ImportError::TooLarge {
+                max_bytes: MAX_FILE_BYTES,
+                actual_bytes: MAX_FILE_BYTES + 1
+            })
         );
     }
 
     #[test]
     fn invalid_utf8_is_rejected_not_panicked_on() {
-        assert_eq!(import_monster(&[0xff, 0xfe, 0xfd]), Err(ImportError::InvalidUtf8));
+        assert_eq!(
+            import_monster(&[0xff, 0xfe, 0xfd]),
+            Err(ImportError::InvalidUtf8)
+        );
     }
 
     #[test]
@@ -601,10 +655,14 @@ mod tests {
 
     #[test]
     fn the_wrong_app_is_rejected_before_anything_else_is_read() {
-        let bytes = serde_json::json!({ "app": "Something Else", "kind": "monster", "format_version": 1 })
-            .to_string()
-            .into_bytes();
-        assert_eq!(import_monster(&bytes), Err(ImportError::WrongApp("\"Something Else\"".to_string())));
+        let bytes =
+            serde_json::json!({ "app": "Something Else", "kind": "monster", "format_version": 1 })
+                .to_string()
+                .into_bytes();
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::WrongApp("\"Something Else\"".to_string()))
+        );
     }
 
     #[test]
@@ -612,7 +670,10 @@ mod tests {
         let bytes = serde_json::json!({ "app": "Creature Cauldron", "kind": "encounter", "format_version": 1 })
             .to_string()
             .into_bytes();
-        assert_eq!(import_monster(&bytes), Err(ImportError::UnsupportedKind("\"encounter\"".to_string())));
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::UnsupportedKind("\"encounter\"".to_string()))
+        );
     }
 
     #[test]
@@ -620,7 +681,10 @@ mod tests {
         let bytes = serde_json::json!({ "app": "Creature Cauldron", "kind": "monster", "format_version": 2 })
             .to_string()
             .into_bytes();
-        assert_eq!(import_monster(&bytes), Err(ImportError::WrongFormatVersion("2".to_string())));
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::WrongFormatVersion("2".to_string()))
+        );
     }
 
     #[test]
@@ -628,7 +692,10 @@ mod tests {
         let mut monster = minimal_monster();
         monster.as_object_mut().unwrap().remove("name");
         let bytes = envelope(monster);
-        assert_eq!(import_monster(&bytes), Err(ImportError::MissingField("name".to_string())));
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::MissingField("name".to_string()))
+        );
     }
 
     #[test]
@@ -636,7 +703,10 @@ mod tests {
         let mut monster = minimal_monster();
         monster["size"] = Value::String("colossal".to_string());
         let bytes = envelope(monster);
-        assert_eq!(import_monster(&bytes), Err(ImportError::UnknownSize("colossal".to_string())));
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::UnknownSize("colossal".to_string()))
+        );
     }
 
     #[test]
@@ -648,15 +718,27 @@ mod tests {
         let bytes = serde_json::json!({ "app": "Creature Cauldron", "kind": "monster", "format_version": 1, "monster": value })
             .to_string()
             .into_bytes();
-        assert_eq!(import_monster(&bytes), Err(ImportError::NestingTooDeep { max_depth: MAX_NESTING_DEPTH }));
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::NestingTooDeep {
+                max_depth: MAX_NESTING_DEPTH
+            })
+        );
     }
 
     #[test]
     fn a_list_over_its_cap_is_rejected() {
         let mut monster = minimal_monster();
-        monster["condition_immunities"] = Value::Array((0..MAX_LIST_LEN + 1).map(|_| Value::String("x".to_string())).collect());
+        monster["condition_immunities"] = Value::Array(
+            (0..MAX_LIST_LEN + 1)
+                .map(|_| Value::String("x".to_string()))
+                .collect(),
+        );
         let bytes = envelope(monster);
-        assert!(matches!(import_monster(&bytes), Err(ImportError::ListTooLong { .. })));
+        assert!(matches!(
+            import_monster(&bytes),
+            Err(ImportError::ListTooLong { .. })
+        ));
     }
 
     #[test]
@@ -664,7 +746,10 @@ mod tests {
         let mut monster = minimal_monster();
         monster["name"] = Value::String("x".repeat(MAX_STRING_LEN + 1));
         let bytes = envelope(monster);
-        assert!(matches!(import_monster(&bytes), Err(ImportError::StringTooLong { .. })));
+        assert!(matches!(
+            import_monster(&bytes),
+            Err(ImportError::StringTooLong { .. })
+        ));
     }
 
     #[test]
@@ -674,7 +759,10 @@ mod tests {
         monster["saves"] = serde_json::json!({ "con": 5 });
         let bytes = envelope(monster);
         let import = import_monster(&bytes).unwrap();
-        assert!(import.creature.save_proficiencies.contains(&(AbilityScore::Constitution as i32)));
+        assert!(import
+            .creature
+            .save_proficiencies
+            .contains(&(AbilityScore::Constitution as i32)));
         assert_eq!(import.report.len(), 1);
         assert_eq!(import.report[0].field, "saves.con");
     }
