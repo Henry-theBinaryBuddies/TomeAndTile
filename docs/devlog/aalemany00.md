@@ -2,6 +2,26 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-24 — Fix CI: web/src/lib/video/ compile against PR #88's interface additions
+
+**Did:** Per Henry's PR #88 review: John's video panel (merged over the weekend) didn't account
+for the three new `MediaFailureKind` values or the now-required `mic`/`camera`/`isSpeaking`
+fields on `ParticipantInfo`, so `npm run check` broke on `main` the moment this PR's additions
+existed. Had Claude add the minimum to compile in one commit: `view.ts`'s `FAILURE_TEXT` gained
+the three entries (using the wording I'd already suggested in issue #93), and `track.test.ts`/
+`view.test.ts`'s fakes and `person()` fixtures got the new required fields. Nothing about how the
+panel actually shows these three failures changed — that's still John's call, same as #93 says.
+Verified `npm run check` (0 errors, same pre-existing renderer-WASM gap as always), `npm test`
+(365 passing), `tools/check-deps.sh` (OK). Commented on the PR summarizing the fix; GitHub had
+already added Danny as a code-owner reviewer on these lines once I touched them.
+**Directed Claude to:** Read Henry's latest review on PR #88 and fix exactly the three files and
+lines he named, nothing more.
+**Learned:** A heads-up issue filed as "no action needed unless you're building the panel now"
+can go stale the moment someone *does* build the panel — #93 and #87 both needed a follow-up
+comment once John's panel actually landed and the gap became a real CI failure, not a someday one.
+**Blocked on / next:** Waiting on Henry's re-review and Danny's look at the three compiled-in
+lines; once CI is green he merges #86 first, then this.
+
 ## 2026-11-23 — Fix: duplicate-identity reconnect loop (from Henry's real-call test)
 
 **Did:** Henry's first real call against LiveKit Cloud found the same identity joining from two
