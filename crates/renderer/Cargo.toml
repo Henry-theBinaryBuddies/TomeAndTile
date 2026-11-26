@@ -23,6 +23,7 @@ web-sys = { version = "0.3.107", features = [
     "Window", "Document", "Blob", "HtmlCanvasElement", "ImageBitmap", "Response",
     "PointerEvent", "WheelEvent", "MouseEvent", "Event", "EventTarget",
     "DomRect", "Element", "console",
+    "OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "TextMetrics",
 ] }
 js-sys = "0.3.107"
 bytemuck = "1.25.2"

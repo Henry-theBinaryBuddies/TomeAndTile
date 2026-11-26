@@ -58,6 +58,22 @@ const BACKGROUND: [f32; 4] = [0.09, 0.09, 0.11, 1.0];
 const PLACEHOLDER: [f32; 4] = [0.15, 0.16, 0.19, 1.0];
 const PLACEHOLDER_FAILED: [f32; 4] = [0.26, 0.12, 0.12, 1.0];
 const MAX_URL_LEN: usize = 2048;
+/// Longest label text asked for (characters). Longer names are cut here, before
+/// the host shortens them further to fit its maximum width.
+const MAX_LABEL_CHARS: usize = 120;
+/// Gap (screen px) between a token's edge and the top of its name label.
+pub const LABEL_GAP_PX: f32 = 3.0;
+/// A label is hidden when its token's on-screen diameter is below this (px).
+pub const LABEL_MIN_TOKEN_PX: f64 = 20.0;
+/// A label may be this many times its token's on-screen diameter wide, within
+/// `LABEL_MIN_WIDTH_PX..=LABEL_MAX_WIDTH_PX`, rounded down to `LABEL_WIDTH_STEP_PX`.
+const LABEL_WIDTH_FACTOR: f64 = 1.25;
+pub const LABEL_MIN_WIDTH_PX: u32 = 40;
+pub const LABEL_MAX_WIDTH_PX: u32 = 140;
+pub const LABEL_WIDTH_STEP_PX: u32 = 20;
+/// Prefix of a label's image key. A key is never a fetchable URL: the first
+/// colon comes before any slash, so `loadable_url` refuses it.
+const LABEL_KEY_PREFIX: &str = "label:";
 
 /// Load state of an image the model wants drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -65,6 +81,17 @@ pub enum ImageState {
     Pending,
     Ready { width: u32, height: u32 },
     Failed,
+}
+
+/// A name label the host should render to a bitmap: `key` is the image key to
+/// upload it under, `text` the name, `dpr` the device pixel ratio it is for and
+/// `max_width` the widest it may be, in CSS px (the text is ellipsized to fit).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LabelRequest {
+    pub key: String,
+    pub text: String,
+    pub dpr: f64,
+    pub max_width: u32,
 }
 
 /// The server refused an intent.
@@ -137,6 +164,13 @@ pub struct Model {
     camera: Camera,
     needs_fit: bool,
     images: HashMap<String, ImageState>,
+    /// Name-label bitmaps by key (see `label_key`); kept apart from `images` so
+    /// labels can never be mistaken for fetches.
+    labels: HashMap<String, ImageState>,
+    /// Creature id -> name, from snapshots and `CreatureUpserted`.
+    creature_names: HashMap<String, String>,
+    /// Device pixel ratio, for label bitmap sizes. Always finite and positive.
+    dpr: f64,
     selected: Option<String>,
     interaction: Interaction,
     pending: Vec<Pending>,
@@ -165,6 +199,9 @@ impl Model {
             camera: Camera::default(),
             needs_fit: false,
             images: HashMap::new(),
+            labels: HashMap::new(),
+            creature_names: HashMap::new(),
+            dpr: 1.0,
             selected: None,
             interaction: Interaction::Idle,
             pending: Vec::new(),
@@ -223,6 +260,12 @@ impl Model {
             .collect();
         self.active_scene_id = s.active_scene_id;
         self.tokens = s.tokens.into_iter().filter_map(sanitize_token).collect();
+        self.creature_names = s
+            .creatures
+            .into_iter()
+            .filter(|c| !c.creature_id.is_empty())
+            .map(|c| (c.creature_id, c.name))
+            .collect();
         self.last_seq = s.seq;
         self.selected = None;
         self.interaction = Interaction::Idle;
@@ -278,6 +321,11 @@ impl Model {
                     }
                     // The server has answered for this token.
                     self.pending.retain(|p| p.token_id != t.token_id);
+                }
+            }
+            Some(event::Kind::CreatureUpserted(u)) => {
+                if let Some(c) = u.creature.filter(|c| !c.creature_id.is_empty()) {
+                    self.creature_names.insert(c.creature_id, c.name);
                 }
             }
             Some(event::Kind::SceneUpserted(u)) => {
@@ -480,6 +528,14 @@ impl Model {
     }
 
     // -------------------------------------------------------------- camera
+
+    /// Set the device pixel ratio name labels are rendered for. Anything not
+    /// finite and positive is ignored; the value is kept within 0.25..8.
+    pub fn set_device_pixel_ratio(&mut self, dpr: f64) {
+        if dpr.is_finite() && dpr > 0.0 {
+            self.dpr = dpr.clamp(0.25, 8.0);
+        }
+    }
 
     pub fn resize(&mut self, width: f64, height: f64) {
         self.camera.set_viewport(width, height);
@@ -779,6 +835,112 @@ impl Model {
         matches!(self.images.get(url), Some(ImageState::Ready { .. })).then(|| url.to_owned())
     }
 
+    // --------------------------------------------------------------- labels
+
+    /// The name to show under a token: its creature's name when the viewer has
+    /// received that creature, else the token's own name, else none. Control
+    /// characters and surrounding space are dropped; long names are cut.
+    pub fn label_text(&self, t: &Token) -> Option<String> {
+        let from_creature = self
+            .creature_names
+            .get(&t.creature_id)
+            .and_then(|n| clean_label(n));
+        from_creature.or_else(|| clean_label(&t.name))
+    }
+
+    fn label_key(&self, text: &str, width: u32) -> String {
+        format!("{LABEL_KEY_PREFIX}{:.2}:{width}:{text}", self.dpr)
+    }
+
+    /// The label width step (CSS px) for a token drawn `diameter_px` across, or
+    /// `None` when the token is too small on screen to label.
+    pub fn label_width_for(diameter_px: f64) -> Option<u32> {
+        if !diameter_px.is_finite() || diameter_px < LABEL_MIN_TOKEN_PX {
+            return None;
+        }
+        let w = (diameter_px * LABEL_WIDTH_FACTOR)
+            .clamp(f64::from(LABEL_MIN_WIDTH_PX), f64::from(LABEL_MAX_WIDTH_PX))
+            as u32;
+        Some(w / LABEL_WIDTH_STEP_PX * LABEL_WIDTH_STEP_PX)
+    }
+
+    /// Label text and width step for a token at the current zoom.
+    fn label_spec(&self, t: &Token) -> Option<(String, u32)> {
+        let width = Self::label_width_for(self.token_diameter(t) * self.camera.zoom)?;
+        Some((self.label_text(t)?, width))
+    }
+
+    /// Labels the model wants rendered and has not asked for before (one per
+    /// distinct text, device pixel ratio and width step, for tokens on the drawn
+    /// scene and level that are big enough on screen). Marks them pending, so
+    /// each is returned once.
+    pub fn take_label_requests(&mut self) -> Vec<LabelRequest> {
+        let mut out = Vec::new();
+        let specs: Vec<(String, u32)> = self
+            .tokens
+            .iter()
+            .filter(|t| self.on_view(t))
+            .filter_map(|t| self.label_spec(t))
+            .collect();
+        for (text, max_width) in specs {
+            let key = self.label_key(&text, max_width);
+            if !self.labels.contains_key(&key) {
+                self.labels.insert(key.clone(), ImageState::Pending);
+                out.push(LabelRequest {
+                    key,
+                    text,
+                    dpr: self.dpr,
+                    max_width,
+                });
+            }
+        }
+        out
+    }
+
+    pub fn mark_label_loaded(&mut self, key: &str, width: u32, height: u32) {
+        self.labels
+            .insert(key.to_owned(), ImageState::Ready { width, height });
+    }
+
+    pub fn mark_label_failed(&mut self, key: &str) {
+        self.labels.insert(key.to_owned(), ImageState::Failed);
+    }
+
+    pub fn label_state(&self, key: &str) -> Option<ImageState> {
+        self.labels.get(key).copied()
+    }
+
+    /// The label of `t`, centred under its disc, at a fixed screen size
+    /// (bitmap pixels over the device pixel ratio). Nothing until it is ready.
+    fn push_label(&self, items: &mut Vec<DrawItem>, t: &Token) {
+        let Some((text, width_step)) = self.label_spec(t) else {
+            return;
+        };
+        let key = self.label_key(&text, width_step);
+        let Some(ImageState::Ready { width, height }) = self.labels.get(&key).copied() else {
+            return;
+        };
+        if width == 0 || height == 0 {
+            return;
+        }
+        let cam = &self.camera;
+        let s = cam.world_to_screen(self.display_pos(t));
+        let r = (self.token_diameter(t) * 0.5 * cam.zoom).max(3.0) as f32;
+        let (w, h) = (
+            width as f32 / self.dpr as f32,
+            height as f32 / self.dpr as f32,
+        );
+        let x0 = s.x as f32 - w * 0.5;
+        let y0 = s.y as f32 + r + LABEL_GAP_PX;
+        items.push(DrawItem::Image {
+            url: key,
+            x0,
+            y0,
+            x1: x0 + w,
+            y1: y0 + h,
+        });
+    }
+
     // ------------------------------------------------------------ draw list
 
     /// What to draw this frame. Pure: depends only on the model.
@@ -858,6 +1020,20 @@ impl Model {
                 });
             }
             self.push_token(&mut items, t);
+        }
+        // Name labels last, so they stay readable over every token and ring.
+        // Same order as the tokens: the dragged one, and so its label, last.
+        for t in visible
+            .iter()
+            .filter(|t| Some(t.token_id.as_str()) != dragged)
+        {
+            self.push_label(&mut items, t);
+        }
+        if let Some(t) = visible
+            .iter()
+            .find(|t| Some(t.token_id.as_str()) == dragged)
+        {
+            self.push_label(&mut items, t);
         }
         DrawList {
             background: BACKGROUND,
@@ -1031,6 +1207,14 @@ pub fn loadable_url(url: &str) -> bool {
         Some(i) => url.as_bytes()[i] != b':',
         None => true,
     }
+}
+
+/// Label text: control characters removed, trimmed, at most `MAX_LABEL_CHARS`
+/// characters; `None` if nothing is left.
+fn clean_label(name: &str) -> Option<String> {
+    let cleaned: String = name.chars().filter(|c| !c.is_control()).collect();
+    let cleaned: String = cleaned.trim().chars().take(MAX_LABEL_CHARS).collect();
+    (!cleaned.is_empty()).then_some(cleaned)
 }
 
 fn vec2_to_pt(v: &Vec2) -> Option<Pt> {
