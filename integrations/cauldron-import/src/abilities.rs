@@ -18,11 +18,17 @@ use tt_contracts::v1::{
     SaveStep, TargetShape, Targeting,
 };
 
-use crate::{damage_type, optional_bool, optional_f32, optional_i32, optional_str, ReportEntry, SIX_ABILITIES};
+use crate::{
+    damage_type, optional_bool, optional_f32, optional_i32, optional_str, ReportEntry,
+    SIX_ABILITIES,
+};
 
 /// Builds `Creature.abilities` and `Creature.resources` from one monster payload, in file order:
 /// traits, then actions, bonus actions, reactions, legendary actions and spellcasting.
-pub(crate) fn build(monster: &Value, report: &mut Vec<ReportEntry>) -> (Vec<Ability>, Vec<Resource>) {
+pub(crate) fn build(
+    monster: &Value,
+    report: &mut Vec<ReportEntry>,
+) -> (Vec<Ability>, Vec<Resource>) {
     let mut ids: HashMap<String, u32> = HashMap::new();
     let mut abilities = Vec::new();
     let mut resources = Vec::new();
@@ -51,7 +57,11 @@ pub(crate) fn build(monster: &Value, report: &mut Vec<ReportEntry>) -> (Vec<Abil
 }
 
 fn array<'a>(monster: &'a Value, key: &str) -> &'a [Value] {
-    monster.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+    monster
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 /// A slug of `name`: lower case, with every run of non-alphanumeric characters collapsed to one
@@ -117,7 +127,11 @@ fn provenance() -> Provenance {
     }
 }
 
-fn required_name<'a>(entry: &'a Value, report: &mut Vec<ReportEntry>, array_key: &str) -> Option<&'a str> {
+fn required_name<'a>(
+    entry: &'a Value,
+    report: &mut Vec<ReportEntry>,
+    array_key: &str,
+) -> Option<&'a str> {
     match optional_str(entry, "name") {
         Some(n) => Some(n),
         None => {
@@ -134,7 +148,9 @@ fn recharge(entry: &Value) -> Option<Recharge> {
     entry
         .get("recharge")
         .and_then(|r| optional_i32(r, "min"))
-        .map(|min| Recharge { min_roll: min.max(0) as u32 })
+        .map(|min| Recharge {
+            min_roll: min.max(0) as u32,
+        })
 }
 
 /// Prose in `effects_text`, when present, is never parsed into a condition: it is appended to
@@ -162,15 +178,24 @@ fn dice_string(dice: &str, bonus: i32) -> String {
     }
 }
 
-fn damage_parts(value: Option<&Value>, name: &str, report: &mut Vec<ReportEntry>) -> Vec<DamagePart> {
-    let Some(Value::Array(list)) = value else { return Vec::new() };
+fn damage_parts(
+    value: Option<&Value>,
+    name: &str,
+    report: &mut Vec<ReportEntry>,
+) -> Vec<DamagePart> {
+    let Some(Value::Array(list)) = value else {
+        return Vec::new();
+    };
     list.iter()
         .filter_map(|roll| {
             let dice = roll.get("dice").and_then(Value::as_str)?;
             let bonus = optional_i32(roll, "bonus").unwrap_or(0);
             let type_name = roll.get("type").and_then(Value::as_str).unwrap_or("");
             match damage_type(type_name) {
-                Some(d) => Some(DamagePart { dice: dice_string(dice, bonus), r#type: d as i32 }),
+                Some(d) => Some(DamagePart {
+                    dice: dice_string(dice, bonus),
+                    r#type: d as i32,
+                }),
                 None => {
                     report.push(ReportEntry {
                         field: format!("{name}.damage"),
@@ -190,14 +215,19 @@ fn attack_targeting(attack: &Value, name: &str, report: &mut Vec<ReportEntry>) -
     let range_feet = optional_f32(attack, "reach")
         .or_else(|| attack.get("range").and_then(|r| optional_f32(r, "normal")))
         .unwrap_or(0.0);
-    let long_range_feet = attack.get("range").and_then(|r| optional_f32(r, "long")).unwrap_or(0.0);
+    let long_range_feet = attack
+        .get("range")
+        .and_then(|r| optional_f32(r, "long"))
+        .unwrap_or(0.0);
     let targets = optional_str(attack, "targets").unwrap_or("");
     let max_targets = if targets == "one target" {
         1
     } else {
         report.push(ReportEntry {
             field: format!("{name}.attack.targets"),
-            reason: format!("targets wording \"{targets}\" is not \"one target\"; max_targets left unset"),
+            reason: format!(
+                "targets wording \"{targets}\" is not \"one target\"; max_targets left unset"
+            ),
         });
         0
     };
@@ -216,7 +246,11 @@ fn attack_targeting(attack: &Value, name: &str, report: &mut Vec<ReportEntry>) -
 /// guessing a shape.
 fn save_targeting(area: Option<&Value>, name: &str, report: &mut Vec<ReportEntry>) -> Targeting {
     let Some(area) = area else {
-        return Targeting { shape: TargetShape::Creatures as i32, max_targets: 1, ..Default::default() };
+        return Targeting {
+            shape: TargetShape::Creatures as i32,
+            max_targets: 1,
+            ..Default::default()
+        };
     };
     let shape_str = optional_str(area, "shape").unwrap_or("");
     let shape = match shape_str {
@@ -229,7 +263,12 @@ fn save_targeting(area: Option<&Value>, name: &str, report: &mut Vec<ReportEntry
     let size_feet = optional_f32(area, "size").unwrap_or(0.0);
     let width_feet = optional_f32(area, "width").unwrap_or(0.0);
     match shape {
-        Some(shape) => Targeting { shape: shape as i32, size_feet, width_feet, ..Default::default() },
+        Some(shape) => Targeting {
+            shape: shape as i32,
+            size_feet,
+            width_feet,
+            ..Default::default()
+        },
         None => {
             report.push(ReportEntry {
                 field: format!("{name}.area.shape"),
@@ -242,7 +281,11 @@ fn save_targeting(area: Option<&Value>, name: &str, report: &mut Vec<ReportEntry
 
 type AbilityFields = (String, Vec<tt_contracts::v1::EffectStep>, Option<Targeting>);
 
-fn attack_fields(entry: &Value, name: &str, report: &mut Vec<ReportEntry>) -> Option<AbilityFields> {
+fn attack_fields(
+    entry: &Value,
+    name: &str,
+    report: &mut Vec<ReportEntry>,
+) -> Option<AbilityFields> {
     let Some(attack) = entry.get("attack") else {
         report.push(ReportEntry {
             field: name.to_string(),
@@ -261,7 +304,10 @@ fn attack_fields(entry: &Value, name: &str, report: &mut Vec<ReportEntry>) -> Op
     let targeting = attack_targeting(attack, name, report);
     let description = effects_text_description(entry, name, report);
     let step = tt_contracts::v1::EffectStep {
-        step: Some(effect_step::Step::Attack(AttackStep { to_hit_bonus: to_hit, damage })),
+        step: Some(effect_step::Step::Attack(AttackStep {
+            to_hit_bonus: to_hit,
+            damage,
+        })),
     };
     Some((description, vec![step], Some(targeting)))
 }
@@ -275,7 +321,8 @@ fn save_fields(entry: &Value, name: &str, report: &mut Vec<ReportEntry>) -> Opti
         return None;
     };
     let ability_str = optional_str(save, "ability").unwrap_or("");
-    let Some((_, _, ability_score)) = SIX_ABILITIES.iter().find(|(k, _, _)| *k == ability_str) else {
+    let Some((_, _, ability_score)) = SIX_ABILITIES.iter().find(|(k, _, _)| *k == ability_str)
+    else {
         report.push(ReportEntry {
             field: format!("{name}.save.ability"),
             reason: format!("\"{ability_str}\" is not a known ability; ability skipped"),
@@ -325,7 +372,10 @@ fn multiattack_fields(entry: &Value, name: &str, report: &mut Vec<ReportEntry>) 
             Some(format!("{action} {}", count_phrase(count)))
         })
         .collect();
-    report.push(ReportEntry { field: name.to_string(), reason: "multiattack resolved by hand".to_string() });
+    report.push(ReportEntry {
+        field: name.to_string(),
+        reason: "multiattack resolved by hand".to_string(),
+    });
     (parts.join(", then "), Vec::new(), None)
 }
 
@@ -389,7 +439,9 @@ fn legendary_actions(
         max: per_round,
     });
     for option in array(legendary, "options") {
-        let Some(name) = required_name(option, report, "legendary_actions.options") else { continue };
+        let Some(name) = required_name(option, report, "legendary_actions.options") else {
+            continue;
+        };
         let ability_id = unique_id(ids, name);
         let cost = optional_i32(option, "cost").unwrap_or(1);
         abilities.push(Ability {
@@ -420,8 +472,13 @@ fn spell_ability(
     resource_amount: i32,
     array_key: &str,
 ) {
-    let Some(name) = required_name(spell, report, array_key) else { return };
-    report.push(ReportEntry { field: name.to_string(), reason: "spell effect not in the export".to_string() });
+    let Some(name) = required_name(spell, report, array_key) else {
+        return;
+    };
+    report.push(ReportEntry {
+        field: name.to_string(),
+        reason: "spell effect not in the export".to_string(),
+    });
     abilities.push(Ability {
         ability_id: unique_id(ids, name),
         name: name.to_string(),
@@ -446,7 +503,11 @@ fn spellcasting_abilities(
 ) {
     let intro = optional_str(spellcasting, "intro").unwrap_or("");
     let footer = optional_str(spellcasting, "footer").unwrap_or("");
-    let description = if footer.is_empty() { intro.to_string() } else { format!("{intro}\n\n{footer}") };
+    let description = if footer.is_empty() {
+        intro.to_string()
+    } else {
+        format!("{intro}\n\n{footer}")
+    };
     if !description.is_empty() {
         abilities.push(Ability {
             ability_id: unique_id(ids, "Spellcasting"),
@@ -473,7 +534,12 @@ fn spellcasting_abilities(
         let level = optional_i32(level_entry, "level").unwrap_or(0);
         let slots = optional_i32(level_entry, "slots").unwrap_or(0);
         let key = format!("spell_slot_{level}");
-        resources.push(Resource { key: key.clone(), label: format!("Level {level} Slots"), current: slots, max: slots });
+        resources.push(Resource {
+            key: key.clone(),
+            label: format!("Level {level} Slots"),
+            current: slots,
+            max: slots,
+        });
         for spell in array(level_entry, "spells") {
             spell_ability(spell, ids, report, abilities, &key, 1, "spellcasting.slots.spells");
         }
@@ -486,18 +552,51 @@ fn spellcasting_abilities(
             for spell in spells {
                 let Some(spell_name) = optional_str(spell, "name") else { continue };
                 let key = format!("{}_per_day", resource_slug(spell_name));
-                resources.push(Resource { key: key.clone(), label: spell_name.to_string(), current: uses, max: uses });
-                spell_ability(spell, ids, report, abilities, &key, 1, "spellcasting.per_day.spells");
+                resources.push(Resource {
+                    key: key.clone(),
+                    label: spell_name.to_string(),
+                    current: uses,
+                    max: uses,
+                });
+                spell_ability(
+                    spell,
+                    ids,
+                    report,
+                    abilities,
+                    &key,
+                    1,
+                    "spellcasting.per_day.spells",
+                );
             }
         } else {
             let names: Vec<&str> = spells.iter().filter_map(|s| optional_str(s, "name")).collect();
             if names.is_empty() {
                 continue;
             }
-            let key = format!("{}_per_day", names.iter().map(|n| resource_slug(n)).collect::<Vec<_>>().join("_"));
-            resources.push(Resource { key: key.clone(), label: names.join(" / "), current: uses, max: uses });
+            let key = format!(
+                "{}_per_day",
+                names
+                    .iter()
+                    .map(|n| resource_slug(n))
+                    .collect::<Vec<_>>()
+                    .join("_")
+            );
+            resources.push(Resource {
+                key: key.clone(),
+                label: names.join(" / "),
+                current: uses,
+                max: uses,
+            });
             for spell in spells {
-                spell_ability(spell, ids, report, abilities, &key, 1, "spellcasting.per_day.spells");
+                spell_ability(
+                    spell,
+                    ids,
+                    report,
+                    abilities,
+                    &key,
+                    1,
+                    "spellcasting.per_day.spells",
+                );
             }
         }
     }

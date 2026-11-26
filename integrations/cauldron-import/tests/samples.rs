@@ -6,7 +6,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use tt_cauldron_import::{import_monster, Import};
-use tt_contracts::v1::{effect_step, Ability, ActionCost, AbilityScore, CreatureKind, CreatureSize, DamageType, TargetShape};
+use tt_contracts::v1::{
+    effect_step, Ability, AbilityScore, ActionCost, CreatureKind, CreatureSize, DamageType,
+    TargetShape,
+};
 
 fn load(name: &str) -> Import {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -20,7 +23,12 @@ fn ability<'a>(abilities: &'a [Ability], name: &str) -> &'a Ability {
     abilities
         .iter()
         .find(|a| a.name == name)
-        .unwrap_or_else(|| panic!("no ability named {name:?} (have {:?})", abilities.iter().map(|a| &a.name).collect::<Vec<_>>()))
+        .unwrap_or_else(|| {
+            panic!(
+                "no ability named {name:?} (have {:?})",
+                abilities.iter().map(|a| &a.name).collect::<Vec<_>>()
+            )
+        })
 }
 
 fn attack_step(a: &Ability) -> &tt_contracts::v1::AttackStep {
@@ -79,7 +87,12 @@ fn cinderkite_the_simplest_case() {
     assert_eq!(prov.attribution, "");
 
     // #106: one trait (passive) and one attack action.
-    assert_eq!(c.abilities.len(), 2, "{:?}", c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>());
+    assert_eq!(
+        c.abilities.len(),
+        2,
+        "{:?}",
+        c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
     let sight = ability(&c.abilities, "Keen Sight");
     assert_eq!(sight.cost, ActionCost::Passive as i32);
     assert!(sight.steps.is_empty());
@@ -126,7 +139,12 @@ fn dune_leviathan_a_high_cr_creature_with_large_numbers() {
     assert_eq!(c.summary, "Gargantuan monstrosity, CR 16 (15,000 XP)");
 
     // Multiattack (no steps) plus a save ability, per the issue's acceptance list.
-    assert_eq!(c.abilities.len(), 5, "{:?}", c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>());
+    assert_eq!(
+        c.abilities.len(),
+        5,
+        "{:?}",
+        c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
     let multi = ability(&c.abilities, "Multiattack");
     assert!(multi.steps.is_empty());
     assert_eq!(multi.description, "Bite once, then Tail once");
@@ -150,7 +168,10 @@ fn dune_leviathan_a_high_cr_creature_with_large_numbers() {
     // tremorsense has no field on Creature and is reported; multiattack is always reported.
     assert_eq!(import.report.len(), 2, "{:?}", import.report);
     assert!(import.report.iter().any(|r| r.field == "senses.tremorsense"));
-    assert!(import.report.iter().any(|r| r.field == "Multiattack" && r.reason.contains("resolved by hand")));
+    assert!(import
+        .report
+        .iter()
+        .any(|r| r.field == "Multiattack" && r.reason.contains("resolved by hand")));
 }
 
 #[test]
@@ -168,7 +189,12 @@ fn hollowvale_hexer_spell_slot_resources() {
     assert_eq!(c.summary, "Medium humanoid, CR 2 (450 XP)");
 
     // 2 weapon/spell attacks, 1 passive "Spellcasting", 2 cantrips, 4 slot spells = 9.
-    assert_eq!(c.abilities.len(), 9, "{:?}", c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>());
+    assert_eq!(
+        c.abilities.len(),
+        9,
+        "{:?}",
+        c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
     let dagger = ability(&c.abilities, "Dagger");
     let step = attack_step(dagger);
     assert_eq!(step.damage[0].dice, "1d4+1");
@@ -235,7 +261,12 @@ fn stormhide_drake_multiattack_recharge_resistances() {
     assert_eq!(c.summary, "Large dragon, CR 4 (1,100 XP)");
 
     // Static Hide (passive), Multiattack, Bite, Claw, Stormbreath.
-    assert_eq!(c.abilities.len(), 5, "{:?}", c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>());
+    assert_eq!(
+        c.abilities.len(),
+        5,
+        "{:?}",
+        c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
     let bite = ability(&c.abilities, "Bite");
     let bite_step = attack_step(bite);
     assert_eq!(bite_step.to_hit_bonus, 6);
@@ -300,15 +331,38 @@ fn voidbloom_seer_legendary_actions_spellcasting_hover() {
     // Multiattack, Mind Lash (attack), Dread Pulse (save), 3 legendary options (one of them
     // also named "Mind Lash" -- exercises ability_id uniqueness), Spellcasting, 2 at-will
     // spells, 1 per-day spell = 10.
-    assert_eq!(c.abilities.len(), 10, "{:?}", c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>());
+    assert_eq!(
+        c.abilities.len(),
+        10,
+        "{:?}",
+        c.abilities.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
 
-    let mind_lash_attacks: Vec<&Ability> = c.abilities.iter().filter(|a| a.name == "Mind Lash").collect();
-    assert_eq!(mind_lash_attacks.len(), 2, "one attack action, one legendary option, same name");
-    let ids: Vec<&str> = mind_lash_attacks.iter().map(|a| a.ability_id.as_str()).collect();
+    let mind_lash_attacks: Vec<&Ability> = c
+        .abilities
+        .iter()
+        .filter(|a| a.name == "Mind Lash")
+        .collect();
+    assert_eq!(
+        mind_lash_attacks.len(),
+        2,
+        "one attack action, one legendary option, same name"
+    );
+    let ids: Vec<&str> = mind_lash_attacks
+        .iter()
+        .map(|a| a.ability_id.as_str())
+        .collect();
     assert!(ids.contains(&"mind-lash"));
-    assert!(ids.contains(&"mind-lash-2"), "the second 'Mind Lash' gets a -2 suffix: {ids:?}");
+    assert!(
+        ids.contains(&"mind-lash-2"),
+        "the second 'Mind Lash' gets a -2 suffix: {ids:?}"
+    );
 
-    let mind_lash_attack: &Ability = mind_lash_attacks.iter().find(|a| a.ability_id == "mind-lash").copied().unwrap();
+    let mind_lash_attack: &Ability = mind_lash_attacks
+        .iter()
+        .find(|a| a.ability_id == "mind-lash")
+        .copied()
+        .unwrap();
     let step = attack_step(mind_lash_attack);
     assert_eq!(step.to_hit_bonus, 8);
     assert_eq!(step.damage[0].dice, "3d8+5");
@@ -316,7 +370,10 @@ fn voidbloom_seer_legendary_actions_spellcasting_hover() {
     assert_eq!(targeting.max_targets, 0, "\"one creature\" is not \"one target\": left unset");
     assert_eq!(targeting.range_feet, 60.0);
 
-    let mind_lash_legendary = mind_lash_attacks.iter().find(|a| a.ability_id == "mind-lash-2").unwrap();
+    let mind_lash_legendary = mind_lash_attacks
+        .iter()
+        .find(|a| a.ability_id == "mind-lash-2")
+        .unwrap();
     assert_eq!(mind_lash_legendary.cost, ActionCost::Legendary as i32);
     assert_eq!(mind_lash_legendary.resource_key, "legendary_actions");
     assert_eq!(mind_lash_legendary.resource_amount, 1);
@@ -325,9 +382,17 @@ fn voidbloom_seer_legendary_actions_spellcasting_hover() {
     assert_eq!(unsettling.resource_amount, 2);
 
     assert_eq!(c.resources.len(), 2);
-    let legendary = c.resources.iter().find(|r| r.key == "legendary_actions").expect("legendary_actions");
+    let legendary = c
+        .resources
+        .iter()
+        .find(|r| r.key == "legendary_actions")
+        .expect("legendary_actions");
     assert_eq!((legendary.current, legendary.max), (3, 3));
-    let confusion_pool = c.resources.iter().find(|r| r.key == "confusion_per_day").expect("confusion_per_day");
+    let confusion_pool = c
+        .resources
+        .iter()
+        .find(|r| r.key == "confusion_per_day")
+        .expect("confusion_per_day");
     assert_eq!((confusion_pool.current, confusion_pool.max), (1, 1));
 
     let confusion = ability(&c.abilities, "confusion");
