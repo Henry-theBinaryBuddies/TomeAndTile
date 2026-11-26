@@ -3755,3 +3755,258 @@ mod encountering {
         assert!(stored(&c, "token-brannoch").condition_timers.is_empty());
     }
 }
+
+// ------------------------------------------------------------ creature import
+
+mod import {
+    use super::*;
+    use crate::campaign::{
+        GroupKind, ImportOutcome, MAX_ABILITIES, MAX_CREATURES, MAX_CREATURE_NAME_CHARS,
+        MAX_RESOURCES,
+    };
+    use tt_contracts::v1::{
+        effect_step, Ability, AttackStep, DamagePart, EffectStep, FlatStep, Provenance, Resource,
+        Warning,
+    };
+
+    fn imported(name: &str, external_id: &str) -> Creature {
+        Creature {
+            creature_id: "client-chosen".into(),
+            name: name.into(),
+            owner_user_id: "alice".into(),
+            hp_current: 7,
+            hp_max: 9,
+            provenance: Some(Provenance {
+                source: "adventurers-anvil".into(),
+                external_id: external_id.into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn with_dice(mut c: Creature, damage: &str, healing: &str) -> Creature {
+        let step = |s| EffectStep { step: Some(s) };
+        c.abilities.push(Ability {
+            ability_id: "a".into(),
+            name: "a".into(),
+            steps: vec![
+                step(effect_step::Step::Attack(AttackStep {
+                    to_hit_bonus: 3,
+                    damage: vec![DamagePart {
+                        dice: damage.into(),
+                        ..Default::default()
+                    }],
+                })),
+                step(effect_step::Step::Flat(FlatStep {
+                    damage: vec![],
+                    healing_dice: healing.into(),
+                })),
+            ],
+            ..Default::default()
+        });
+        c
+    }
+
+    fn run_import(
+        c: &mut Campaign,
+        who: &str,
+        creature: Creature,
+        ids: &mut SequentialIds,
+    ) -> Result<ImportOutcome, Rejection> {
+        c.import_creature(who, creature, Vec::new(), 5_000, ids)
+    }
+
+    #[test]
+    fn a_new_import_mints_an_id_clears_the_owner_and_logs_one_event() {
+        let mut c = campaign();
+        let mut ids = SequentialIds::new();
+        let seq0 = c.seq;
+        let n = c.creatures.len();
+        let o = run_import(&mut c, "gm", imported("Wolf", "w1"), &mut ids).unwrap();
+        assert!(!o.replaced);
+        assert_ne!(o.creature.creature_id, "client-chosen");
+        assert_eq!(o.creature.creature_id, SequentialIds::new().next_id(5_000));
+        assert_eq!(o.creature.owner_user_id, "");
+        assert_eq!(c.creatures.len(), n + 1);
+        assert_eq!(c.creatures.last(), Some(&o.creature));
+        let e = &o.event;
+        assert_eq!((e.seq, e.at_ms), (seq0 + 1, 5_000));
+        assert_eq!(c.seq, seq0 + 1);
+        assert_eq!(c.log.last(), Some(e));
+        assert_eq!(e.actor_user_id, "gm");
+        assert_eq!(e.client_intent_id, "");
+        assert_eq!(e.scene_id, "s1");
+        match e.kind.as_ref() {
+            Some(event::Kind::CreatureUpserted(u)) => {
+                assert_eq!(u.creature.as_ref(), Some(&o.creature))
+            }
+            other => panic!("expected CreatureUpserted, got {other:?}"),
+        }
+        let g = c.groups.last().expect("a group");
+        assert_eq!(g.kind, GroupKind::NotUndoable);
+        assert_eq!((g.first_seq, g.last_seq), (e.seq, e.seq));
+        assert_eq!(
+            g.changed_creature_ids,
+            std::slice::from_ref(&o.creature.creature_id)
+        );
+    }
+
+    #[test]
+    fn warnings_ride_on_the_event() {
+        let mut c = campaign();
+        let w = Warning {
+            code: "kept_as_text".into(),
+            message: "multiattack".into(),
+        };
+        let o = c
+            .import_creature(
+                "gm",
+                imported("Wolf", "w1"),
+                vec![w.clone()],
+                1,
+                &mut SequentialIds::new(),
+            )
+            .unwrap();
+        assert_eq!(o.event.warnings, [w]);
+    }
+
+    #[test]
+    fn a_re_import_replaces_in_place_and_keeps_the_id_and_token_hp() {
+        let mut c = campaign();
+        let mut ids = SequentialIds::new();
+        let first = run_import(&mut c, "gm", imported("Wolf", "w1"), &mut ids).unwrap();
+        let id = first.creature.creature_id.clone();
+        c.tokens.push(token("t-wolf", &id, &[], false, 1.0));
+        let n = c.creatures.len();
+        let mut again = imported("Dire Wolf", "w1");
+        again.hp_max = 30;
+        again.hp_current = 30;
+        let second = run_import(&mut c, "gm", again, &mut ids).unwrap();
+        assert!(second.replaced);
+        assert_eq!(second.creature.creature_id, id);
+        assert_eq!(c.creatures.len(), n);
+        let stored: Vec<_> = c.creatures.iter().filter(|x| x.creature_id == id).collect();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].name, "Dire Wolf");
+        let t = c.tokens.iter().find(|t| t.token_id == "t-wolf").unwrap();
+        assert_eq!((t.hp_current, t.hp_max), (Some(10), Some(12)));
+        assert_eq!(c.seq, 2);
+    }
+
+    #[test]
+    fn a_re_import_keeps_the_existing_owner() {
+        let mut c = campaign();
+        let mut ids = SequentialIds::new();
+        let first = run_import(&mut c, "gm", imported("Wolf", "w1"), &mut ids).unwrap();
+        assert_eq!(first.creature.owner_user_id, "");
+        let i = c.creatures.len() - 1;
+        c.creatures[i].owner_user_id = "bob".into();
+        let second = run_import(&mut c, "gm", imported("Wolf", "w1"), &mut ids).unwrap();
+        assert!(second.replaced);
+        assert_eq!(second.creature.owner_user_id, "bob");
+        assert_eq!(c.creatures[i].owner_user_id, "bob");
+    }
+
+    #[test]
+    fn matching_needs_the_same_source_and_a_non_empty_external_id() {
+        let mut c = campaign();
+        let mut ids = SequentialIds::new();
+        let a = run_import(&mut c, "gm", imported("A", "x"), &mut ids).unwrap();
+        let mut other_source = imported("A", "x");
+        other_source.provenance.as_mut().unwrap().source = "creature-cauldron".into();
+        let b = run_import(&mut c, "gm", other_source, &mut ids).unwrap();
+        assert!(!b.replaced);
+        assert_ne!(a.creature.creature_id, b.creature.creature_id);
+        let e1 = run_import(&mut c, "gm", imported("E", ""), &mut ids).unwrap();
+        let e2 = run_import(&mut c, "gm", imported("E", ""), &mut ids).unwrap();
+        assert!(!e1.replaced && !e2.replaced);
+        assert_ne!(e1.creature.creature_id, e2.creature.creature_id);
+    }
+
+    #[test]
+    fn invalid_creatures_are_refused_and_change_nothing() {
+        let good = imported("Wolf", "w1");
+        let mut cases: Vec<(&str, Creature)> = vec![
+            ("empty name", imported("  ", "w1")),
+            (
+                "long name",
+                imported(&"n".repeat(MAX_CREATURE_NAME_CHARS + 1), "w1"),
+            ),
+            ("bad attack dice", with_dice(good.clone(), "2d7", "")),
+            ("empty attack dice", with_dice(good.clone(), "", "")),
+            ("bad healing dice", with_dice(good.clone(), "1d6", "nope")),
+        ];
+        let mut c = good.clone();
+        c.abilities = vec![Ability::default(); MAX_ABILITIES + 1];
+        cases.push(("abilities", c));
+        let mut c = good.clone();
+        c.resources = vec![Resource::default(); MAX_RESOURCES + 1];
+        cases.push(("resources", c));
+        let mut c = good.clone();
+        c.hp_max = -1;
+        c.hp_current = 0;
+        cases.push(("negative max", c));
+        let mut c = good.clone();
+        c.hp_current = 10;
+        cases.push(("hp over max", c));
+        let mut c = good.clone();
+        c.hp_current = -1;
+        cases.push(("negative hp", c));
+        let mut c = good.clone();
+        c.provenance = None;
+        cases.push(("no provenance", c));
+        let mut c = good;
+        c.provenance.as_mut().unwrap().source.clear();
+        cases.push(("empty source", c));
+        for (what, creature) in cases {
+            let mut c = campaign();
+            let before = (c.seq, c.creatures.clone(), c.log.len(), c.groups.len());
+            let err =
+                run_import(&mut c, "gm", creature, &mut SequentialIds::new()).expect_err(what);
+            assert_eq!(err.code, "bad_creature", "{what}: {}", err.message);
+            assert_eq!(
+                (c.seq, c.creatures.clone(), c.log.len(), c.groups.len()),
+                before,
+                "{what}"
+            );
+        }
+    }
+
+    #[test]
+    fn valid_dice_pass_validation() {
+        let mut c = campaign();
+        let ok = with_dice(imported("Wolf", "w1"), "1d6+2", "2d4+1");
+        assert!(run_import(&mut c, "gm", ok, &mut SequentialIds::new()).is_ok());
+    }
+
+    #[test]
+    fn only_the_gm_may_import() {
+        for who in ["alice", "spec", "stranger"] {
+            let mut c = campaign();
+            let err =
+                run_import(&mut c, who, imported("W", "w"), &mut SequentialIds::new()).unwrap_err();
+            assert_eq!(err.code, "not_permitted", "{who}");
+            assert_eq!(c.seq, 0);
+        }
+    }
+
+    #[test]
+    fn the_cap_refuses_a_new_creature_but_allows_a_re_import() {
+        let mut c = campaign();
+        let mut ids = SequentialIds::new();
+        let first = run_import(&mut c, "gm", imported("Wolf", "w1"), &mut ids).unwrap();
+        while c.creatures.len() < MAX_CREATURES {
+            let n = c.creatures.len();
+            c.creatures.push(creature(&format!("filler-{n}"), ""));
+        }
+        let seq = c.seq;
+        let err = run_import(&mut c, "gm", imported("Bear", "b1"), &mut ids).unwrap_err();
+        assert_eq!(err.code, "too_many_creatures");
+        assert_eq!((c.seq, c.creatures.len()), (seq, MAX_CREATURES));
+        let again = run_import(&mut c, "gm", imported("Wolf 2", "w1"), &mut ids).unwrap();
+        assert!(again.replaced);
+        assert_eq!(again.creature.creature_id, first.creature.creature_id);
+        assert_eq!(c.creatures.len(), MAX_CREATURES);
+    }
+}
