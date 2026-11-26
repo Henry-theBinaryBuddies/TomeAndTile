@@ -46,13 +46,27 @@ pub struct Import {
 /// message never has to guess at what went wrong.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportError {
-    TooLarge { max_bytes: usize, actual_bytes: usize },
+    TooLarge {
+        max_bytes: usize,
+        actual_bytes: usize,
+    },
     InvalidUtf8,
     InvalidJson(String),
-    WrongType { field: String, expected: &'static str },
-    NestingTooDeep { max_depth: usize },
-    ListTooLong { field: String, max_len: usize },
-    StringTooLong { field: String, max_len: usize },
+    WrongType {
+        field: String,
+        expected: &'static str,
+    },
+    NestingTooDeep {
+        max_depth: usize,
+    },
+    ListTooLong {
+        field: String,
+        max_len: usize,
+    },
+    StringTooLong {
+        field: String,
+        max_len: usize,
+    },
     WrongApp(String),
     UnsupportedKind(String),
     WrongFormatVersion(String),
@@ -110,7 +124,8 @@ pub fn import_monster(bytes: &[u8]) -> Result<Import, ImportError> {
         });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| ImportError::InvalidUtf8)?;
-    let root: Value = serde_json::from_str(text).map_err(|e| ImportError::InvalidJson(e.to_string()))?;
+    let root: Value =
+        serde_json::from_str(text).map_err(|e| ImportError::InvalidJson(e.to_string()))?;
     check_limits(&root, "$", 0)?;
 
     // Envelope: app, kind, format_version, checked in that order before anything else is read.
