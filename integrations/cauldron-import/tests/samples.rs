@@ -100,7 +100,10 @@ fn cinderkite_the_simplest_case() {
     let talons = ability(&c.abilities, "Talons");
     assert_eq!(talons.ability_id, "talons");
     assert_eq!(talons.cost, ActionCost::Action as i32);
-    assert_eq!(talons.provenance.as_ref().unwrap().source, "creature-cauldron");
+    assert_eq!(
+        talons.provenance.as_ref().unwrap().source,
+        "creature-cauldron"
+    );
     let step = attack_step(talons);
     assert_eq!(step.to_hit_bonus, 5);
     assert_eq!(step.damage.len(), 1);
@@ -167,7 +170,10 @@ fn dune_leviathan_a_high_cr_creature_with_large_numbers() {
     // con 24 -> modifier 7, + proficiency 5 = 12, matching the printed save: no mismatch report.
     // tremorsense has no field on Creature and is reported; multiattack is always reported.
     assert_eq!(import.report.len(), 2, "{:?}", import.report);
-    assert!(import.report.iter().any(|r| r.field == "senses.tremorsense"));
+    assert!(import
+        .report
+        .iter()
+        .any(|r| r.field == "senses.tremorsense"));
     assert!(import
         .report
         .iter()
@@ -213,18 +219,32 @@ fn hollowvale_hexer_spell_slot_resources() {
     let hold_person = ability(&c.abilities, "hold person");
     assert_eq!(hold_person.resource_key, "spell_slot_2");
     let minor_illusion = ability(&c.abilities, "minor illusion");
-    assert_eq!(minor_illusion.resource_key, "", "cantrips spend no resource");
+    assert_eq!(
+        minor_illusion.resource_key, "",
+        "cantrips spend no resource"
+    );
 
     assert_eq!(c.resources.len(), 2);
-    let slot1 = c.resources.iter().find(|r| r.key == "spell_slot_1").expect("spell_slot_1");
+    let slot1 = c
+        .resources
+        .iter()
+        .find(|r| r.key == "spell_slot_1")
+        .expect("spell_slot_1");
     assert_eq!((slot1.current, slot1.max), (4, 4));
-    let slot2 = c.resources.iter().find(|r| r.key == "spell_slot_2").expect("spell_slot_2");
+    let slot2 = c
+        .resources
+        .iter()
+        .find(|r| r.key == "spell_slot_2")
+        .expect("spell_slot_2");
     assert_eq!((slot2.current, slot2.max), (3, 3));
 
     // Every one of the 6 spells (2 cantrips + 4 slotted) is reported: no mechanical effect in
     // the export. No other reports for this sample.
     assert_eq!(import.report.len(), 6, "{:?}", import.report);
-    assert!(import.report.iter().all(|r| r.reason == "spell effect not in the export"));
+    assert!(import
+        .report
+        .iter()
+        .all(|r| r.reason == "spell effect not in the export"));
 }
 
 #[test]
@@ -367,7 +387,10 @@ fn voidbloom_seer_legendary_actions_spellcasting_hover() {
     assert_eq!(step.to_hit_bonus, 8);
     assert_eq!(step.damage[0].dice, "3d8+5");
     let targeting = mind_lash_attack.targeting.as_ref().expect("targeting");
-    assert_eq!(targeting.max_targets, 0, "\"one creature\" is not \"one target\": left unset");
+    assert_eq!(
+        targeting.max_targets, 0,
+        "\"one creature\" is not \"one target\": left unset"
+    );
     assert_eq!(targeting.range_feet, 60.0);
 
     let mind_lash_legendary = mind_lash_attacks
@@ -402,10 +425,17 @@ fn voidbloom_seer_legendary_actions_spellcasting_hover() {
     // 3 spells (detect thoughts, mage hand, confusion) each "spell effect not in the export".
     assert_eq!(import.report.len(), 6, "{:?}", import.report);
     assert!(import.report.iter().any(|r| r.field == "senses.darkvision"));
-    assert!(import.report.iter().any(|r| r.field == "Mind Lash.attack.targets"));
+    assert!(import
+        .report
+        .iter()
+        .any(|r| r.field == "Mind Lash.attack.targets"));
     assert!(import.report.iter().any(|r| r.field == "Multiattack"));
     assert_eq!(
-        import.report.iter().filter(|r| r.reason == "spell effect not in the export").count(),
+        import
+            .report
+            .iter()
+            .filter(|r| r.reason == "spell effect not in the export")
+            .count(),
         3
     );
 }
@@ -422,8 +452,15 @@ fn every_sample_mints_no_creature_id_the_server_does_that() {
         let import = load(name);
         assert_eq!(import.creature.creature_id, "", "{name}: server mints this");
         for ability in &import.creature.abilities {
-            assert!(!ability.ability_id.is_empty(), "{name}: every ability needs an id");
-            assert_eq!(ability.provenance.as_ref().unwrap().source, "creature-cauldron", "{name}");
+            assert!(
+                !ability.ability_id.is_empty(),
+                "{name}: every ability needs an id"
+            );
+            assert_eq!(
+                ability.provenance.as_ref().unwrap().source,
+                "creature-cauldron",
+                "{name}"
+            );
         }
     }
 }

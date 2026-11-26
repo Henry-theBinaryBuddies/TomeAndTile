@@ -50,7 +50,13 @@ pub(crate) fn build(
         legendary_actions(legendary, &mut ids, report, &mut abilities, &mut resources);
     }
     if let Some(spellcasting) = monster.get("spellcasting").filter(|v| !v.is_null()) {
-        spellcasting_abilities(spellcasting, &mut ids, report, &mut abilities, &mut resources);
+        spellcasting_abilities(
+            spellcasting,
+            &mut ids,
+            report,
+            &mut abilities,
+            &mut resources,
+        );
     }
 
     (abilities, resources)
@@ -380,7 +386,11 @@ fn multiattack_fields(entry: &Value, name: &str, report: &mut Vec<ReportEntry>) 
 }
 
 fn text_fields(entry: &Value) -> AbilityFields {
-    (optional_str(entry, "text").unwrap_or("").to_string(), Vec::new(), None)
+    (
+        optional_str(entry, "text").unwrap_or("").to_string(),
+        Vec::new(),
+        None,
+    )
 }
 
 /// One entry from `traits`, `actions`, `bonus_actions` or `reactions` -- traits are always
@@ -525,7 +535,15 @@ fn spellcasting_abilities(
     }
 
     for spell in array(spellcasting, "cantrips") {
-        spell_ability(spell, ids, report, abilities, "", 0, "spellcasting.cantrips");
+        spell_ability(
+            spell,
+            ids,
+            report,
+            abilities,
+            "",
+            0,
+            "spellcasting.cantrips",
+        );
     }
     for spell in array(spellcasting, "at_will") {
         spell_ability(spell, ids, report, abilities, "", 0, "spellcasting.at_will");
@@ -541,7 +559,15 @@ fn spellcasting_abilities(
             max: slots,
         });
         for spell in array(level_entry, "spells") {
-            spell_ability(spell, ids, report, abilities, &key, 1, "spellcasting.slots.spells");
+            spell_ability(
+                spell,
+                ids,
+                report,
+                abilities,
+                &key,
+                1,
+                "spellcasting.slots.spells",
+            );
         }
     }
     for per_day in array(spellcasting, "per_day") {
@@ -550,7 +576,9 @@ fn spellcasting_abilities(
         let spells = array(per_day, "spells");
         if each {
             for spell in spells {
-                let Some(spell_name) = optional_str(spell, "name") else { continue };
+                let Some(spell_name) = optional_str(spell, "name") else {
+                    continue;
+                };
                 let key = format!("{}_per_day", resource_slug(spell_name));
                 resources.push(Resource {
                     key: key.clone(),
@@ -569,7 +597,10 @@ fn spellcasting_abilities(
                 );
             }
         } else {
-            let names: Vec<&str> = spells.iter().filter_map(|s| optional_str(s, "name")).collect();
+            let names: Vec<&str> = spells
+                .iter()
+                .filter_map(|s| optional_str(s, "name"))
+                .collect();
             if names.is_empty() {
                 continue;
             }
