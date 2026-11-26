@@ -263,6 +263,7 @@ fn describe(value: &Value) -> String {
     }
 }
 
+#[allow(clippy::type_complexity)]
 const SIX_ABILITIES: [(&str, fn(&AbilityScores) -> i32, AbilityScore); 6] = [
     ("str", |s| s.strength, AbilityScore::Strength),
     ("dex", |s| s.dexterity, AbilityScore::Dexterity),
@@ -324,7 +325,7 @@ fn format_thousands(n: i64) -> String {
     let bytes = digits.as_bytes();
     let mut out = String::new();
     for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i) % 3 == 0 {
+        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*b as char);
