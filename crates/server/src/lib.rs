@@ -8,6 +8,7 @@
 //! * a thin socket layer ([`net`]) that only moves bytes and broadcasts.
 //!
 //! Asset upload (ADR 0014) lives in [`assets`] (storage) and `upload` (HTTP).
+//! Creature import (ADR 0015) is `import` (HTTP) plus `Campaign::import_creature`.
 //!
 //! See docs/adr/0004-state-model.md and 0006-dice-and-visibility.md.
 
@@ -15,6 +16,7 @@ pub mod assets;
 pub mod auth;
 pub mod campaign;
 pub mod ids;
+mod import;
 pub mod media;
 pub mod net;
 pub mod rng;

@@ -27,10 +27,11 @@ use crate::assets::{
 };
 use crate::auth::{authenticate, AuthError};
 use crate::net::Shared;
+use crate::view::Viewer;
 
 /// How long reading one upload body may take. A client that stalls (dropped
 /// Wi-Fi, no FIN) must not hold an upload slot forever.
-const BODY_READ_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const BODY_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Everything the routes need when uploads are ON.
 pub(crate) struct AssetState {
@@ -57,7 +58,7 @@ pub(crate) fn routes() -> Router<Arc<Shared>> {
         )
 }
 
-fn cors(mut response: Response) -> Response {
+pub(crate) fn cors(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
         HeaderValue::from_static("*"),
@@ -65,7 +66,7 @@ fn cors(mut response: Response) -> Response {
     response
 }
 
-fn http_error(status: StatusCode, code: &str, message: &str) -> Response {
+pub(crate) fn http_error(status: StatusCode, code: &str, message: &str) -> Response {
     let body = serde_json::json!({ "code": code, "message": message }).to_string();
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = status;
@@ -76,7 +77,7 @@ fn http_error(status: StatusCode, code: &str, message: &str) -> Response {
     cors(response)
 }
 
-async fn method_not_allowed() -> Response {
+pub(crate) async fn method_not_allowed() -> Response {
     http_error(
         StatusCode::METHOD_NOT_ALLOWED,
         "method_not_allowed",
@@ -84,7 +85,7 @@ async fn method_not_allowed() -> Response {
     )
 }
 
-async fn preflight() -> Response {
+pub(crate) async fn preflight() -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::NO_CONTENT;
     let h = response.headers_mut();
@@ -105,7 +106,7 @@ async fn preflight() -> Response {
 
 /// The bearer token from `Authorization: Bearer <token>`, scheme
 /// case-insensitive.
-fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let (scheme, rest) = value.split_once(' ')?;
     let token = rest.trim();
@@ -154,7 +155,7 @@ pub(crate) fn base_url_from_host(headers: &HeaderMap, local_addr: Option<SocketA
 }
 
 /// Whether a body read failed because the limit was passed.
-fn is_length_limit(err: &axum::Error) -> bool {
+pub(crate) fn is_length_limit(err: &axum::Error) -> bool {
     let mut cur: Option<&(dyn std::error::Error + 'static)> = err.source();
     while let Some(e) = cur {
         if e.to_string().contains("length limit exceeded") {
@@ -178,7 +179,7 @@ fn too_large() -> Response {
     response
 }
 
-fn read_timeout() -> Response {
+pub(crate) fn read_timeout() -> Response {
     let mut response = http_error(
         StatusCode::REQUEST_TIMEOUT,
         "upload_timeout",
@@ -197,6 +198,45 @@ fn storage_error(what: &str, err: &dyn std::fmt::Display) -> Response {
         "storage_error",
         "the server could not store the file",
     )
+}
+
+/// The Hello check for an HTTP request, GM only: the viewer, or the
+/// ready-made 401, 403 or 404 response. Runs before any body byte is read.
+pub(crate) fn authorize_gm(
+    shared: &Shared,
+    campaign_id: String,
+    token: &str,
+    forbidden_message: &str,
+) -> Result<Viewer, Box<Response>> {
+    let hello = Hello {
+        session_token: token.to_string(),
+        campaign_id,
+        ..Default::default()
+    };
+    let auth = {
+        let state = shared.lock();
+        authenticate(&state.campaign, shared.dev_auth, &hello)
+    };
+    match auth {
+        Ok(viewer) if viewer.role == Role::Gm => Ok(viewer),
+        Ok(_) => Err(Box::new(http_error(
+            StatusCode::FORBIDDEN,
+            "not_permitted",
+            forbidden_message,
+        ))),
+        Err(AuthError::WrongCampaign) => Err(Box::new(http_error(
+            StatusCode::NOT_FOUND,
+            "unknown_campaign",
+            "no such campaign",
+        ))),
+        Err(AuthError::Disabled | AuthError::BadToken | AuthError::UnknownMember) => {
+            Err(Box::new(http_error(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "the token is not accepted",
+            )))
+        }
+    }
 }
 
 async fn upload_asset(
@@ -228,38 +268,10 @@ async fn upload_asset(
     };
 
     // Same check as Hello, before a single body byte is read.
-    let hello = Hello {
-        session_token: token.to_string(),
-        campaign_id,
-        ..Default::default()
-    };
-    let auth = {
-        let state = shared.lock();
-        authenticate(&state.campaign, shared.dev_auth, &hello)
-    };
-    match auth {
-        Ok(viewer) if viewer.role == Role::Gm => {}
-        Ok(_) => {
-            return http_error(
-                StatusCode::FORBIDDEN,
-                "not_permitted",
-                "only the GM may upload assets",
-            )
-        }
-        Err(AuthError::WrongCampaign) => {
-            return http_error(
-                StatusCode::NOT_FOUND,
-                "unknown_campaign",
-                "no such campaign",
-            )
-        }
-        Err(AuthError::Disabled | AuthError::BadToken | AuthError::UnknownMember) => {
-            return http_error(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "the token is not accepted",
-            )
-        }
+    if let Err(response) =
+        authorize_gm(&shared, campaign_id, token, "only the GM may upload assets")
+    {
+        return *response;
     }
 
     // Held until this function returns.

@@ -154,6 +154,39 @@ At start-up the directory is scanned once: each file named `<64 hex>.<png|jpg|we
 
 NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to be the GM and upload. Do not expose upload to the internet until real sign-in exists.
 
+## Creature import (ADR 0015, #103)
+
+A GM sends a creature file over HTTP; the server validates it, stores the sheet and appends one `CreatureUpserted` to the event log. Putting it on the map is a separate `CreateTokenIntent`. Shaped like asset upload: same auth, CORS, `OPTIONS` (204), JSON 405 `method_not_allowed` and 120 s body read timeout. Nothing is written to disk, so it works whether or not `TT_ASSET_DIR` is set.
+
+`POST /campaigns/{campaign_id}/imports`, body = the raw file, `Authorization: Bearer <token>` (checked before the body is read). GM only. 200 with `Content-Type: application/x-protobuf` and an encoded `ImportResult` (`creature` as stored, `replaced`, `notes`).
+
+**Native format (accepted now):** one `Creature` as Protobuf JSON, exactly what Adventurer's Anvil exports (`contracts/fixtures/anvil/*.json`). It is parsed strictly: an unknown field is an error. **Creature Cauldron files:** a JSON object with a top-level `"app"` key is a Cauldron export; for now it answers 415 `format_not_supported_yet`. The Cauldron importer (#105) plugs in later and will add `notes` (they are always empty for native files).
+
+Limits: body at most 1 MiB (`MAX_IMPORT_BYTES`, by `Content-Length` and while reading), four imports at once (own gate, separate from uploads), 500 creatures per campaign.
+
+Checks before anything changes (400 `bad_creature` with a short message): name not empty and at most 120 characters; at most 200 abilities and 50 resources; every damage and healing dice string parses with `tt_rules::dice::Expr::parse`; `hp_max` at least 0 and `hp_current` within `0..=hp_max`; `provenance.source` not empty (for example `adventurers-anvil`). Bad JSON is also `bad_creature`.
+
+**Ids and owner:** any incoming `creature_id` is ignored; the server mints one (or keeps the replaced sheet's id). A new creature has `owner_user_id` cleared; ownership is given later with `SetControllersIntent` on a token, so it is visible to the GM only until a player controls a token of it. A re-import keeps the replaced sheet's existing `owner_user_id`.
+
+**Re-import:** a sheet with the same non-empty `provenance.source` AND non-empty `provenance.external_id` as a stored creature replaces it in place and keeps its `creature_id` (`replaced` true). Tokens already linked keep their own hit points. Anything else is a new creature.
+
+The event has `actor_user_id` = the GM, an empty `client_intent_id`, the active scene id, and the notes in `warnings`. It is broadcast like any other event and filtered per viewer, so players receive nothing for a creature nobody owns. An import is recorded as a not-undoable group (it cannot be undone, and an earlier undoable change to the same sheet cannot be undone past it).
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `unauthorized` | no or malformed `Authorization`, dev auth off, bad token, unknown member |
+| 403 | `not_permitted` | signed in but not the GM |
+| 404 | `unknown_campaign` | the path campaign is not this server's campaign |
+| 413 | `file_too_large` | body over 1 MiB |
+| 400 | `bad_body` | the body could not be read |
+| 408 | `upload_timeout` | the body took longer than 120 s to arrive |
+| 503 | `busy` | four imports already in progress |
+| 400 | `bad_creature` | not JSON, not a `Creature`, or failed a check above |
+| 415 | `format_not_supported_yet` | a Creature Cauldron export (until #105) |
+| 409 | `too_many_creatures` | 500 creatures exist and this is not a re-import |
+
+NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to be the GM and import. Do not expose import to the internet until real sign-in exists.
+
 ## Rejection codes (`IntentRejected.code`)
 
 | Code | When |
@@ -227,6 +260,8 @@ The core is tested in `src/tests.rs`. `tests/serve.rs` checks `/healthz` and `/`
 - media: a player and a spectator get tokens with the right URL, room and grants (payload decoded in the test) and nobody else sees anything; no `seq` used; repeated requests; media off gives `media_not_configured` to the requester only; a request before Hello closes the socket;
 - hostile input: a message over 64 KiB (before and after joining), garbage after joining, text frames and a second Hello (ignored);
 - a client that stops reading is dropped (broadcast lag, found by flooding until the socket buffers fill; 12000 chats of 2000 characters).
+
+`tests/imports.rs` covers creature import over HTTP and the socket: the five Anvil fixtures, re-import, auth and size errors, the 415 for a Cauldron file, bad creatures changing nothing, the GM's event, a player receiving nothing, and a token taking the creature's hit points. The 120 s timeout and the 503 `busy` answer are not tested end to end.
 
 "Nothing arrives" is asserted with a sentinel chat that must be the next message, never with a sleep.
 

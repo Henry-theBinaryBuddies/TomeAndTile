@@ -27,6 +27,7 @@ use crate::assets::{scan_dir, AssetConfig, DiskStore, UploadGate, MAX_CONCURRENT
 use crate::auth::authenticate;
 use crate::campaign::{Campaign, Rejection};
 use crate::ids::Uuid7Ids;
+use crate::import::{self, MAX_CONCURRENT_IMPORTS};
 use crate::media::{self, MediaConfig, MediaDenied};
 use crate::rng::{OsRolls, RollSource};
 use crate::upload::{self, AssetState};
@@ -57,8 +58,8 @@ pub struct Config {
 pub(crate) struct State {
     pub(crate) campaign: Campaign,
     rng: Box<dyn RollSource + Send>,
-    ids: Uuid7Ids,
-    tx: broadcast::Sender<Arc<Event>>,
+    pub(crate) ids: Uuid7Ids,
+    pub(crate) tx: broadcast::Sender<Arc<Event>>,
     /// Assets found at start-up whose link is only a guess (no
     /// TT_PUBLIC_URL); the next upload of the same file replaces the link.
     pub(crate) provisional_assets: HashSet<String>,
@@ -70,6 +71,8 @@ pub(crate) struct Shared {
     pub(crate) dev_auth: bool,
     media: Option<MediaConfig>,
     pub(crate) assets: Option<AssetState>,
+    /// Caps concurrent imports (own gate, separate from uploads).
+    pub(crate) import_gate: UploadGate,
     pub(crate) local_addr: Option<SocketAddr>,
 }
 
@@ -104,6 +107,7 @@ pub async fn serve(listener: TcpListener, config: Config) -> std::io::Result<()>
         dev_auth: config.dev_auth,
         media: config.media,
         assets,
+        import_gate: UploadGate::new(MAX_CONCURRENT_IMPORTS),
         local_addr,
     });
     let app = Router::new()
@@ -114,6 +118,7 @@ pub async fn serve(listener: TcpListener, config: Config) -> std::io::Result<()>
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(ws_upgrade))
         .merge(upload::routes())
+        .merge(import::routes())
         .with_state(shared);
     axum::serve(listener, app).await
 }
@@ -157,7 +162,7 @@ async fn ws_upgrade(
         .on_upgrade(move |socket| connection(socket, shared))
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))

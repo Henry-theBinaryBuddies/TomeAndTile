@@ -7,11 +7,11 @@
 use std::collections::HashMap;
 
 use tt_contracts::v1::{
-    event, intent, AssetRef, ChatPosted, Combatant, CreateTokenIntent, Creature, CreatureSize,
-    CreatureUpserted, DiceRolled, Encounter, EncounterEnded, EncounterUpdated, EndEncounterIntent,
-    EndTurnIntent, Event, EventUndone, HitOutcome, Intent, Member, Modifier, MoveTokenIntent,
-    RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent, RollMode,
-    RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
+    effect_step, event, intent, AssetRef, ChatPosted, Combatant, CreateTokenIntent, Creature,
+    CreatureSize, CreatureUpserted, DiceRolled, Encounter, EncounterEnded, EncounterUpdated,
+    EndEncounterIntent, EndTurnIntent, Event, EventUndone, HitOutcome, Intent, Member, Modifier,
+    MoveTokenIntent, RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent,
+    RollMode, RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
     SetControllersIntent, SetHitPointsIntent, SetInitiativeIntent, SetLevelBackgroundIntent,
     Snapshot, StartEncounterIntent, Token, TokenMoved, TokenRemoved, TokenUpserted, UndoIntent,
     UseAbilityIntent, Vec2, Warning,
@@ -41,6 +41,15 @@ pub const MAX_TOKEN_NAME_CHARS: usize = 120;
 pub const MAX_CONDITIONS: usize = 32;
 /// Largest temporary hit point value accepted.
 pub const MAX_TEMP_HP: i32 = 999;
+
+/// Most creatures one campaign may hold.
+pub const MAX_CREATURES: usize = 500;
+/// Longest imported creature name, in characters.
+pub const MAX_CREATURE_NAME_CHARS: usize = 120;
+/// Most abilities on one imported creature.
+pub const MAX_ABILITIES: usize = 200;
+/// Most resources on one imported creature.
+pub const MAX_RESOURCES: usize = 50;
 
 /// An intent refused outright. `code` is a stable snake_case string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +139,17 @@ pub struct Campaign {
     pub removed_token_hidden: HashMap<String, bool>,
 }
 
+/// What [`Campaign::import_creature`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportOutcome {
+    /// The appended event, to broadcast.
+    pub event: Event,
+    /// The sheet as stored, with its server id.
+    pub creature: Creature,
+    /// True if it replaced an earlier import.
+    pub replaced: bool,
+}
+
 /// A handler's result: the scene the events belong to and the event bodies.
 type Outcome = Result<(String, Vec<event::Kind>), Rejection>;
 
@@ -174,6 +194,100 @@ impl Campaign {
     /// already registered keeps its first record.
     pub fn register_asset(&mut self, asset: AssetRef) {
         self.assets.entry(asset.asset_id.clone()).or_insert(asset);
+    }
+
+    /// Add or replace a creature sheet that came from an import (ADR 0015),
+    /// as the GM `actor_user_id`. Not an intent: the HTTP layer calls it
+    /// after parsing the file. Order of refusals: `not_permitted`,
+    /// `bad_creature` (see [`validate_import`]), `too_many_creatures`
+    /// (500 sheets and this is not a re-import). The id is minted last.
+    ///
+    /// * The incoming `creature_id` is ignored: a re-import keeps the id of
+    ///   the sheet it replaces, anything else gets a fresh one from `ids`.
+    /// * A new sheet gets an empty `owner_user_id` (ownership is given later
+    ///   through controllers); a re-import keeps the replaced sheet's owner,
+    ///   so an import never undoes ownership the GM set.
+    /// * A re-import matches on a non-empty `provenance.source` AND a
+    ///   non-empty `provenance.external_id`. Tokens linked to the sheet keep
+    ///   their own hit points.
+    ///
+    /// Appends one `CreatureUpserted` (empty `client_intent_id`, the active
+    /// scene, `warnings` on it) to the log. The group recorded for it is
+    /// `NotUndoable`: an import cannot be undone, but it lists the creature
+    /// so an earlier undoable change to the same sheet can no longer be
+    /// undone past it.
+    pub fn import_creature(
+        &mut self,
+        actor_user_id: &str,
+        mut creature: Creature,
+        warnings: Vec<Warning>,
+        now_ms: i64,
+        ids: &mut dyn IdSource,
+    ) -> Result<ImportOutcome, Rejection> {
+        if self.role_of(actor_user_id) != Some(Role::Gm) {
+            return Err(Rejection::not_permitted());
+        }
+        validate_import(&creature)?;
+        let provenance = creature.provenance.clone().unwrap_or_default();
+        let existing = if provenance.external_id.is_empty() {
+            None
+        } else {
+            self.creatures.iter().position(|c| {
+                c.provenance.as_ref().is_some_and(|p| {
+                    p.source == provenance.source && p.external_id == provenance.external_id
+                })
+            })
+        };
+        if existing.is_none() && self.creatures.len() >= MAX_CREATURES {
+            return Err(Rejection::new(
+                "too_many_creatures",
+                format!("the campaign already has {MAX_CREATURES} creatures"),
+            ));
+        }
+
+        // Validated: mint the id and mutate.
+        creature.owner_user_id = existing
+            .map(|i| self.creatures[i].owner_user_id.clone())
+            .unwrap_or_default();
+        let replaced = existing.is_some();
+        creature.creature_id = match existing {
+            Some(i) => self.creatures[i].creature_id.clone(),
+            None => ids.next_id(now_ms),
+        };
+        match existing {
+            Some(i) => self.creatures[i] = creature.clone(),
+            None => self.creatures.push(creature.clone()),
+        }
+        self.seq += 1;
+        let event = Event {
+            seq: self.seq,
+            at_ms: now_ms,
+            scene_id: self.active_scene_id.clone(),
+            actor_user_id: actor_user_id.to_string(),
+            client_intent_id: String::new(),
+            warnings,
+            kind: Some(event::Kind::CreatureUpserted(CreatureUpserted {
+                creature: Some(creature.clone()),
+            })),
+        };
+        self.log.push(event.clone());
+        self.groups.push(AppliedGroup {
+            first_seq: self.seq,
+            last_seq: self.seq,
+            actor_user_id: actor_user_id.to_string(),
+            client_intent_id: String::new(),
+            changed_token_ids: Vec::new(),
+            changed_creature_ids: vec![creature.creature_id.clone()],
+            kind: GroupKind::NotUndoable,
+            before_tokens: Vec::new(),
+            before_creatures: Vec::new(),
+            undone: false,
+        });
+        Ok(ImportOutcome {
+            event,
+            creature,
+            replaced,
+        })
     }
 
     /// The role of a member; `None` for a user not in this campaign or with
@@ -1593,6 +1707,59 @@ impl Campaign {
 }
 
 /// A condition id: `[a-z0-9_]{1,40}`.
+/// Check an imported creature before anything is stored: `bad_creature` when
+/// the name is empty or over [`MAX_CREATURE_NAME_CHARS`], there are more than
+/// [`MAX_ABILITIES`] abilities or [`MAX_RESOURCES`] resources, a damage or
+/// healing dice string does not parse, `hp_max` is negative, `hp_current` is
+/// outside `0..=hp_max`, or `provenance.source` is empty.
+pub fn validate_import(c: &Creature) -> Result<(), Rejection> {
+    let bad = |msg: String| Err(Rejection::new("bad_creature", msg));
+    if c.name.trim().is_empty() {
+        return bad("the creature needs a name".into());
+    }
+    if c.name.chars().count() > MAX_CREATURE_NAME_CHARS {
+        return bad(format!(
+            "the name is longer than {MAX_CREATURE_NAME_CHARS} characters"
+        ));
+    }
+    if c.abilities.len() > MAX_ABILITIES {
+        return bad(format!("more than {MAX_ABILITIES} abilities"));
+    }
+    if c.resources.len() > MAX_RESOURCES {
+        return bad(format!("more than {MAX_RESOURCES} resources"));
+    }
+    if c.hp_max < 0 || c.hp_current < 0 || c.hp_current > c.hp_max {
+        return bad("hp_max must be 0 or more and hp_current within 0..=hp_max".into());
+    }
+    if c.provenance.as_ref().is_none_or(|p| p.source.is_empty()) {
+        return bad("provenance.source is required".into());
+    }
+    for ability in &c.abilities {
+        for step in ability.steps.iter().filter_map(|s| s.step.as_ref()) {
+            let (damage, healing): (&[_], &str) = match step {
+                effect_step::Step::Attack(a) => (&a.damage, ""),
+                effect_step::Step::Save(s) => (&s.damage, ""),
+                effect_step::Step::Flat(f) => (&f.damage, &f.healing_dice),
+                _ => continue,
+            };
+            let dice = damage
+                .iter()
+                .map(|p: &tt_contracts::v1::DamagePart| p.dice.as_str())
+                .chain((!healing.is_empty()).then_some(healing));
+            for text in dice {
+                if let Err(e) = Expr::parse(text) {
+                    return bad(format!(
+                        "ability {:?} has dice {:?} that do not parse: {e:?}",
+                        ability.ability_id,
+                        text.chars().take(40).collect::<String>()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn is_condition_id(id: &str) -> bool {
     (1..=40).contains(&id.len())
         && id
