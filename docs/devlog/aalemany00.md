@@ -2,6 +2,41 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-26 — #105 Cauldron importer: envelope, identity, core stat block
+
+**Did:** Had Claude write `tt-cauldron-import` from scratch: `import_monster(bytes: &[u8]) ->
+Result<Import, ImportError>`, a pure function reading a Creature Cauldron monster export into a
+`Creature` (scores, AC, HP, all four movement speeds plus hover, saves, skills, resistances/
+immunities/vulnerabilities, condition immunities, passive perception, and a one-line `summary`),
+per `MAPPING.md`. Envelope checks (`app`/`kind`/`format_version`) run in order before anything
+else is read. Input is capped on size (256 KiB, checked before parsing), JSON nesting depth,
+list/object length and string length, walked once right after parsing; invalid UTF-8 and invalid
+JSON are errors, never panics. Unknown skill names and unknown damage types are reported and
+dropped rather than guessed at; a save-bonus mismatch (printed bonus vs. ability modifier +
+proficiency bonus) is reported without changing the creature. Senses other than passive
+perception (darkvision, blindsight, tremorsense, truesight) have no home on `Creature` and are
+reported when a sample sets them. Tests: one per sample file in `tests/samples/` checking exact
+mapped values, plus a save-mismatch and an unknown-skill case built in test code (not by editing
+a sample), plus the built-in-code error cases from the issue's acceptance list (oversized input,
+deep nesting, a list over its cap, a string over its cap, invalid UTF-8, truncated JSON, wrong
+app/kind/format_version, a missing required field, an unknown size string). Traits, actions,
+legendary actions and spellcasting are left empty — that's #106. Checked the server's
+`crates/server/src/import.rs` (merged to main since I last looked) to make sure nothing there
+assumes a different shape from this crate yet — it still 415s on any Cauldron-shaped file with
+"arrives with #105", so #103 hasn't been wired to this crate's API yet; nothing to reconcile.
+**Directed Claude to:** Read issue #105 in full against `MAPPING.md`, the five real sample
+files and the `Creature`/`Provenance`/`AbilityScore`/`CreatureSize`/`DamageType` contract types,
+then implement it end to end with tests.
+**Learned:** No Rust toolchain is available in this session (confirmed `cargo`/`rustc` missing
+before starting), so none of this has been run — not `cargo fmt --all --check`, not `cargo
+clippy -p tt-cauldron-import --all-targets -- -D warnings`, not `cargo test -p tt-cauldron-import`,
+not `bash tools/check-deps.sh` (that last one I *could* run, since it's a plain bash script with
+no Rust in it, and it passes). I chose to have Claude write the rest anyway rather than wait for
+a machine with the toolchain, on the understanding that it needs a real `cargo` run before I
+trust it.
+**Blocked on / next:** Run the three cargo checks above on a machine with Rust installed before
+asking for review; fix whatever they turn up. Then #106 (actions to abilities) can build on this.
+
 ## 2026-11-23 — #65 Fix: no-choice state named a device nobody picked
 
 **Did:** Per Henry's review on PR #86. The required fix: `refreshDevices` was writing
