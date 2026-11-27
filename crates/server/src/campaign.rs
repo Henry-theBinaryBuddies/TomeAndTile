@@ -500,7 +500,7 @@ impl Campaign {
                 return Err(Rejection::new(
                     "duplicate_target",
                     format!(
-                        "token {id:?} is listed more than {allowed_copies} time(s);                          only a multiattack may repeat a target, once per attack step"
+                        "token {id:?} is listed more than {allowed_copies} time(s); only a multiattack may repeat a target, once per attack step"
                     ),
                 ));
             }
