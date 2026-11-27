@@ -22,7 +22,12 @@ built-in-code edge cases I thought to write are covered -- it says nothing about
 input I didn't think to test. Henry fed it crafted JSON by hand and found panics in ten minutes
 that no amount of my own test-writing would have caught, since I was testing the *shape* of the
 mapping, not its numeric bounds.
-**Blocked on / next:** None yet -- working through the review now.
+**Blocked on / next:** Done -- all required, should-fix and minor items fixed on #105
+(`require_i32_range`/`bounded_i32`/`bounded_speed`/`is_condition_id` plus ~16 new tests),
+merged forward onto #106 (one `optional_i32` visibility conflict, resolved keeping it
+`pub(crate)` for `abilities.rs`), one more `cargo fmt` round from CI on #105 fixed and merged
+forward too. Both PRs green on all four checks; left a summary comment on #130 for Henry's
+re-review, including a heads-up that `Cargo.lock` still looks stale for `tt-cauldron-import`.
 
 ## 2026-11-26 — #106 Cauldron importer: actions to abilities
 
