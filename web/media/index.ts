@@ -17,5 +17,6 @@ export type {
 	MediaStatus,
 	ParticipantInfo,
 	SelectedDeviceIds,
+	TrackAvailability,
 	TrackKind
 } from './types';
