@@ -805,8 +805,7 @@ pub fn resolve_ability(
         o.healing = healed.restored;
         touched[at] = healed.token;
         for (id, timer) in effects.remove(&i).unwrap_or_default() {
-            if !apply_condition(&mut touched[at], &id, timer)
-                && !capped.contains(&listed.token_id)
+            if !apply_condition(&mut touched[at], &id, timer) && !capped.contains(&listed.token_id)
             {
                 capped.push(listed.token_id.clone());
             }
@@ -819,7 +818,9 @@ pub fn resolve_ability(
     for id in capped {
         warnings.push(warning(
             "too_many_conditions",
-            format!("token {id} already has {MAX_CONDITIONS} conditions: the rest were not applied"),
+            format!(
+                "token {id} already has {MAX_CONDITIONS} conditions: the rest were not applied"
+            ),
         ));
     }
     for id in no_hp {

@@ -16,7 +16,7 @@ use tt_contracts::v1::{
     Snapshot, StartEncounterIntent, Token, TokenMoved, TokenRemoved, TokenUpserted, UndoIntent,
     UseAbilityIntent, Vec2, Warning,
 };
-use tt_rules::ability::{resolve_ability, ResolveError};
+use tt_rules::ability::{attack_step_count, resolve_ability, ResolveError};
 use tt_rules::conditions::expire_timers;
 use tt_rules::damage::health_state;
 use tt_rules::dice::{self, Expr};
@@ -37,8 +37,9 @@ pub const MAX_COORDINATE: f32 = 1_000_000.0;
 pub const MAX_TOKENS: usize = 500;
 /// Longest token name, in characters.
 pub const MAX_TOKEN_NAME_CHARS: usize = 120;
-/// Most conditions on one token.
-pub const MAX_CONDITIONS: usize = 32;
+/// Most conditions on one token. The rules crate owns the value, so its
+/// `apply_condition` cap and every server check are the same number.
+pub const MAX_CONDITIONS: usize = tt_rules::conditions::MAX_CONDITIONS;
 /// Largest temporary hit point value accepted.
 pub const MAX_TEMP_HP: i32 = 999;
 
@@ -50,6 +51,26 @@ pub const MAX_CREATURE_NAME_CHARS: usize = 120;
 pub const MAX_ABILITIES: usize = 200;
 /// Most resources on one imported creature.
 pub const MAX_RESOURCES: usize = 50;
+/// Most target ids in one `UseAbilityIntent`.
+pub const MAX_TARGETS: usize = 64;
+/// Most effect steps in one imported ability.
+pub const MAX_STEPS_PER_ABILITY: usize = 16;
+/// Most damage parts in one imported attack, save or flat step.
+pub const MAX_DAMAGE_PARTS_PER_STEP: usize = 16;
+/// Largest imported speed or targeting distance, in feet.
+pub const MAX_DISTANCE_FEET: f32 = 100_000.0;
+/// Largest imported armor class.
+pub const MAX_ARMOR_CLASS: i32 = 50;
+/// Range of an imported ability score.
+pub const ABILITY_SCORE_RANGE: std::ops::RangeInclusive<i32> = 1..=30;
+/// Largest imported proficiency bonus.
+pub const MAX_PROFICIENCY_BONUS: i32 = 10;
+/// Largest imported passive Perception.
+pub const MAX_PASSIVE_PERCEPTION: i32 = 100;
+/// Range of an imported recharge `min_roll` (a d6).
+pub const RECHARGE_ROLL_RANGE: std::ops::RangeInclusive<u32> = 2..=6;
+/// Longest imported portrait URL, in bytes.
+pub const MAX_PORTRAIT_URL_BYTES: usize = 2048;
 
 /// An intent refused outright. `code` is a stable snake_case string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -413,6 +434,8 @@ impl Campaign {
     /// Order of refusals: permission (a player naming a missing, hidden or
     /// uncontrolled source gets `not_permitted`, so no GM creature's abilities
     /// leak), `unknown_token` (GM), `no_creature`, `unknown_ability`,
+    /// `too_many_targets` (more than [`MAX_TARGETS`] ids), `duplicate_target`
+    /// (an id more often than the ability has attack steps, at least once),
     /// `unknown_target`, then the engine's `no_targets` / `not_implemented`,
     /// then `rng_unavailable`. A dice error in the ability's own data is
     /// reported as `not_implemented`: the client's request was fine.
@@ -448,15 +471,39 @@ impl Campaign {
             ));
         };
         let source = self.creatures[creature_idx].clone();
-        if !source
+        let Some(ability) = source
             .abilities
             .iter()
-            .any(|a| a.ability_id == u.ability_id)
-        {
+            .find(|a| a.ability_id == u.ability_id)
+        else {
             return Err(Rejection::new(
                 "unknown_ability",
                 format!("the creature has no ability {:?}", u.ability_id),
             ));
+        };
+        // Counts first, before any per-id work: a huge or repeated list must
+        // cost a few comparisons, not a roll and a log entry per copy.
+        if u.target_token_ids.len() > MAX_TARGETS {
+            return Err(Rejection::new(
+                "too_many_targets",
+                format!("an ability may list at most {MAX_TARGETS} targets"),
+            ));
+        }
+        // One id once, except a multiattack (several attack steps), where
+        // attack step `n` takes target `n`: at most once per attack step.
+        let allowed_copies = attack_step_count(ability).max(1);
+        let mut copies: HashMap<&str, usize> = HashMap::new();
+        for id in &u.target_token_ids {
+            let n = copies.entry(id.as_str()).or_insert(0);
+            *n += 1;
+            if *n > allowed_copies {
+                return Err(Rejection::new(
+                    "duplicate_target",
+                    format!(
+                        "token {id:?} is listed more than {allowed_copies} time(s);                          only a multiattack may repeat a target, once per attack step"
+                    ),
+                ));
+            }
         }
         // Targets, in the order listed. A hidden token is unknown to a player.
         let mut targets: Vec<(Token, Creature)> = Vec::with_capacity(u.target_token_ids.len());
@@ -638,12 +685,26 @@ impl Campaign {
     }
 
     /// `SetConditionsIntent` (GM only). Order of refusals: `not_permitted`,
-    /// `unknown_token`, `bad_condition_id`, `conflicting_conditions`,
-    /// `too_many_conditions`. An added id the creature is immune to is added
+    /// `too_many_conditions` (add plus remove longer than twice
+    /// [`MAX_CONDITIONS`], checked before any per-entry work), `unknown_token`,
+    /// `bad_condition_id`, `conflicting_conditions`, `too_many_conditions`
+    /// (the resulting list is over [`MAX_CONDITIONS`]). An added id the creature is immune to is added
     /// anyway, with a `condition_immune` warning.
     fn set_conditions(&mut self, is_gm: bool, c: SetConditionsIntent) -> WarnedOutcome {
         if !is_gm {
             return Err(Rejection::not_permitted());
+        }
+        // Lengths before any per-entry work (the checks below are quadratic
+        // in the list sizes). Add and remove each name at most
+        // MAX_CONDITIONS distinct ids that matter, so twice that is plenty.
+        if c.add.len() + c.remove.len() > 2 * MAX_CONDITIONS {
+            return Err(Rejection::new(
+                "too_many_conditions",
+                format!(
+                    "add and remove together may list at most {} ids",
+                    2 * MAX_CONDITIONS
+                ),
+            ));
         }
         let Some(idx) = self.tokens.iter().position(|t| t.token_id == c.token_id) else {
             return Err(Rejection::new(
@@ -973,7 +1034,10 @@ impl Campaign {
 
     /// `UndoIntent` (GM only): reverse one earlier group with compensating
     /// events. Order of refusals: `not_permitted`, `unknown_event`,
-    /// `not_first_event`, `not_undoable`, `already_undone`, `undo_blocked`.
+    /// `not_first_event`, `not_undoable`, `already_undone`, `undo_blocked`,
+    /// `in_encounter` (the group created a token that is now a combatant, as
+    /// `RemoveTokenIntent` would refuse; last, so a blocking later group is
+    /// named first).
     ///
     /// A later group blocks the undo when it has not been undone and lists
     /// one of the same tokens or creatures. Undo groups never block: each one
@@ -1037,8 +1101,39 @@ impl Campaign {
             ));
         }
 
+        // Undoing a create removes the token; a combatant must stay.
+        let created_combatant = g
+            .changed_token_ids
+            .iter()
+            .filter(|id| !g.before_tokens.iter().any(|t| &t.token_id == *id))
+            .find(|id| {
+                self.encounters
+                    .iter()
+                    .any(|e| e.combatants.iter().any(|c| &c.token_id == *id))
+            });
+        if let Some(id) = created_combatant {
+            return Err(Rejection::new(
+                "in_encounter",
+                format!("token {id:?} is in a running encounter; end the encounter first"),
+            ));
+        }
+
         // Validated: mutate.
         let g = self.groups[gi].clone();
+        // A token put back must not carry timers of an encounter that is
+        // gone (nothing would ever expire them). Its conditions stay, as
+        // when an encounter ends.
+        let live_encounters: Vec<String> = self
+            .encounters
+            .iter()
+            .map(|e| e.encounter_id.clone())
+            .collect();
+        let restored = |before: &Token| {
+            let mut t = before.clone();
+            t.condition_timers
+                .retain(|x| live_encounters.contains(&x.encounter_id));
+            t
+        };
         let scene_id = self
             .log
             .iter()
@@ -1073,6 +1168,7 @@ impl Campaign {
                 }
                 // Removed by the group: put it back whole.
                 (None, Some(before)) => {
+                    let before = &restored(before);
                     self.tokens.push(before.clone());
                     self.removed_token_hidden.remove(id);
                     kinds.push(event::Kind::TokenUpserted(TokenUpserted {
@@ -1093,6 +1189,7 @@ impl Campaign {
                     }
                 }
                 (Some(idx), Some(before)) => {
+                    let before = &restored(before);
                     let moved_from = self.tokens[idx].position;
                     let compensation = match (g.kind, before.position) {
                         (GroupKind::Move, Some(to)) => {
@@ -1706,12 +1803,30 @@ impl Campaign {
     }
 }
 
-/// A condition id: `[a-z0-9_]{1,40}`.
-/// Check an imported creature before anything is stored: `bad_creature` when
-/// the name is empty or over [`MAX_CREATURE_NAME_CHARS`], there are more than
-/// [`MAX_ABILITIES`] abilities or [`MAX_RESOURCES`] resources, a damage or
-/// healing dice string does not parse, `hp_max` is negative, `hp_current` is
-/// outside `0..=hp_max`, or `provenance.source` is empty.
+/// Check an imported creature before anything is stored. Every failure is
+/// `bad_creature` with a message naming the field. Checks, in this order:
+///
+/// - name: not empty, at most [`MAX_CREATURE_NAME_CHARS`]
+/// - counts: at most [`MAX_ABILITIES`] abilities, [`MAX_RESOURCES`]
+///   resources, [`MAX_CONDITIONS`] conditions and as many condition
+///   immunities
+/// - hit points: `hp_max >= 0`, `hp_current` in `0..=hp_max`, `hp_temp` in
+///   `0..=`[`MAX_TEMP_HP`]
+/// - `armor_class` in `0..=`[`MAX_ARMOR_CLASS`], `proficiency_bonus` in
+///   `0..=`[`MAX_PROFICIENCY_BONUS`], `passive_perception` in
+///   `0..=`[`MAX_PASSIVE_PERCEPTION`] (0 is "not stated"); when `scores` is
+///   present each score in [`ABILITY_SCORE_RANGE`]
+/// - the five speeds: finite, `0..=`[`MAX_DISTANCE_FEET`]
+/// - `provenance.source` not empty
+/// - `conditions` and `condition_immunities` are condition ids
+/// - portrait: absent, or a server asset (see [`portrait_is_server_asset`])
+/// - resources: keys non-empty and unique, `0 <= current <= max`
+/// - each ability: `ability_id` non-empty and unique; targeting distances
+///   finite and `0..=`[`MAX_DISTANCE_FEET`]; `recharge.min_roll` in
+///   [`RECHARGE_ROLL_RANGE`]; at most [`MAX_STEPS_PER_ABILITY`] steps and
+///   [`MAX_DAMAGE_PARTS_PER_STEP`] damage parts per step; every dice string
+///   parses; an attack step's dice also double for a critical hit
+///   ([`Expr::doubled_dice`]); an apply-effect `effect_id` is a condition id
 pub fn validate_import(c: &Creature) -> Result<(), Rejection> {
     let bad = |msg: String| Err(Rejection::new("bad_creature", msg));
     if c.name.trim().is_empty() {
@@ -1728,38 +1843,228 @@ pub fn validate_import(c: &Creature) -> Result<(), Rejection> {
     if c.resources.len() > MAX_RESOURCES {
         return bad(format!("more than {MAX_RESOURCES} resources"));
     }
+    if c.conditions.len() > MAX_CONDITIONS {
+        return bad(format!("more than {MAX_CONDITIONS} conditions"));
+    }
+    if c.condition_immunities.len() > MAX_CONDITIONS {
+        return bad(format!("more than {MAX_CONDITIONS} condition_immunities"));
+    }
     if c.hp_max < 0 || c.hp_current < 0 || c.hp_current > c.hp_max {
         return bad("hp_max must be 0 or more and hp_current within 0..=hp_max".into());
+    }
+    if !(0..=MAX_TEMP_HP).contains(&c.hp_temp) {
+        return bad(format!("hp_temp must be within 0..={MAX_TEMP_HP}"));
+    }
+    if !(0..=MAX_ARMOR_CLASS).contains(&c.armor_class) {
+        return bad(format!("armor_class must be within 0..={MAX_ARMOR_CLASS}"));
+    }
+    if !(0..=MAX_PROFICIENCY_BONUS).contains(&c.proficiency_bonus) {
+        return bad(format!(
+            "proficiency_bonus must be within 0..={MAX_PROFICIENCY_BONUS}"
+        ));
+    }
+    if !(0..=MAX_PASSIVE_PERCEPTION).contains(&c.passive_perception) {
+        return bad(format!(
+            "passive_perception must be within 0..={MAX_PASSIVE_PERCEPTION}"
+        ));
+    }
+    if let Some(s) = &c.scores {
+        let scores = [
+            ("strength", s.strength),
+            ("dexterity", s.dexterity),
+            ("constitution", s.constitution),
+            ("intelligence", s.intelligence),
+            ("wisdom", s.wisdom),
+            ("charisma", s.charisma),
+        ];
+        for (name, value) in scores {
+            if !ABILITY_SCORE_RANGE.contains(&value) {
+                return bad(format!(
+                    "{name} must be within {}..={}",
+                    ABILITY_SCORE_RANGE.start(),
+                    ABILITY_SCORE_RANGE.end()
+                ));
+            }
+        }
+    }
+    let speeds = [
+        ("speed_feet", c.speed_feet),
+        ("fly_speed_feet", c.fly_speed_feet),
+        ("swim_speed_feet", c.swim_speed_feet),
+        ("climb_speed_feet", c.climb_speed_feet),
+        ("burrow_speed_feet", c.burrow_speed_feet),
+    ];
+    for (name, feet) in speeds {
+        if !distance_ok(feet) {
+            return bad(format!(
+                "{name} must be a number within 0..={MAX_DISTANCE_FEET}"
+            ));
+        }
     }
     if c.provenance.as_ref().is_none_or(|p| p.source.is_empty()) {
         return bad("provenance.source is required".into());
     }
+    if let Some(id) = c.conditions.iter().find(|id| !is_condition_id(id)) {
+        return bad(format!("conditions: {id:?} is not a condition id"));
+    }
+    if let Some(id) = c
+        .condition_immunities
+        .iter()
+        .find(|id| !is_condition_id(id))
+    {
+        return bad(format!(
+            "condition_immunities: {id:?} is not a condition id"
+        ));
+    }
+    if let Some(p) = &c.portrait {
+        if !portrait_is_server_asset(p) {
+            return bad("portrait must be empty or a server asset (/assets/<id>.<ext>)".into());
+        }
+    }
+    let mut keys: Vec<&str> = Vec::with_capacity(c.resources.len());
+    for r in &c.resources {
+        if r.key.is_empty() {
+            return bad("a resource has an empty key".into());
+        }
+        if keys.contains(&r.key.as_str()) {
+            return bad(format!("resource key {:?} is listed twice", r.key));
+        }
+        keys.push(&r.key);
+        if r.current < 0 || r.max < 0 || r.current > r.max {
+            return bad(format!(
+                "resource {:?} must have 0 <= current <= max",
+                r.key
+            ));
+        }
+    }
+    let mut ids: Vec<&str> = Vec::with_capacity(c.abilities.len());
     for ability in &c.abilities {
-        for step in ability.steps.iter().filter_map(|s| s.step.as_ref()) {
-            let (damage, healing): (&[_], &str) = match step {
-                effect_step::Step::Attack(a) => (&a.damage, ""),
-                effect_step::Step::Save(s) => (&s.damage, ""),
-                effect_step::Step::Flat(f) => (&f.damage, &f.healing_dice),
-                _ => continue,
-            };
-            let dice = damage
-                .iter()
-                .map(|p: &tt_contracts::v1::DamagePart| p.dice.as_str())
-                .chain((!healing.is_empty()).then_some(healing));
-            for text in dice {
-                if let Err(e) = Expr::parse(text) {
+        validate_ability(ability, &mut ids)?;
+    }
+    Ok(())
+}
+
+fn distance_ok(feet: f32) -> bool {
+    feet.is_finite() && (0.0..=MAX_DISTANCE_FEET).contains(&feet)
+}
+
+fn validate_ability<'a>(
+    ability: &'a tt_contracts::v1::Ability,
+    ids: &mut Vec<&'a str>,
+) -> Result<(), Rejection> {
+    let bad = |msg: String| Err(Rejection::new("bad_creature", msg));
+    let id = ability.ability_id.as_str();
+    if id.is_empty() {
+        return bad("an ability has an empty ability_id".into());
+    }
+    if ids.contains(&id) {
+        return bad(format!("ability_id {id:?} is listed twice"));
+    }
+    ids.push(id);
+    if let Some(t) = &ability.targeting {
+        let fields = [
+            ("range_feet", t.range_feet),
+            ("long_range_feet", t.long_range_feet),
+            ("size_feet", t.size_feet),
+            ("width_feet", t.width_feet),
+        ];
+        for (name, feet) in fields {
+            if !distance_ok(feet) {
+                return bad(format!(
+                    "ability {id:?} targeting.{name} must be a number within 0..={MAX_DISTANCE_FEET}"
+                ));
+            }
+        }
+    }
+    if let Some(r) = &ability.recharge {
+        if !RECHARGE_ROLL_RANGE.contains(&r.min_roll) {
+            return bad(format!(
+                "ability {id:?} recharge.min_roll must be within {}..={}",
+                RECHARGE_ROLL_RANGE.start(),
+                RECHARGE_ROLL_RANGE.end()
+            ));
+        }
+    }
+    if ability.steps.len() > MAX_STEPS_PER_ABILITY {
+        return bad(format!(
+            "ability {id:?} has more than {MAX_STEPS_PER_ABILITY} steps"
+        ));
+    }
+    for step in ability.steps.iter().filter_map(|s| s.step.as_ref()) {
+        let (damage, healing, crit): (&[_], &str, bool) = match step {
+            effect_step::Step::Attack(a) => (&a.damage, "", true),
+            effect_step::Step::Save(s) => (&s.damage, "", false),
+            effect_step::Step::Flat(f) => (&f.damage, &f.healing_dice, false),
+            effect_step::Step::ApplyEffect(e) => {
+                if !is_condition_id(&e.effect_id) {
                     return bad(format!(
-                        "ability {:?} has dice {:?} that do not parse: {e:?}",
-                        ability.ability_id,
-                        text.chars().take(40).collect::<String>()
+                        "ability {id:?} effect_id {:?} is not a condition id",
+                        e.effect_id.chars().take(40).collect::<String>()
                     ));
                 }
+                continue;
+            }
+            _ => continue,
+        };
+        if damage.len() > MAX_DAMAGE_PARTS_PER_STEP {
+            return bad(format!(
+                "ability {id:?} has a step with more than {MAX_DAMAGE_PARTS_PER_STEP} damage parts"
+            ));
+        }
+        let dice = damage
+            .iter()
+            .map(|p: &tt_contracts::v1::DamagePart| p.dice.as_str())
+            .chain((!healing.is_empty()).then_some(healing));
+        for text in dice {
+            let shown = || text.chars().take(40).collect::<String>();
+            match Expr::parse(text) {
+                Err(e) => {
+                    return bad(format!(
+                        "ability {id:?} has dice {:?} that do not parse: {e:?}",
+                        shown()
+                    ))
+                }
+                Ok(expr) if crit && expr.doubled_dice().is_none() => {
+                    return bad(format!(
+                        "ability {id:?} has dice {:?} that cannot be doubled for a critical hit",
+                        shown()
+                    ))
+                }
+                Ok(_) => {}
             }
         }
     }
     Ok(())
 }
 
+/// The portrait rule (ADR 0014): a creature's portrait may only point at a
+/// file this server stores. An upload reply gives `url` as
+/// `<origin>/assets/<64 lowercase hex>.<png|jpg|webp>` and the same hex as
+/// `asset_id`. So a portrait passes when it is all empty, or when `url` is at
+/// most [`MAX_PORTRAIT_URL_BYTES`] long, starts with `http://`, `https://` or
+/// `/`, ends with `/assets/<64 hex>.<png|jpg|webp>`, and `asset_id` is empty
+/// or that hex. This check is pure, so the origin is not compared (it is not
+/// known here); a scheme such as `javascript:` or `data:` never passes.
+pub fn portrait_is_server_asset(p: &AssetRef) -> bool {
+    if p.url.is_empty() {
+        return p.asset_id.is_empty();
+    }
+    let scheme_ok =
+        p.url.starts_with("http://") || p.url.starts_with("https://") || p.url.starts_with('/');
+    if p.url.len() > MAX_PORTRAIT_URL_BYTES || !scheme_ok {
+        return false;
+    }
+    let Some((_, file)) = p.url.rsplit_once("/assets/") else {
+        return false;
+    };
+    let Some((hex, ext)) = file.split_once('.') else {
+        return false;
+    };
+    let hex_ok = hex.len() == 64 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    hex_ok && matches!(ext, "png" | "jpg" | "webp") && (p.asset_id.is_empty() || p.asset_id == hex)
+}
+
+/// A condition id: `[a-z0-9_]{1,40}`.
 fn is_condition_id(id: &str) -> bool {
     (1..=40).contains(&id.len())
         && id

@@ -4010,3 +4010,761 @@ mod import {
         assert_eq!(c.creatures.len(), MAX_CREATURES);
     }
 }
+
+/// Audit fixes (issue #132): target limits, undo edge cases, import checks,
+/// the conditions cap.
+mod audit_132 {
+    use super::*;
+    use crate::campaign::{
+        validate_import, MAX_ARMOR_CLASS, MAX_CONDITIONS, MAX_DAMAGE_PARTS_PER_STEP,
+        MAX_PASSIVE_PERCEPTION, MAX_PROFICIENCY_BONUS, MAX_STEPS_PER_ABILITY, MAX_TARGETS,
+        MAX_TEMP_HP,
+    };
+    use tt_contracts::v1 as pb;
+
+    fn dmg(dice: &str) -> pb::DamagePart {
+        pb::DamagePart {
+            dice: dice.into(),
+            r#type: pb::DamageType::Slashing as i32,
+        }
+    }
+
+    fn attack_step(dice: &str) -> pb::EffectStep {
+        pb::EffectStep {
+            step: Some(pb::effect_step::Step::Attack(pb::AttackStep {
+                to_hit_bonus: 5,
+                damage: vec![dmg(dice)],
+            })),
+        }
+    }
+
+    fn effect_step(id: &str) -> pb::EffectStep {
+        pb::EffectStep {
+            step: Some(pb::effect_step::Step::ApplyEffect(pb::ApplyEffectStep {
+                effect_id: id.into(),
+                ..Default::default()
+            })),
+        }
+    }
+
+    fn ability(id: &str, steps: Vec<pb::EffectStep>) -> pb::Ability {
+        pb::Ability {
+            ability_id: id.into(),
+            name: id.into(),
+            targeting: Some(pb::Targeting {
+                shape: pb::TargetShape::Creatures as i32,
+                range_feet: 60.0,
+                ..Default::default()
+            }),
+            steps,
+            ..Default::default()
+        }
+    }
+
+    /// Alice's creature: `sword` (one attack), `flurry` (two attack steps),
+    /// `curse` (40 apply-effect steps `fx0` .. `fx39`).
+    fn world() -> Campaign {
+        let mut c = campaign();
+        let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
+        alice.expect("c-alice").abilities = vec![
+            ability("sword", vec![attack_step("1d8+3")]),
+            ability("flurry", vec![attack_step("1d8"), attack_step("1d8")]),
+            ability(
+                "curse",
+                (0..40).map(|n| effect_step(&format!("fx{n}"))).collect(),
+            ),
+        ];
+        c
+    }
+
+    fn use_ab(ability: &str, targets: &[&str]) -> Intent {
+        intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+            source_token_id: "t-alice".into(),
+            ability_id: ability.into(),
+            target_token_ids: targets.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }))
+    }
+
+    fn refuse(c: &mut Campaign, actor: &str, i: Intent, expect: &str) {
+        let before = state_of(c);
+        let groups = c.groups.clone();
+        assert_eq!(code(run(c, actor, i)), expect);
+        assert_eq!(state_of(c), before, "{expect}: state changed");
+        assert_eq!(c.groups, groups, "{expect}: a group changed");
+    }
+
+    fn stored<'a>(c: &'a Campaign, id: &str) -> &'a Token {
+        c.tokens.iter().find(|t| t.token_id == id).expect("token")
+    }
+
+    fn warnings_of(events: &[Event]) -> &[pb::Warning] {
+        let Some(event::Kind::ResolutionUpdated(u)) = events[0].kind.as_ref() else {
+            panic!("{:?}", events[0].kind);
+        };
+        &u.resolution.as_ref().expect("resolution").warnings
+    }
+
+    // ----------------------------------------------------------- 1: targets
+
+    #[test]
+    fn a_repeated_target_is_refused_for_a_single_attack() {
+        let mut c = world();
+        refuse(
+            &mut c,
+            "alice",
+            use_ab("sword", &["t-goblin", "t-goblin"]),
+            "duplicate_target",
+        );
+        run(&mut c, "alice", use_ab("sword", &["t-goblin"])).unwrap();
+        refuse(
+            &mut c,
+            "alice",
+            use_ab("sword", &["t-goblin", "t-alice", "t-goblin"]),
+            "duplicate_target",
+        );
+    }
+
+    #[test]
+    fn more_than_max_targets_ids_is_refused_before_any_per_id_work() {
+        let mut c = world();
+        let many = vec!["t-goblin"; MAX_TARGETS + 1];
+        refuse(&mut c, "alice", use_ab("sword", &many), "too_many_targets");
+        // The count wins over the unknown-id check.
+        let junk: Vec<String> = (0..=MAX_TARGETS).map(|n| format!("nobody-{n}")).collect();
+        let junk: Vec<&str> = junk.iter().map(String::as_str).collect();
+        refuse(&mut c, "alice", use_ab("flurry", &junk), "too_many_targets");
+        // A multiattack with 64 listed ids passes the count (then fails on
+        // the repeat, since it has only two attack steps).
+        let at_limit = vec!["t-goblin"; MAX_TARGETS];
+        refuse(
+            &mut c,
+            "alice",
+            use_ab("flurry", &at_limit),
+            "duplicate_target",
+        );
+    }
+
+    #[test]
+    fn a_multiattack_may_repeat_a_target_once_per_attack_step() {
+        let mut c = world();
+        let events = run(&mut c, "alice", use_ab("flurry", &["t-goblin", "t-goblin"])).unwrap();
+        assert!(!events.is_empty());
+        refuse(
+            &mut c,
+            "alice",
+            use_ab("flurry", &["t-goblin", "t-goblin", "t-goblin"]),
+            "duplicate_target",
+        );
+    }
+
+    #[test]
+    fn the_max_targets_warning_stays_a_warning() {
+        let mut c = world();
+        let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
+        let alice = alice.expect("c-alice");
+        alice.abilities[0].targeting.as_mut().unwrap().max_targets = 1;
+        let events = run(&mut c, "gm", use_ab("sword", &["t-goblin", "t-hidden"])).unwrap();
+        let warnings = warnings_of(&events);
+        assert!(warnings.iter().any(|w| w.code == "too_many_targets"));
+    }
+
+    // ------------------------------------------------- 2 and 3: undo edges
+
+    fn undo(seq: u64) -> Intent {
+        intent_of(intent::Kind::Undo(pb::UndoIntent { event_seq: seq }))
+    }
+
+    fn start(tokens: &[&str]) -> Intent {
+        intent_of(intent::Kind::StartEncounter(pb::StartEncounterIntent {
+            scene_id: "s1".into(),
+            token_ids: tokens.iter().map(|s| s.to_string()).collect(),
+        }))
+    }
+
+    fn end(encounter: &str) -> Intent {
+        intent_of(intent::Kind::EndEncounter(pb::EndEncounterIntent {
+            encounter_id: encounter.into(),
+        }))
+    }
+
+    fn running(c: &mut Campaign) {
+        c.encounters.push(Encounter {
+            encounter_id: "enc-1".into(),
+            scene_id: "s1".into(),
+            round: 1,
+            combatants: vec![Combatant {
+                token_id: "t-alice".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+    }
+
+    fn timed(c: &mut Campaign, token_id: &str, effect: &str) {
+        let t = c.tokens.iter_mut().find(|x| x.token_id == token_id);
+        let t = t.expect("token");
+        t.conditions.push(effect.into());
+        t.condition_timers.push(pb::ConditionTimer {
+            effect_id: effect.into(),
+            encounter_id: "enc-1".into(),
+            source_token_id: "t-alice".into(),
+            ends_round: 5,
+            at_end_of_turn: false,
+        });
+    }
+
+    fn clear_blinded() -> Intent {
+        intent_of(intent::Kind::SetConditions(pb::SetConditionsIntent {
+            token_id: "t-goblin".into(),
+            add: vec![],
+            remove: vec!["blinded".into()],
+        }))
+    }
+
+    #[test]
+    fn undoing_a_create_that_is_now_a_combatant_is_refused() {
+        let mut c = world();
+        let made = run(
+            &mut c,
+            "gm",
+            intent_of(intent::Kind::CreateToken(pb::CreateTokenIntent {
+                scene_id: "s1".into(),
+                creature_id: "c-goblin".into(),
+                position: Some(p(35.0, 35.0)),
+                ..Default::default()
+            })),
+        )
+        .unwrap();
+        let Some(event::Kind::TokenUpserted(u)) = made[0].kind.as_ref() else {
+            panic!("{:?}", made[0].kind);
+        };
+        let new_id = u.token.as_ref().unwrap().token_id.clone();
+        run(&mut c, "gm", start(&[&new_id, "t-alice"])).unwrap();
+        let encounters = c.encounters.clone();
+        refuse(&mut c, "gm", undo(made[0].seq), "in_encounter");
+        assert_eq!(c.encounters, encounters);
+        assert!(c.tokens.iter().any(|t| t.token_id == new_id));
+        // Once the encounter is over the undo works.
+        let encounter_id = c.encounters[0].encounter_id.clone();
+        run(&mut c, "gm", end(&encounter_id)).unwrap();
+        run(&mut c, "gm", undo(made[0].seq)).unwrap();
+        assert!(c.tokens.iter().all(|t| t.token_id != new_id));
+    }
+
+    #[test]
+    fn undoing_a_remove_after_the_encounter_ended_drops_the_orphan_timer() {
+        let mut c = world();
+        running(&mut c);
+        timed(&mut c, "t-goblin", "blinded");
+        let gone = run(
+            &mut c,
+            "gm",
+            intent_of(intent::Kind::RemoveToken(pb::RemoveTokenIntent {
+                token_id: "t-goblin".into(),
+            })),
+        )
+        .unwrap();
+        run(&mut c, "gm", end("enc-1")).unwrap();
+        let back = run(&mut c, "gm", undo(gone[0].seq)).unwrap();
+        let goblin = stored(&c, "t-goblin");
+        assert_eq!(goblin.conditions, ["blinded"]);
+        assert!(goblin.condition_timers.is_empty());
+        // The event the clients get shows the same token.
+        let Some(event::Kind::TokenUpserted(u)) = back[0].kind.as_ref() else {
+            panic!("{:?}", back[0].kind);
+        };
+        assert_eq!(u.token.as_ref(), Some(goblin));
+    }
+
+    #[test]
+    fn undoing_set_conditions_after_the_encounter_ended_drops_the_orphan_timer() {
+        let mut c = world();
+        running(&mut c);
+        timed(&mut c, "t-goblin", "blinded");
+        let cleared = run(&mut c, "gm", clear_blinded()).unwrap();
+        assert!(stored(&c, "t-goblin").conditions.is_empty());
+        run(&mut c, "gm", end("enc-1")).unwrap();
+        let back = run(&mut c, "gm", undo(cleared[0].seq)).unwrap();
+        let goblin = stored(&c, "t-goblin");
+        assert_eq!(goblin.conditions, ["blinded"]);
+        assert!(goblin.condition_timers.is_empty());
+        let Some(event::Kind::TokenUpserted(u)) = back[0].kind.as_ref() else {
+            panic!("{:?}", back[0].kind);
+        };
+        assert_eq!(u.token.as_ref(), Some(goblin));
+    }
+
+    #[test]
+    fn undo_keeps_a_timer_whose_encounter_is_still_running() {
+        let mut c = world();
+        running(&mut c);
+        timed(&mut c, "t-goblin", "blinded");
+        let cleared = run(&mut c, "gm", clear_blinded()).unwrap();
+        run(&mut c, "gm", undo(cleared[0].seq)).unwrap();
+        assert_eq!(stored(&c, "t-goblin").condition_timers.len(), 1);
+    }
+
+    // -------------------------------------------------- 4: validate_import
+
+    fn good() -> Creature {
+        Creature {
+            name: "Wolf".into(),
+            hp_current: 7,
+            hp_max: 9,
+            armor_class: 13,
+            proficiency_bonus: 2,
+            passive_perception: 13,
+            speed_feet: 40.0,
+            scores: Some(pb::AbilityScores {
+                strength: 12,
+                dexterity: 15,
+                constitution: 12,
+                intelligence: 3,
+                wisdom: 12,
+                charisma: 6,
+            }),
+            resources: vec![pb::Resource {
+                key: "uses".into(),
+                label: "uses".into(),
+                current: 1,
+                max: 2,
+            }],
+            abilities: vec![ability("bite", vec![attack_step("2d6+3")])],
+            conditions: vec!["prone".into()],
+            condition_immunities: vec!["poisoned".into()],
+            provenance: Some(pb::Provenance {
+                source: "adventurers-anvil".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn hex() -> String {
+        "ab".repeat(32)
+    }
+
+    fn asset_ref(url: &str, asset_id: &str) -> pb::AssetRef {
+        pb::AssetRef {
+            asset_id: asset_id.into(),
+            url: url.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_complete_creature_passes_validation() {
+        assert!(validate_import(&good()).is_ok());
+        let mut c = good();
+        c.portrait = Some(asset_ref(
+            &format!("https://api.example.test/assets/{}.png", hex()),
+            &hex(),
+        ));
+        c.passive_perception = 0;
+        assert!(validate_import(&c).is_ok());
+        c.portrait = Some(asset_ref(&format!("/assets/{}.webp", hex()), ""));
+        assert!(validate_import(&c).is_ok());
+        c.portrait = Some(pb::AssetRef::default());
+        assert!(validate_import(&c).is_ok());
+    }
+
+    #[test]
+    fn every_import_check_refuses_with_bad_creature_naming_the_field() {
+        let edit = |f: &dyn Fn(&mut Creature)| {
+            let mut c = good();
+            f(&mut c);
+            c
+        };
+        fn tg(c: &mut Creature) -> &mut pb::Targeting {
+            c.abilities[0].targeting.as_mut().unwrap()
+        }
+        let many_ids = || {
+            (0..=MAX_CONDITIONS)
+                .map(|n| format!("c{n}"))
+                .collect::<Vec<_>>()
+        };
+        let parts = |n: usize| {
+            vec![pb::EffectStep {
+                step: Some(pb::effect_step::Step::Flat(pb::FlatStep {
+                    damage: (0..n).map(|_| dmg("1d4")).collect(),
+                    healing_dice: String::new(),
+                })),
+            }]
+        };
+        let portrait = |url: &str, id: &str| {
+            let r = asset_ref(url, id);
+            edit(&move |c| c.portrait = Some(r.clone()))
+        };
+        // (text the message must contain, what is wrong, the creature)
+        let cases: Vec<(&str, &str, Creature)> = vec![
+            ("speed_feet", "NaN", edit(&|c| c.speed_feet = f32::NAN)),
+            ("speed_feet", "inf", edit(&|c| c.speed_feet = f32::INFINITY)),
+            ("speed_feet", "negative", edit(&|c| c.speed_feet = -5.0)),
+            (
+                "fly_speed_feet",
+                "NaN",
+                edit(&|c| c.fly_speed_feet = f32::NAN),
+            ),
+            (
+                "fly_speed_feet",
+                "negative",
+                edit(&|c| c.fly_speed_feet = -1.0),
+            ),
+            (
+                "swim_speed_feet",
+                "-inf",
+                edit(&|c| c.swim_speed_feet = f32::NEG_INFINITY),
+            ),
+            (
+                "climb_speed_feet",
+                "huge",
+                edit(&|c| c.climb_speed_feet = 1e9),
+            ),
+            (
+                "burrow_speed_feet",
+                "NaN",
+                edit(&|c| c.burrow_speed_feet = f32::NAN),
+            ),
+            ("range_feet", "NaN", edit(&|c| tg(c).range_feet = f32::NAN)),
+            (
+                "long_range_feet",
+                "negative",
+                edit(&|c| tg(c).long_range_feet = -1.0),
+            ),
+            (
+                "size_feet",
+                "inf",
+                edit(&|c| tg(c).size_feet = f32::INFINITY),
+            ),
+            ("width_feet", "negative", edit(&|c| tg(c).width_feet = -1.0)),
+            ("armor_class", "negative", edit(&|c| c.armor_class = -50)),
+            (
+                "armor_class",
+                "too high",
+                edit(&|c| c.armor_class = MAX_ARMOR_CLASS + 1),
+            ),
+            (
+                "strength",
+                "zero",
+                edit(&|c| c.scores.as_mut().unwrap().strength = 0),
+            ),
+            (
+                "dexterity",
+                "31",
+                edit(&|c| c.scores.as_mut().unwrap().dexterity = 31),
+            ),
+            (
+                "constitution",
+                "min",
+                edit(&|c| c.scores.as_mut().unwrap().constitution = i32::MIN),
+            ),
+            (
+                "intelligence",
+                "max",
+                edit(&|c| c.scores.as_mut().unwrap().intelligence = i32::MAX),
+            ),
+            (
+                "wisdom",
+                "negative",
+                edit(&|c| c.scores.as_mut().unwrap().wisdom = -3),
+            ),
+            (
+                "charisma",
+                "zero",
+                edit(&|c| c.scores.as_mut().unwrap().charisma = 0),
+            ),
+            (
+                "proficiency_bonus",
+                "negative",
+                edit(&|c| c.proficiency_bonus = -1),
+            ),
+            (
+                "proficiency_bonus",
+                "max",
+                edit(&|c| c.proficiency_bonus = i32::MAX),
+            ),
+            (
+                "proficiency_bonus",
+                "too high",
+                edit(&|c| c.proficiency_bonus = MAX_PROFICIENCY_BONUS + 1),
+            ),
+            (
+                "passive_perception",
+                "negative",
+                edit(&|c| c.passive_perception = -1),
+            ),
+            (
+                "passive_perception",
+                "too high",
+                edit(&|c| c.passive_perception = MAX_PASSIVE_PERCEPTION + 1),
+            ),
+            ("hp_temp", "max", edit(&|c| c.hp_temp = i32::MAX)),
+            (
+                "hp_temp",
+                "over cap",
+                edit(&|c| c.hp_temp = MAX_TEMP_HP + 1),
+            ),
+            ("hp_temp", "negative", edit(&|c| c.hp_temp = -1)),
+            (
+                "min_roll",
+                "1",
+                edit(&|c| c.abilities[0].recharge = Some(pb::Recharge { min_roll: 1 })),
+            ),
+            (
+                "min_roll",
+                "7",
+                edit(&|c| c.abilities[0].recharge = Some(pb::Recharge { min_roll: 7 })),
+            ),
+            (
+                "min_roll",
+                "0",
+                edit(&|c| c.abilities[0].recharge = Some(pb::Recharge { min_roll: 0 })),
+            ),
+            (
+                "ability_id",
+                "empty",
+                edit(&|c| c.abilities[0].ability_id.clear()),
+            ),
+            (
+                "ability_id",
+                "duplicate",
+                edit(&|c| {
+                    let again = c.abilities[0].clone();
+                    c.abilities.push(again);
+                }),
+            ),
+            (
+                "resource",
+                "empty key",
+                edit(&|c| c.resources[0].key.clear()),
+            ),
+            (
+                "resource",
+                "duplicate key",
+                edit(&|c| {
+                    let again = c.resources[0].clone();
+                    c.resources.push(again);
+                }),
+            ),
+            (
+                "resource",
+                "current over max",
+                edit(&|c| c.resources[0].current = 3),
+            ),
+            (
+                "resource",
+                "negative current",
+                edit(&|c| c.resources[0].current = -1),
+            ),
+            (
+                "resource",
+                "negative max",
+                edit(&|c| {
+                    c.resources[0].current = 0;
+                    c.resources[0].max = -1
+                }),
+            ),
+            (
+                "conditions",
+                "not an id",
+                edit(&|c| c.conditions = vec!["Blinded".into()]),
+            ),
+            (
+                "conditions",
+                "empty id",
+                edit(&|c| c.conditions = vec![String::new()]),
+            ),
+            (
+                "conditions",
+                "too many",
+                edit(&|c| c.conditions = many_ids()),
+            ),
+            (
+                "condition_immunities",
+                "not an id",
+                edit(&|c| c.condition_immunities = vec!["has space".into()]),
+            ),
+            (
+                "condition_immunities",
+                "too many",
+                edit(&|c| c.condition_immunities = many_ids()),
+            ),
+            (
+                "effect_id",
+                "capital",
+                edit(&|c| c.abilities[0].steps.push(effect_step("Blinded"))),
+            ),
+            (
+                "effect_id",
+                "too long",
+                edit(&|c| c.abilities[0].steps.push(effect_step(&"a".repeat(200)))),
+            ),
+            (
+                "effect_id",
+                "empty",
+                edit(&|c| c.abilities[0].steps.push(effect_step(""))),
+            ),
+            (
+                "steps",
+                "too many",
+                edit(&|c| {
+                    c.abilities[0].steps = (0..=MAX_STEPS_PER_ABILITY)
+                        .map(|_| attack_step("1d4"))
+                        .collect()
+                }),
+            ),
+            (
+                "damage parts",
+                "too many",
+                edit(&|c| c.abilities[0].steps = parts(MAX_DAMAGE_PARTS_PER_STEP + 1)),
+            ),
+            (
+                "doubled",
+                "100d100",
+                edit(&|c| c.abilities[0].steps = vec![attack_step("100d100")]),
+            ),
+            (
+                "doubled",
+                "51d6",
+                edit(&|c| c.abilities[0].steps = vec![attack_step("51d6")]),
+            ),
+            (
+                "portrait",
+                "javascript",
+                portrait("javascript:alert(1)", ""),
+            ),
+            (
+                "portrait",
+                "data url",
+                portrait("data:image/png;base64,AAAA", ""),
+            ),
+            (
+                "portrait",
+                "foreign path",
+                portrait("https://evil.example/x.png", ""),
+            ),
+            (
+                "portrait",
+                "short hex",
+                portrait("https://h.test/assets/abc.png", ""),
+            ),
+            (
+                "portrait",
+                "bad extension",
+                portrait(&format!("https://h.test/assets/{}.svg", hex()), ""),
+            ),
+            (
+                "portrait",
+                "id mismatch",
+                portrait(
+                    &format!("https://h.test/assets/{}.png", hex()),
+                    &"cd".repeat(32),
+                ),
+            ),
+            ("portrait", "id without url", portrait("", &hex())),
+        ];
+        for (field, what, creature) in cases {
+            let err = validate_import(&creature).expect_err(what);
+            assert_eq!(err.code, "bad_creature", "{field} / {what}");
+            assert!(
+                err.message.contains(field),
+                "{field} / {what}: message {:?} does not name the field",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn a_critical_safe_attack_and_big_non_attack_dice_pass() {
+        // 50d6 doubles to exactly 100 dice; a flat step is never doubled.
+        let mut c = good();
+        c.abilities[0].steps = vec![attack_step("50d6")];
+        assert!(validate_import(&c).is_ok());
+        c.abilities[0].steps = vec![pb::EffectStep {
+            step: Some(pb::effect_step::Step::Flat(pb::FlatStep {
+                damage: vec![dmg("100d6")],
+                healing_dice: String::new(),
+            })),
+        }];
+        assert!(validate_import(&c).is_ok());
+    }
+
+    #[test]
+    fn a_bad_import_leaves_the_campaign_alone() {
+        let mut c = world();
+        let before = (c.seq, c.creatures.clone(), c.log.len(), c.groups.len());
+        let mut creature = good();
+        creature.abilities[0].steps.push(effect_step("Blinded"));
+        let err = c
+            .import_creature("gm", creature, Vec::new(), 5_000, &mut SequentialIds::new())
+            .expect_err("bad effect id");
+        assert_eq!(err.code, "bad_creature");
+        assert_eq!(
+            (c.seq, c.creatures.clone(), c.log.len(), c.groups.len()),
+            before
+        );
+    }
+
+    // ------------------------------------------------- 5: conditions cap
+
+    #[test]
+    fn forty_conditions_from_one_ability_keep_32_and_warn() {
+        let mut c = world();
+        let events = run(&mut c, "alice", use_ab("curse", &["t-goblin"])).unwrap();
+        let capped = warnings_of(&events)
+            .iter()
+            .filter(|w| w.code == "too_many_conditions")
+            .count();
+        assert_eq!(capped, 1);
+        assert_eq!(stored(&c, "t-goblin").conditions.len(), MAX_CONDITIONS);
+    }
+
+    // ----------------------------------------- 6: set_conditions lengths
+
+    #[test]
+    fn set_conditions_checks_the_list_lengths_first() {
+        let mut c = world();
+        let ids = |n: usize| (0..n).map(|i| format!("c{i}")).collect::<Vec<_>>();
+        let set = |token: &str, add: Vec<String>, remove: Vec<String>| {
+            intent_of(intent::Kind::SetConditions(pb::SetConditionsIntent {
+                token_id: token.into(),
+                add,
+                remove,
+            }))
+        };
+        refuse(
+            &mut c,
+            "gm",
+            set("t-goblin", ids(100), vec![]),
+            "too_many_conditions",
+        );
+        // Before the per-entry checks: junk ids and a missing token are not
+        // looked at once the lists are too long.
+        refuse(
+            &mut c,
+            "gm",
+            set(
+                "t-nobody",
+                vec!["Bad Id".into(); 2 * MAX_CONDITIONS],
+                vec!["x".into()],
+            ),
+            "too_many_conditions",
+        );
+        refuse(
+            &mut c,
+            "gm",
+            set("t-goblin", ids(40), ids(2 * MAX_CONDITIONS)),
+            "too_many_conditions",
+        );
+        // A player still gets not_permitted first.
+        refuse(
+            &mut c,
+            "alice",
+            set("t-goblin", ids(100), vec![]),
+            "not_permitted",
+        );
+        // At the limit the old checks decide: 32 adds fit.
+        run(&mut c, "gm", set("t-goblin", ids(MAX_CONDITIONS), vec![])).unwrap();
+    }
+}
