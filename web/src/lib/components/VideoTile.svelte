@@ -18,7 +18,7 @@
 	const view = $derived(tileView(shown));
 </script>
 
-<article class="tile" aria-label={view.summary}>
+<article class="tile" class:speaking={view.speaking} aria-label={view.summary}>
 	<div class="picture">
 		<!-- Video only: sound is played by the always-present audio elements, never here. -->
 		<!-- svelte-ignore a11y_media_has_caption -->
@@ -26,13 +26,13 @@
 			muted
 			playsinline
 			aria-hidden="true"
-			class:hidden={!shown.cameraEnabled}
+			class:hidden={view.camera !== 'on'}
 			use:track={videoTrackParams(media, participant, call)}
 		></video>
-		{#if !shown.cameraEnabled}<span class="off" aria-hidden="true">Camera off</span>{/if}
+		{#if view.camera !== 'on'}<span class="off" aria-hidden="true">{view.cameraText}</span>{/if}
 	</div>
 	<p class="name" aria-hidden="true">{view.name}</p>
-	<p class="state" aria-hidden="true">{view.micText}</p>
+	<p class="state" aria-hidden="true">{view.micText}{view.speaking ? ' · Speaking' : ''}</p>
 </article>
 
 <style>
@@ -41,6 +41,10 @@
 		border: 1px solid var(--border);
 		border-radius: 8px;
 		overflow: hidden;
+	}
+	.tile.speaking {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent);
 	}
 	.picture {
 		position: relative;

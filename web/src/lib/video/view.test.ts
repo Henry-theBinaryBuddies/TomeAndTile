@@ -103,6 +103,39 @@ describe('tileView', () => {
 		expect(v.summary).toBe('Gale. Microphone on. Camera off.');
 	});
 
+	it('tells a camera that is off from one whose video has not arrived', () => {
+		const off = tileView(person({ cameraEnabled: false }));
+		expect(off.camera).toBe('off');
+		expect(off.cameraText).toBe('Camera off');
+		const waiting = tileView(
+			person({ cameraEnabled: true, camera: { published: true, subscribed: false } })
+		);
+		expect(waiting.camera).toBe('waiting');
+		expect(waiting.cameraText).toBe('Waiting for video');
+		const on = tileView(person({ cameraEnabled: true, camera: { published: true, subscribed: true } }));
+		expect(on.camera).toBe('on');
+		expect(on.cameraText).toBe('Camera on');
+	});
+
+	it('says waiting for audio only for someone else whose microphone has not arrived', () => {
+		const notYet = { mic: { published: true, subscribed: false } };
+		expect(tileView(person(notYet)).micText).toBe('Waiting for audio');
+		expect(tileView(person({ ...notYet, micEnabled: false })).micText).toBe('Microphone off');
+		expect(tileView(person({ ...notYet, isLocal: true })).micText).toBe('Microphone on');
+	});
+
+	it('never says waiting for your own camera, which has no network step', () => {
+		const mine = person({ isLocal: true, cameraEnabled: true, camera: { published: false, subscribed: false } });
+		expect(tileView(mine).camera).toBe('on');
+	});
+
+	it('says who is speaking in words', () => {
+		const v = tileView(person({ isSpeaking: true }));
+		expect(v.speaking).toBe(true);
+		expect(v.summary).toBe('Gale. Microphone on. Camera off. Speaking.');
+		expect(tileView(person()).speaking).toBe(false);
+	});
+
 	it('marks the local tile', () => {
 		expect(tileView(person({ isLocal: true })).name).toBe('Gale (you)');
 	});
