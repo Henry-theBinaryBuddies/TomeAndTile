@@ -19,6 +19,10 @@ class FakeRenderer implements MapRenderer {
 	rejection: ((code: string, message: string, id: string) => void) | null = null;
 	throwOnApply = false;
 	throwOnRender = false;
+	throwOnPicking = false;
+	picking: boolean[] = [];
+	highlights: string[][] = [];
+	pick: ((tokenId: string) => void) | null = null;
 	applyServerMessage(bytes: Uint8Array) {
 		if (this.throwOnApply) throw new Error('bad bytes: secret server text');
 		this.applied.push(bytes);
@@ -28,6 +32,16 @@ class FakeRenderer implements MapRenderer {
 	}
 	setRejectionHandler(handler: (code: string, message: string, id: string) => void) {
 		this.rejection = handler;
+	}
+	setPicking(enabled: boolean) {
+		if (this.throwOnPicking) throw new Error('secret renderer text');
+		this.picking.push(enabled);
+	}
+	onPick(callback: (tokenId: string) => void) {
+		this.pick = callback;
+	}
+	setHighlights(tokenIds: string[]) {
+		this.highlights.push([...tokenIds]);
 	}
 	resize(w: number, h: number, dpr: number) {
 		this.resizes.push([w, h, dpr]);
@@ -90,7 +104,8 @@ function setup(overrides: { create?: () => Promise<MapRenderer> } = {}) {
 		ready: vi.fn(),
 		unavailable: vi.fn(),
 		rejection: vi.fn(),
-		problem: vi.fn()
+		problem: vi.fn(),
+		pick: vi.fn()
 	};
 	let resolve!: (r: MapRenderer) => void;
 	let reject!: (e: unknown) => void;
@@ -106,7 +121,8 @@ function setup(overrides: { create?: () => Promise<MapRenderer> } = {}) {
 		onReady: events.ready,
 		onUnavailable: events.unavailable,
 		onRejection: events.rejection,
-		onFrameProblem: events.problem
+		onFrameProblem: events.problem,
+		onPick: events.pick
 	});
 	return { renderer, socket, scheduler, events, controller, resolve, reject };
 }
@@ -363,6 +379,83 @@ describe('resize and destroy', () => {
 		t.controller.destroy();
 		t.reject(new Error('no adapter'));
 		await flush();
+		expect(t.events.unavailable).not.toHaveBeenCalled();
+	});
+});
+
+describe('picking targets', () => {
+	it('starts with picking off and nothing highlighted', async () => {
+		const t = setup();
+		t.resolve(t.renderer);
+		await flush();
+		expect(t.renderer.picking).toEqual([false]);
+		expect(t.renderer.highlights).toEqual([[]]);
+	});
+
+	it('remembers settings made while the renderer starts and applies the latest on start', async () => {
+		const t = setup();
+		t.controller.setPicking(true);
+		t.controller.setHighlights(['a']);
+		t.controller.setHighlights(['a', 'b']);
+		t.resolve(t.renderer);
+		await flush();
+		expect(t.renderer.picking.at(-1)).toBe(true);
+		expect(t.renderer.highlights.at(-1)).toEqual(['a', 'b']);
+	});
+
+	it('passes later changes to the renderer, copying the id list', async () => {
+		const t = setup();
+		t.resolve(t.renderer);
+		await flush();
+		const ids = ['x'];
+		t.controller.setPicking(true);
+		t.controller.setHighlights(ids);
+		ids.push('changed later');
+		expect(t.renderer.picking.at(-1)).toBe(true);
+		expect(t.renderer.highlights.at(-1)).toEqual(['x']);
+		t.controller.setPicking(false);
+		t.controller.setHighlights([]);
+		expect(t.renderer.picking.at(-1)).toBe(false);
+		expect(t.renderer.highlights.at(-1)).toEqual([]);
+	});
+
+	it('reports a picked token by its id only', async () => {
+		const t = setup();
+		t.resolve(t.renderer);
+		await flush();
+		t.renderer.pick?.('token-aria');
+		expect(t.events.pick).toHaveBeenCalledWith('token-aria');
+	});
+
+	it('does nothing, and does not throw, when the map is not available', async () => {
+		const t = setup();
+		t.reject(new Error('no gpu'));
+		await flush();
+		expect(() => {
+			t.controller.setPicking(true);
+			t.controller.setHighlights(['a']);
+		}).not.toThrow();
+		expect(t.renderer.picking).toEqual([]);
+	});
+
+	it('ignores changes after destroy', async () => {
+		const t = setup();
+		t.resolve(t.renderer);
+		await flush();
+		t.controller.destroy();
+		const before = t.renderer.picking.length;
+		t.controller.setPicking(true);
+		expect(t.renderer.picking).toHaveLength(before);
+	});
+
+	it('reports a renderer that refuses the settings in plain words and keeps running', async () => {
+		const t = setup();
+		t.resolve(t.renderer);
+		await flush();
+		t.renderer.throwOnPicking = true;
+		t.controller.setPicking(true);
+		expect(t.events.problem).toHaveBeenCalledWith('The map could not update the picked targets.');
+		expect(JSON.stringify(t.events.problem.mock.calls)).not.toContain('secret');
 		expect(t.events.unavailable).not.toHaveBeenCalled();
 	});
 });

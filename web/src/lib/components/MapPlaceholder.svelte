@@ -9,6 +9,14 @@
 	import { rejectionText } from '../chat';
 	import { createMapController, startRenderer } from '../map';
 	import { getGameClient } from '../net';
+	import {
+		endTargetingOnEscape,
+		endTargetingWhenGone,
+		followTargeting,
+		mapPickingFor,
+		pickOnMap,
+		targetingSession
+	} from '../sheet';
 
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let slot: HTMLDivElement | undefined = $state();
@@ -18,6 +26,8 @@
 	// The last refusal of a token move, shown for a few seconds.
 	let refusal = $state<string | null>(null);
 	let refusalTimer: ReturnType<typeof setTimeout> | null = null;
+	// Picking targets for an ability from the Sheet: tokens can be clicked on the map too.
+	const picking = $derived(mapPickingFor($targetingSession).enabled);
 
 	function showRefusal(code: string): void {
 		showNotice(rejectionText(code));
@@ -57,14 +67,21 @@
 				unavailable = message;
 			},
 			onRejection: showRefusal,
-			onFrameProblem: showNotice
+			onFrameProblem: showNotice,
+			onPick: pickOnMap
 		});
+		// Follows the Sheet's picks: picking on or off, and which tokens are ringed. Also ends
+		// picking if its character goes away while the Sheet is closed.
+		const stopPicking = followTargeting(controller);
+		const stopWatching = endTargetingWhenGone(getGameClient().state);
 		const observer = new ResizeObserver(() => controller.resize());
 		observer.observe(box);
 		// Browser zoom changes the pixel ratio without always changing the box size.
 		const onWindowResize = () => controller.resize();
 		window.addEventListener('resize', onWindowResize);
 		return () => {
+			stopPicking();
+			stopWatching();
 			window.removeEventListener('resize', onWindowResize);
 			observer.disconnect();
 			if (refusalTimer) clearTimeout(refusalTimer);
@@ -72,6 +89,9 @@
 		};
 	});
 </script>
+
+<!-- Escape ends target picking even while the Sheet is closed (it is, on a phone). -->
+<svelte:window onkeydowncapture={endTargetingOnEscape} />
 
 <main id="map" class="map" aria-label="Map">
 	<div id="map-canvas-slot" class="map-slot" data-map-canvas-slot bind:this={slot}>
@@ -90,7 +110,21 @@
 	announce the text when it appears.
 -->
 <div class="map-refusal-region" role="status">
+	{#if picking}
+		<p class="map-refusal map-picking">
+			{ready
+				? 'Picking targets: click or tap a token on the map, or use the list in the Sheet. Confirm or cancel in the Sheet, or press Escape.'
+				: 'Picking targets: use the list in the Sheet. Confirm or cancel in the Sheet, or press Escape.'}
+		</p>
+	{/if}
 	{#if refusal}
 		<p class="map-refusal">{refusal}</p>
 	{/if}
 </div>
+
+<style>
+	/* The picking notice and a refusal can both show: keep a gap between them. */
+	.map-refusal-region .map-refusal + .map-refusal {
+		margin-top: 0.4rem;
+	}
+</style>

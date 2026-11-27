@@ -6,19 +6,27 @@
 	import {
 		abilityGroups,
 		actingTokenId,
+		beginTargeting,
 		buildUseAbilityKind,
+		chosenTokenFor,
+		endTargeting,
 		keepTargeting,
 		limitWarning,
 		pickCount,
 		pickToken,
 		picksTargets,
 		removePick,
+		selectActingToken,
+		selectCreature,
+		selectedChoice,
 		setMode,
 		sheetChoices,
+		sheetSelection,
 		startTargeting,
 		statBlockView,
-		type AbilityView,
-		type TargetingState
+		targetingSession,
+		updateTargeting,
+		type AbilityView
 	} from '../sheet';
 
 	const client = getGameClient();
@@ -26,13 +34,14 @@
 
 	// ---- whose sheet ----
 	const choices = $derived(sheetChoices($panelState));
-	let selectedId = $state('');
-	const current = $derived(choices.find((c) => c.creatureId === selectedId) ?? choices[0]);
+	// Which character, and which token acts, are kept in a shared store (sheet/session.ts): this
+	// panel's body is unmounted when it is collapsed or closed, and picking must survive that.
+	const current = $derived(selectedChoice(choices, $sheetSelection));
 	// A plain string: `current` is rebuilt on every server update, but the id only changes when
 	// another character is shown. Effects that must ignore unrelated updates read this.
 	const currentId = $derived(current?.creatureId ?? '');
 	// Which token acts, when the character has more than one on this map.
-	let chosenTokenId = $state('');
+	const chosenTokenId = $derived(chosenTokenFor($sheetSelection, currentId));
 	const actingId = $derived(current ? actingTokenId(current, chosenTokenId) : null);
 	const creature = $derived(current ? $panelState.creatures[current.creatureId] : undefined);
 	const block = $derived(creature ? statBlockView(creature) : null);
@@ -40,9 +49,11 @@
 	const canAct = $derived(actingId !== null);
 
 	// ---- targeting ----
-	let targeting = $state<TargetingState | null>(null);
+	// Kept in a shared store, not here: the map adds picks too, and on a phone this panel is
+	// closed (unmounted) while the person taps the map.
+	const targeting = $derived($targetingSession?.state ?? null);
 	let startedFrom = '';
-	let targetingFor = '';
+	let wasTargeting = false;
 	let sentId = $state<string | null>(null);
 	let sentName = $state('');
 	let sendNote = $state('');
@@ -65,8 +76,8 @@
 	}
 
 	async function start(ability: AbilityView) {
-		targeting = startTargeting(ability);
-		targetingFor = currentId;
+		if (!current) return;
+		beginTargeting(currentId, startTargeting(ability));
 		startedFrom = `ability-${ability.abilityId}`;
 		sentId = null;
 		sendNote = '';
@@ -74,11 +85,19 @@
 		targetingEl?.focus();
 	}
 
-	async function stop() {
-		targeting = null;
-		await tick();
-		document.getElementById(startedFrom)?.focus();
+	function stop() {
+		endTargeting();
 	}
+
+	// However picking ended (Confirm, Cancel, Escape, another character), put focus back on the
+	// ability's button if this panel is on screen.
+	$effect(() => {
+		const active = targeting !== null;
+		if (wasTargeting && !active) {
+			void tick().then(() => document.getElementById(startedFrom)?.focus());
+		}
+		wasTargeting = active;
+	});
 
 	function confirm() {
 		if (!targeting || !actingId) return;
@@ -90,33 +109,18 @@
 		sendNote = '';
 		sentId = id;
 		sentName = targeting.abilityName;
-		void stop();
+		stop();
 	}
 
-	// Runs before the phone layout's own Escape handler (which closes the sheet), so the first
-	// Escape only ends targeting and a second one closes the sheet.
-	function onKey(e: KeyboardEvent) {
-		if (targeting && e.key === 'Escape') {
-			e.preventDefault();
-			e.stopPropagation();
-			void stop();
-		}
-	}
+	// Escape is handled for the whole page by the map (the Sheet may be closed), and it runs
+	// before the phone layout's own Escape handler, so the first Escape only ends picking.
 
 	// Leave targeting if the person switches character, or the character goes away. Reads only
 	// the id, so an unrelated server update (a roll, a move) does not end it mid-pick.
 	$effect(() => {
 		const shown = currentId;
 		untrack(() => {
-			if (targeting && !keepTargeting(targetingFor, shown)) void stop();
-		});
-	});
-
-	// A different character has different tokens: forget the choice.
-	$effect(() => {
-		void currentId;
-		untrack(() => {
-			chosenTokenId = '';
+			if ($targetingSession && !keepTargeting($targetingSession.creatureId, shown)) endTargeting();
 		});
 	});
 
@@ -126,8 +130,6 @@
 		[RollMode.DISADVANTAGE, 'Disadvantage']
 	];
 </script>
-
-<svelte:window onkeydowncapture={onKey} />
 
 {#if !$panelState.joined}
 	<p class="empty">Connecting…</p>
@@ -141,7 +143,7 @@
 					<span>Character</span>
 					<select
 						value={current.creatureId}
-						onchange={(e) => (selectedId = e.currentTarget.value)}
+						onchange={(e) => selectCreature(e.currentTarget.value)}
 					>
 						{#each choices as choice (choice.creatureId)}
 							<option value={choice.creatureId}>{choice.name}</option>
@@ -159,7 +161,7 @@
 				<span>Act as</span>
 				<select
 					value={chosenTokenId}
-					onchange={(e) => (chosenTokenId = e.currentTarget.value)}
+					onchange={(e) => selectActingToken(currentId, e.currentTarget.value)}
 					disabled={targeting !== null}
 				>
 					<option value="">Choose a token</option>
@@ -197,7 +199,7 @@
 									type="button"
 									aria-pressed={targeting.ordered ? undefined : count > 0}
 									class:picked={count > 0}
-									onclick={() => (targeting = pickToken(targeting!, token.tokenId))}
+									onclick={() => updateTargeting((t) => pickToken(t, token.tokenId))}
 								>
 									{token.name.trim() || 'Unknown'}{token.tokenId === actingId ? ' (you)' : ''}{targeting.ordered && count > 0 ? ` ×${count}` : ''}
 								</button>
@@ -214,7 +216,7 @@
 									type="button"
 									class="small"
 									aria-label="Remove {tokenName(id)}, pick {i + 1}"
-									onclick={() => (targeting = removePick(targeting!, i))}>Remove</button
+									onclick={() => updateTargeting((t) => removePick(t, i))}>Remove</button
 								>
 							</li>
 						{/each}
@@ -231,7 +233,7 @@
 								type="radio"
 								name="roll-mode"
 								checked={targeting.mode === value}
-								onchange={() => (targeting = setMode(targeting!, value))}
+								onchange={() => updateTargeting((t) => setMode(t, value))}
 							/>
 							<span>{label}</span>
 						</label>
@@ -242,7 +244,7 @@
 
 				<div class="actions">
 					<button type="button" class="primary" onclick={confirm}>Confirm</button>
-					<button type="button" onclick={() => void stop()}>Cancel</button>
+					<button type="button" onclick={stop}>Cancel</button>
 				</div>
 				<p class="hint small-print">Press Escape to cancel.</p>
 			</section>
