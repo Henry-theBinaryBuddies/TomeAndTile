@@ -10,7 +10,10 @@
 	--map-a: #151a24;
 	--map-b: #1b2130;
 	--dock-side: min(320px, 42vw);
-	--dock-edge-h: 11rem;
+	--dock-edge-h: 12rem;
+	/* The least a docked panel is given: its header and a few lines. Past that the dock scrolls. */
+	--panel-min-h: 10rem;
+	--panel-min-w: 15rem;
 	--tabs-h: 3.5rem;
 	--control: 2.25rem;
 	color-scheme: dark;
@@ -136,10 +139,22 @@ body {
 	flex-direction: column;
 	width: var(--dock-side);
 }
+/* Panels share the dock, but never get smaller than they can be read at: a dock with more
+   panels than fit scrolls instead of squeezing them. */
+.dock-left,
+.dock-right {
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+.dock-top,
+.dock-bottom {
+	overflow-x: auto;
+	overscroll-behavior: contain;
+}
 .dock-top .panel,
 .dock-bottom .panel {
 	flex: 1 1 0;
-	min-width: 0;
+	min-width: var(--panel-min-w);
 }
 .dock-top .panel:not(.collapsed),
 .dock-bottom .panel:not(.collapsed) {
@@ -148,18 +163,20 @@ body {
 .dock-left .panel,
 .dock-right .panel {
 	flex: 1 1 0;
-	min-height: 0;
+	min-height: var(--panel-min-h);
 }
 .dock-left .panel[data-panel='chat']:not(.collapsed),
 .dock-right .panel[data-panel='chat']:not(.collapsed) {
 	/* Chat needs room for its log and two forms; give it three times the share of its neighbours. */
 	flex-grow: 3;
+	min-height: calc(var(--panel-min-h) + 5rem);
 }
 .dock-left .panel.collapsed,
 .dock-right .panel.collapsed,
 .dock-top .panel.collapsed,
 .dock-bottom .panel.collapsed {
 	flex: 0 0 auto;
+	min-height: 0;
 }
 .dock-top .panel.collapsed,
 .dock-bottom .panel.collapsed {
