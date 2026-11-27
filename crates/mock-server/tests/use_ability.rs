@@ -245,8 +245,9 @@ async fn hit_rolls_attack_and_damage_with_exact_values() {
     assert_eq!(o.token_id, "token-goblin");
     assert_eq!(o.outcome, HitOutcome::Hit as i32);
     assert_eq!(o.step_index, 0);
-    assert_eq!(o.damage.len(), 1);
-    assert_eq!((o.damage[0].rolled, o.damage[0].applied), (7, 7));
+    // The goblin's sheet is not the player's to see: no applied damage
+    // (#133). Their own rolls keep every field, checked below.
+    assert!(o.damage.is_empty());
     assert!(!o.dropped_to_zero);
 
     let attack = o.roll.as_ref().unwrap();
@@ -517,7 +518,14 @@ async fn both_connections_get_the_same_resolution_and_a_redacted_upsert() {
     .await;
     let for_player = recv_event(&mut player).await;
     let for_gm = recv_event(&mut gm).await;
-    assert_eq!(for_player, for_gm);
+    // Same resolution, except the player gets no `damage` for the goblin.
+    let mut player_view = for_player.clone();
+    if let Some(event::Kind::ResolutionUpdated(u)) = player_view.kind.as_mut() {
+        let o = &mut u.resolution.as_mut().unwrap().outcomes[0];
+        assert!(o.damage.is_empty());
+        o.damage = resolution(&for_gm).outcomes[0].damage.clone();
+    }
+    assert_eq!(player_view, for_gm);
     assert!(matches!(
         for_gm.kind,
         Some(event::Kind::ResolutionUpdated(_))
@@ -805,4 +813,64 @@ async fn an_ability_with_no_steps_resolves_with_no_outcomes() {
     // Rejections used no seq; the resolution used seq 1.
     send_chat(&mut ws, "x").await;
     assert_eq!(recv_event(&mut ws).await.seq, 2);
+}
+
+#[tokio::test]
+async fn a_monsters_rolls_lose_their_dice_for_the_player_but_not_the_gm() {
+    // The goblin hits Brannoch (the player's own token, so the player sees
+    // the applied damage) with 1 (+bonus) against AC 19 as a miss or hit;
+    // either way the attack roll is the goblin's.
+    let addr = start(faces(&[19, 3])).await;
+    let (mut player, _) = join(addr, "player").await;
+    let (mut gm, _) = join(addr, "gm").await;
+    use_ability(
+        &mut gm,
+        "u1",
+        "token-goblin",
+        "rusty-blade",
+        &["token-brannoch"],
+    )
+    .await;
+    let seen = recv_event(&mut player).await;
+    let full = recv_event(&mut gm).await;
+    let (os, og) = (
+        &resolution(&seen).outcomes[0],
+        &resolution(&full).outcomes[0],
+    );
+    let (a, b) = (os.roll.as_ref().unwrap(), og.roll.as_ref().unwrap());
+    assert!(!b.dice.is_empty() && !b.modifiers.is_empty() && !b.notation.is_empty());
+    assert!(a.dice.is_empty() && a.modifiers.is_empty() && a.notation.is_empty());
+    assert_eq!(
+        (a.total, a.critical, a.fumble, &a.roll_id, &a.label, a.mode),
+        (b.total, b.critical, b.fumble, &b.roll_id, &b.label, b.mode)
+    );
+    assert_eq!(a.roller_creature_id, "creature-goblin");
+    assert_eq!(os.damage_rolls.len(), og.damage_rolls.len());
+    for (x, y) in os.damage_rolls.iter().zip(&og.damage_rolls) {
+        assert!(x.dice.is_empty() && x.modifiers.is_empty() && x.notation.is_empty());
+        assert_eq!(x.total, y.total);
+    }
+    // Brannoch is the player's: the applied damage on their own token stays.
+    assert_eq!(os.damage, og.damage);
+}
+
+#[tokio::test]
+async fn a_monsters_sheet_warnings_are_stripped_for_the_player() {
+    let addr = start(faces(&[5, 3])).await;
+    let (mut player, _) = join(addr, "player").await;
+    let (mut gm, _) = join(addr, "gm").await;
+    use_ability(
+        &mut gm,
+        "u1",
+        "token-goblin",
+        "rusty-blade",
+        &["token-brannoch", "token-tamsin"],
+    )
+    .await;
+    let seen = recv_event(&mut player).await;
+    let full = recv_event(&mut gm).await;
+    assert_eq!(full.warnings[0].code, "too_many_targets");
+    assert_eq!(resolution(&full).warnings, full.warnings);
+    assert!(seen.warnings.is_empty());
+    assert!(resolution(&seen).warnings.is_empty());
 }

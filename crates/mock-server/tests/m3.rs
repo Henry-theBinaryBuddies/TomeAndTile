@@ -247,8 +247,14 @@ async fn player_hit_drops_the_goblin_for_the_gm_and_shows_the_player_a_state() {
         let e = event(ws).await;
         let o = &resolution(&e).outcomes[0];
         assert_eq!(o.outcome, HitOutcome::Hit as i32);
-        assert_eq!(o.damage.len(), 1);
-        assert_eq!((o.damage[0].rolled, o.damage[0].applied), (7, 7));
+        // The goblin's sheet is the GM's: the player gets no `damage` (#133).
+        if hp.is_some() {
+            assert_eq!(o.damage.len(), 1);
+            assert_eq!((o.damage[0].rolled, o.damage[0].applied), (7, 7));
+        } else {
+            assert!(o.damage.is_empty());
+            assert_eq!(o.damage_rolls[0].total, 7);
+        }
         assert!(!o.dropped_to_zero);
         let e = event(ws).await;
         assert_eq!((e.seq, e.client_intent_id.as_str()), (2, "u1"));
@@ -284,11 +290,14 @@ async fn dropping_the_goblin_to_zero_sets_dropped_to_zero_and_down() {
     let o = resolution(&event(&mut player).await).outcomes[0].clone();
     assert!(o.dropped_to_zero);
     // The roll was 11; the damage rolled and applied say so, HP just floors.
-    assert_eq!((o.damage[0].rolled, o.damage[0].applied), (11, 11));
+    // The player does not get `damage` for the goblin, the GM does (#133).
+    assert!(o.damage.is_empty());
+    assert_eq!(o.damage_rolls[0].total, 11);
+    let og = resolution(&event(&mut gm).await).outcomes[0].clone();
+    assert_eq!((og.damage[0].rolled, og.damage[0].applied), (11, 11));
     let t = event(&mut player).await;
     assert_eq!(upserted(&t).health_state, HealthState::Down as i32);
     assert_eq!(upserted(&t).hp_current, None);
-    event(&mut gm).await;
     assert_eq!(upserted(&event(&mut gm).await).hp_current, Some(0));
 
     // Already at 0: not dropped again, nothing changed, so no upsert.
@@ -406,6 +415,7 @@ async fn a_save_with_no_half_damage_deals_none_on_success_and_rolls_no_damage() 
     // so d20 11 + 2 = 13 meets the DC. Nothing is rolled for damage.
     let addr = start(faces(&[11])).await;
     let (mut player, _) = join(addr, "player").await;
+    let (mut gm, _) = join(addr, "gm").await;
     use_ability(
         &mut player,
         "u1",
@@ -418,7 +428,13 @@ async fn a_save_with_no_half_damage_deals_none_on_success_and_rolls_no_damage() 
     let o = &resolution(&e).outcomes[0];
     assert_eq!(o.outcome, HitOutcome::SaveSucceeded as i32);
     assert!(o.damage.is_empty() && o.damage_rolls.is_empty());
-    assert_eq!(o.roll.as_ref().unwrap().modifiers.len(), 1);
+    // The goblin's save: the GM sees the modifier, the player only the total.
+    let eg = event(&mut gm).await;
+    let save_gm = resolution(&eg).outcomes[0].roll.clone().unwrap();
+    assert_eq!(save_gm.modifiers.len(), 1);
+    let save = o.roll.as_ref().unwrap();
+    assert!(save.modifiers.is_empty() && save.dice.is_empty() && save.notation.is_empty());
+    assert_eq!(save.total, save_gm.total);
     assert_settled(&mut player, 1).await;
 }
 

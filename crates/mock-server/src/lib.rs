@@ -1,7 +1,8 @@
 //! Mock game server: speaks the real game-socket protocol from recorded data.
 //!
 //! It applies simplified rules and checks only the GM role and token control
-//! (the README lists everything it skips). It redacts token hit points per
+//! (the README lists everything it skips). It redacts token hit points and
+//! result cards (monster rolls, damage, sheet warnings) per
 //! viewer and filters the creature sheets in the Snapshot, so the UI can
 //! exercise the health-state view and the refusal paths; none of that is
 //! security. It exists so the web UI and importers can be built before the
@@ -40,7 +41,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tt_contracts::v1::{
     client_message, event, intent, server_message, AssetRef, ChatPosted, ClientMessage, Creature,
-    DiceRolled, Encounter, Event, Hello, Intent, IntentRejected, Role, SceneUpserted,
+    DiceRolled, Encounter, Event, Hello, Intent, IntentRejected, Role, RollResult, SceneUpserted,
     ServerMessage, Snapshot, Token, TokenMoved, TokenUpserted, Vec2, Warning,
 };
 
@@ -468,6 +469,31 @@ fn encode_event(shared: &Shared, event: &Event, viewer: Viewer) -> Option<Bytes>
             out.kind = Some(event::Kind::TokenUpserted(TokenUpserted {
                 token: u.token.as_ref().map(|t| redact_token(t, viewer)),
             }));
+            // Warnings on a token event describe the creature's sheet: only
+            // for viewers who may see it (mirrors `tt-server`, #133).
+            if viewer.role != Role::Gm {
+                let game = shared.lock();
+                let visible = u
+                    .token
+                    .as_ref()
+                    .is_some_and(|t| game.token_sheet_visible(&t.token_id, viewer));
+                if !visible {
+                    out.warnings.clear();
+                }
+            }
+        }
+        // Result cards never show the stat block of a creature the viewer
+        // cannot see (mirrors `tt-server`, #133).
+        Some(event::Kind::ResolutionUpdated(_)) if viewer.role != Role::Gm => {
+            shared.lock().redact_resolution_event(&mut out, viewer);
+        }
+        Some(event::Kind::DiceRolled(_)) if viewer.role != Role::Gm => {
+            let game = shared.lock();
+            if let Some(event::Kind::DiceRolled(d)) = out.kind.as_mut() {
+                if let Some(roll) = d.roll.as_mut() {
+                    game.redact_roll(roll, viewer);
+                }
+            }
         }
         // Sheets go only to viewers who may see them, as in the Snapshot.
         Some(event::Kind::CreatureUpserted(c)) => {
@@ -740,6 +766,85 @@ impl Game {
             }
             _ => false,
         }
+    }
+
+    /// Mirrors `token_sheet_visible` in `tt-server`.
+    fn token_sheet_visible(&self, token_id: &str, viewer: Viewer) -> bool {
+        self.tokens
+            .iter()
+            .find(|t| t.token_id == token_id)
+            .and_then(|t| {
+                self.template
+                    .creatures
+                    .iter()
+                    .find(|c| c.creature_id == t.creature_id)
+            })
+            .is_some_and(|c| self.creature_visible(c, viewer.user_id, viewer.role))
+    }
+
+    /// Mirrors `redact_roll` in `tt-server`: a roll by a creature the viewer
+    /// cannot see keeps its total and flags but loses dice, modifiers and
+    /// notation.
+    fn redact_roll(&self, roll: &mut RollResult, viewer: Viewer) {
+        if roll.roller_creature_id.is_empty() {
+            return;
+        }
+        let visible = self
+            .template
+            .creatures
+            .iter()
+            .find(|c| c.creature_id == roll.roller_creature_id)
+            .is_some_and(|c| self.creature_visible(c, viewer.user_id, viewer.role));
+        if !visible {
+            roll.dice.clear();
+            roll.modifiers.clear();
+            roll.notation.clear();
+        }
+    }
+
+    /// Mirrors `redact_resolution_event` in `tt-server` (#133): rolls by
+    /// unseen creatures lose their dice; a target whose sheet is unseen
+    /// loses `damage`; source-sheet warnings (`not_enough_resource`,
+    /// `too_many_targets`, `out_of_range`, `ability_recharging`) need the
+    /// source's sheet and `condition_immune` the named target's.
+    fn redact_resolution_event(&self, out: &mut Event, viewer: Viewer) {
+        let Some(event::Kind::ResolutionUpdated(ru)) = out.kind.as_mut() else {
+            return;
+        };
+        let Some(res) = ru.resolution.as_mut() else {
+            return;
+        };
+        let source_visible = self.token_sheet_visible(&res.source_token_id, viewer);
+        for outcome in &mut res.outcomes {
+            for roll in outcome
+                .roll
+                .iter_mut()
+                .chain(outcome.damage_rolls.iter_mut())
+            {
+                self.redact_roll(roll, viewer);
+            }
+            let has_sheet = self
+                .tokens
+                .iter()
+                .find(|t| t.token_id == outcome.token_id)
+                .is_some_and(|t| !t.creature_id.is_empty());
+            if has_sheet && !self.token_sheet_visible(&outcome.token_id, viewer) {
+                outcome.damage.clear();
+            }
+        }
+        let outcomes = res.outcomes.clone();
+        let keep = |w: &Warning| match w.code.as_str() {
+            "not_enough_resource" | "too_many_targets" | "out_of_range" | "ability_recharging" => {
+                source_visible
+            }
+            "condition_immune" => outcomes
+                .iter()
+                .find(|o| w.message.starts_with(&format!("token {} ", o.token_id)))
+                .is_some_and(|o| self.token_sheet_visible(&o.token_id, viewer)),
+            _ => true,
+        };
+        res.warnings.retain(keep);
+        out.warnings.retain(keep);
     }
 
     fn move_token(&mut self, m: &tt_contracts::v1::MoveTokenIntent) -> Result<Group, Rejection> {
