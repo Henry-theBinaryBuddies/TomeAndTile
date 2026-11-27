@@ -32,3 +32,7 @@ Status: Accepted (2026-11-12)
 - **Player private rolls and whispers:** against the communal-policing goal.
 - **Client-side hiding:** trivially bypassed.
 - **A roll-audit screen:** not wanted. Rolls are still in the event log because undo needs them.
+
+## Result cards follow "never the stat block" (2026-11-27)
+
+The project owner decided that "never the stat block" covers result cards. For a viewer who cannot see a creature's sheet, `ResolutionUpdated` (and public `DiceRolled`) is redacted: rolls made by that creature keep the total, critical and fumble flags and labels but lose dice, modifiers and notation (the total plus the die would give the modifier away); a target's `damage` list (applied against rolled, which reveals resistances) is dropped, while `damage_rolls` stay; and the warnings `too_many_targets`, `out_of_range`, `ability_recharging`, `not_enough_resource` and `condition_immune` are removed when they would describe a sheet the viewer cannot see. Also hidden from non-GM viewers: the source and encounter of condition timers when they are hidden, and `condition_immune` on token updates. The GM's copy is complete. Details: `crates/server/README.md`.

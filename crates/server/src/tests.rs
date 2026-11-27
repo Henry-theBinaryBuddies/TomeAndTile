@@ -1545,9 +1545,16 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        for who in ["gm", "alice", "bob", "spec"] {
-            let got = c.event_for(&events[0], &viewer(&c, who));
-            assert_eq!(got.as_ref(), Some(&events[0]), "{who} sees it");
+        let gm_copy = c.event_for(&events[0], &viewer(&c, "gm"));
+        assert_eq!(gm_copy.as_ref(), Some(&events[0]), "the GM's copy is whole");
+        for who in ["alice", "bob", "spec"] {
+            let got = c
+                .event_for(&events[0], &viewer(&c, who))
+                .unwrap_or_else(|| panic!("{who} sees it"));
+            let (full, seen) = (resolution_of(&events[0]), resolution_of(&got));
+            assert_eq!(seen.outcomes.len(), full.outcomes.len(), "{who}");
+            // The goblin's sheet is not theirs to see: no applied damage.
+            assert!(seen.outcomes.iter().all(|o| o.damage.is_empty()), "{who}");
         }
     }
 
@@ -1630,12 +1637,166 @@ mod use_ability {
                 !has_warning(&copy),
                 "{who} must not learn the goblin's uses"
             );
-            assert_eq!(
-                resolution_of(&copy).outcomes,
-                resolution_of(&events[0]).outcomes,
-                "{who} still sees the rolls"
-            );
+            let (full, seen) = (resolution_of(&events[0]), resolution_of(&copy));
+            assert_eq!(seen.outcomes.len(), full.outcomes.len(), "{who}");
+            for (a, b) in seen.outcomes.iter().zip(&full.outcomes) {
+                assert_eq!(
+                    a.roll.as_ref().map(|r| r.total),
+                    b.roll.as_ref().map(|r| r.total),
+                    "{who} still sees the totals"
+                );
+            }
         }
+    }
+
+    // ------------------------------------------------ #133 result cards
+
+    fn copy_for(c: &Campaign, e: &Event, who: &str) -> Event {
+        c.event_for(e, &viewer(c, who))
+            .unwrap_or_else(|| panic!("{who} receives the resolution"))
+    }
+
+    fn codes(warnings: &[pb::Warning]) -> Vec<&str> {
+        warnings.iter().map(|w| w.code.as_str()).collect()
+    }
+
+    #[test]
+    fn player_attack_on_a_monster_hides_applied_damage_and_keeps_own_dice() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "alice",
+            use_ab("t-alice", "sword", &["t-goblin"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        let full = resolution_of(&events[0]);
+        assert!(!full.outcomes[0].damage.is_empty(), "the log has applied");
+        let gm = copy_for(&c, &events[0], "gm");
+        assert_eq!(&gm, &events[0], "the GM copy is whole");
+        let mine = copy_for(&c, &events[0], "alice");
+        let o = &resolution_of(&mine).outcomes[0];
+        assert!(o.damage.is_empty(), "no applied damage for the goblin");
+        // Alice's own rolls keep their dice, modifiers and notation.
+        assert_eq!(o.roll, full.outcomes[0].roll);
+        assert_eq!(o.damage_rolls, full.outcomes[0].damage_rolls);
+        assert!(!o.roll.as_ref().unwrap().dice.is_empty());
+        assert!(!o.damage_rolls[0].notation.is_empty());
+        // Bob cannot see alice's sheet either: totals only.
+        let theirs = copy_for(&c, &events[0], "bob");
+        let o = &resolution_of(&theirs).outcomes[0];
+        let r = o.roll.as_ref().unwrap();
+        assert!(r.dice.is_empty() && r.modifiers.is_empty() && r.notation.is_empty());
+        assert_eq!(r.total, full.outcomes[0].roll.as_ref().unwrap().total);
+    }
+
+    #[test]
+    fn monster_attack_on_a_player_blanks_its_rolls_but_keeps_totals_and_own_damage() {
+        let mut c = armed();
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-goblin", "claw", &["t-alice"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        let full = resolution_of(&events[0]);
+        let (fr, fd) = (
+            full.outcomes[0].roll.as_ref().unwrap(),
+            &full.outcomes[0].damage_rolls[0],
+        );
+        assert!(!fr.dice.is_empty() && !fr.modifiers.is_empty() && !fd.dice.is_empty());
+        assert_eq!(&copy_for(&c, &events[0], "gm"), &events[0]);
+        let mine = copy_for(&c, &events[0], "alice");
+        let o = &resolution_of(&mine).outcomes[0];
+        for (seen, orig) in [(o.roll.as_ref().unwrap(), fr), (&o.damage_rolls[0], fd)] {
+            assert!(seen.dice.is_empty(), "no dice");
+            assert!(seen.modifiers.is_empty(), "no modifiers");
+            assert!(seen.notation.is_empty(), "no notation");
+            assert_eq!(seen.total, orig.total);
+            assert_eq!((seen.critical, seen.fumble), (orig.critical, orig.fumble));
+            assert_eq!(seen.roll_id, orig.roll_id);
+            assert_eq!(seen.label, orig.label);
+            assert_eq!(seen.purpose, orig.purpose);
+            assert_eq!(seen.visibility, orig.visibility);
+        }
+        // Alice sees her own sheet: the applied damage on her token stays.
+        assert!(!full.outcomes[0].damage.is_empty());
+        assert_eq!(o.damage, full.outcomes[0].damage);
+    }
+
+    #[test]
+    fn sheet_warnings_are_stripped_for_players_and_kept_for_the_gm() {
+        let mut c = armed();
+        let goblin = c
+            .creatures
+            .iter_mut()
+            .find(|x| x.creature_id == "c-goblin")
+            .expect("c-goblin");
+        goblin.abilities[0].targeting.as_mut().unwrap().range_feet = 5.0;
+        goblin.abilities[0].recharge = Some(pb::Recharge { min_roll: 5 });
+        goblin.abilities[0].recharge_spent = true;
+        c.tokens
+            .push(token("t-bob", "c-bob", &["bob"], false, 245.0));
+        c.scenes[0].grid.as_mut().expect("grid").kind = pb::GridKind::Square as i32;
+        let events = run_with(
+            &mut c,
+            "gm",
+            use_ab("t-goblin", "claw", &["t-alice", "t-bob"]),
+            &mut hit_script(),
+        )
+        .unwrap();
+        let sent = codes(&resolution_of(&events[0]).warnings);
+        for code in ["ability_recharging", "too_many_targets", "out_of_range"] {
+            assert!(sent.contains(&code), "{code} in {sent:?}");
+        }
+        let gm = copy_for(&c, &events[0], "gm");
+        assert_eq!(&gm, &events[0]);
+        for who in ["alice", "bob", "spec"] {
+            let copy = copy_for(&c, &events[0], who);
+            assert!(resolution_of(&copy).warnings.is_empty(), "{who}");
+            assert!(copy.warnings.is_empty(), "{who}");
+        }
+    }
+
+    #[test]
+    fn condition_immune_is_kept_only_for_those_who_see_the_targets_sheet() {
+        let mut c = armed();
+        for id in ["c-goblin", "c-alice"] {
+            c.creatures
+                .iter_mut()
+                .find(|x| x.creature_id == id)
+                .expect("creature")
+                .condition_immunities = vec!["poisoned".into()];
+        }
+        let hex = ability(
+            "hex",
+            pb::TargetShape::Creatures,
+            vec![pb::EffectStep {
+                step: Some(pb::effect_step::Step::ApplyEffect(pb::ApplyEffectStep {
+                    effect_id: "poisoned".into(),
+                    ..Default::default()
+                })),
+            }],
+        );
+        for id in ["c-alice", "c-goblin"] {
+            c.creatures
+                .iter_mut()
+                .find(|x| x.creature_id == id)
+                .expect("creature")
+                .abilities
+                .push(hex.clone());
+        }
+        let immune = |e: &Event| codes(&resolution_of(e).warnings).contains(&"condition_immune");
+        // Alice poisons the goblin (immune): alice cannot see its sheet.
+        let events = run(&mut c, "alice", use_ab("t-alice", "hex", &["t-goblin"])).unwrap();
+        assert!(immune(&events[0]));
+        assert!(immune(&copy_for(&c, &events[0], "gm")));
+        assert!(!immune(&copy_for(&c, &events[0], "alice")));
+        // The goblin poisons alice (immune): alice owns that sheet.
+        let events = run(&mut c, "gm", use_ab("t-goblin", "hex", &["t-alice"])).unwrap();
+        assert!(immune(&copy_for(&c, &events[0], "alice")));
+        assert!(!immune(&copy_for(&c, &events[0], "bob")));
     }
 
     #[test]
@@ -3251,6 +3412,166 @@ mod encountering {
         }
     }
 
+    // ------------------------------------------------------------- #133
+
+    fn set_cond(token_id: &str, add: &[&str]) -> Intent {
+        intent_of(intent::Kind::SetConditions(pb::SetConditionsIntent {
+            token_id: token_id.into(),
+            add: add.iter().map(|s| s.to_string()).collect(),
+            remove: vec![],
+        }))
+    }
+
+    fn timers_of(t: &Token) -> Vec<(&str, &str, u32, bool)> {
+        t.condition_timers
+            .iter()
+            .map(|x| {
+                (
+                    x.source_token_id.as_str(),
+                    x.encounter_id.as_str(),
+                    x.ends_round,
+                    x.at_end_of_turn,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_timer_from_a_hidden_source_is_blanked_in_events_and_snapshots_for_players() {
+        let mut c = world();
+        running(&mut c, &["t-hidden", "t-alice"], 1);
+        timed(&mut c, "t-alice", timer("blinded", "t-hidden", 3, true));
+        let events = run(&mut c, "gm", set_cond("t-alice", &["prone"])).unwrap();
+        let (gm, alice) = (viewer(&c, "gm"), viewer(&c, "alice"));
+        let gm_copy = c.event_for(&events[0], &gm).unwrap();
+        assert_eq!(
+            timers_of(upserted(&gm_copy)),
+            [("t-hidden", "enc-1", 3, true)]
+        );
+        let seen = c.event_for(&events[0], &alice).unwrap();
+        assert_eq!(timers_of(upserted(&seen)), [("", "", 3, true)]);
+        let snap = |v: &Viewer| {
+            let s = c.snapshot_for(v);
+            s.tokens
+                .into_iter()
+                .find(|t| t.token_id == "t-alice")
+                .unwrap()
+        };
+        assert_eq!(timers_of(&snap(&gm)), [("t-hidden", "enc-1", 3, true)]);
+        assert_eq!(timers_of(&snap(&alice)), [("", "", 3, true)]);
+        // Bob and the spectator are no different.
+        for who in ["bob", "spec"] {
+            let v = viewer(&c, who);
+            assert_eq!(timers_of(&snap(&v)), [("", "", 3, true)], "{who}");
+        }
+    }
+
+    #[test]
+    fn a_timer_keeps_visible_ids_and_blanks_a_removed_source() {
+        let mut c = world();
+        running(&mut c, &["t-alice", "t-goblin"], 1);
+        timed(&mut c, "t-alice", timer("blinded", "t-goblin", 2, false));
+        timed(&mut c, "t-alice", timer("dazed", "t-gone", 2, false));
+        let events = run(&mut c, "gm", set_cond("t-alice", &["prone"])).unwrap();
+        let seen = c.event_for(&events[0], &viewer(&c, "bob")).unwrap();
+        assert_eq!(
+            timers_of(upserted(&seen)),
+            [("t-goblin", "enc-1", 2, false), ("", "enc-1", 2, false)]
+        );
+    }
+
+    #[test]
+    fn a_timer_of_a_gone_encounter_has_a_blank_encounter_id() {
+        let mut c = world();
+        timed(&mut c, "t-alice", timer("blinded", "t-goblin", 2, false));
+        let events = run(&mut c, "gm", set_cond("t-alice", &["prone"])).unwrap();
+        let seen = c.event_for(&events[0], &viewer(&c, "bob")).unwrap();
+        assert_eq!(timers_of(upserted(&seen)), [("t-goblin", "", 2, false)]);
+    }
+
+    #[test]
+    fn a_condition_immune_warning_on_a_token_reaches_the_gm_alone() {
+        let mut c = world();
+        for cr in &mut c.creatures {
+            if cr.creature_id == "c-goblin" || cr.creature_id == "c-alice" {
+                cr.condition_immunities = vec!["poisoned".into()];
+            }
+        }
+        let events = run(&mut c, "gm", set_cond("t-goblin", &["poisoned"])).unwrap();
+        assert_eq!(events[0].warnings[0].code, "condition_immune");
+        assert_eq!(
+            c.event_for(&events[0], &viewer(&c, "gm")).unwrap().warnings,
+            events[0].warnings
+        );
+        for who in ["alice", "bob", "spec"] {
+            let seen = c.event_for(&events[0], &viewer(&c, who)).unwrap();
+            assert!(seen.warnings.is_empty(), "{who}");
+            assert_eq!(upserted(&seen).token_id, "t-goblin");
+        }
+        // The owner of an immune creature may see the sheet, so the warning.
+        let events = run(&mut c, "gm", set_cond("t-alice", &["poisoned"])).unwrap();
+        let mine = c.event_for(&events[0], &viewer(&c, "alice")).unwrap();
+        assert_eq!(mine.warnings[0].code, "condition_immune");
+        let theirs = c.event_for(&events[0], &viewer(&c, "bob")).unwrap();
+        assert!(theirs.warnings.is_empty());
+    }
+
+    #[test]
+    fn an_encounter_with_a_hidden_combatant_stays_invisible_from_start_to_end() {
+        let mut c = world();
+        let started = run(&mut c, "gm", start("s1", &["t-alice", "t-hidden"])).unwrap();
+        let (gm, alice) = (viewer(&c, "gm"), viewer(&c, "alice"));
+        for e in &started {
+            assert!(c.event_for(e, &gm).is_some());
+            assert!(c.event_for(e, &alice).is_none(), "{:?}", e.kind);
+        }
+        let id = encounter_of(&started[2]).encounter_id.clone();
+        let ended = run(&mut c, "gm", end_enc(&id)).unwrap();
+        assert!(matches!(
+            ended[0].kind,
+            Some(event::Kind::EncounterEnded(_))
+        ));
+        assert!(c.event_for(&ended[0], &gm).is_some());
+        for who in ["alice", "bob", "spec"] {
+            assert!(c.event_for(&ended[0], &viewer(&c, who)).is_none(), "{who}");
+        }
+        assert!(c.snapshot_for(&alice).encounters.is_empty());
+    }
+
+    #[test]
+    fn an_all_visible_encounter_reaches_players_from_start_to_end() {
+        let mut c = world();
+        let started = run(&mut c, "gm", start("s1", &["t-alice", "t-goblin"])).unwrap();
+        for who in ["gm", "alice", "bob", "spec"] {
+            let v = viewer(&c, who);
+            for e in &started {
+                assert!(c.event_for(e, &v).is_some(), "{who} {:?}", e.kind);
+            }
+        }
+        let id = encounter_of(&started[2]).encounter_id.clone();
+        let ended = run(&mut c, "gm", end_enc(&id)).unwrap();
+        for who in ["gm", "alice", "bob", "spec"] {
+            assert!(c.event_for(&ended[0], &viewer(&c, who)).is_some(), "{who}");
+        }
+    }
+
+    #[test]
+    fn a_recharge_roll_in_an_encounter_with_a_hidden_combatant_is_gm_only() {
+        let mut c = world();
+        c.tokens
+            .push(token("t-dragon", "c-dragon", &[], false, 315.0));
+        let mut dragon = creature("c-dragon", "alice");
+        dragon.abilities = vec![breath(true, 1)];
+        c.creatures.push(dragon);
+        running(&mut c, &["t-alice", "t-dragon", "t-hidden"], 1);
+        let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
+        let roll = events
+            .iter()
+            .find(|e| matches!(e.kind, Some(event::Kind::DiceRolled(_))))
+            .expect("a recharge roll");
+        assert_eq!(roll_of(roll).visibility, RollVisibility::GmOnly as i32);
+    }
+
     #[test]
     fn start_rolls_one_initiative_per_token_and_sorts_with_both_tie_breaks() {
         let mut c = world();
@@ -3329,16 +3650,16 @@ mod encountering {
     fn a_hidden_token_rolls_gm_only_and_the_encounter_goes_to_the_gm_alone() {
         let mut c = world();
         let events = run(&mut c, "gm", start("s1", &["t-alice", "t-hidden"])).unwrap();
-        assert_eq!(
-            roll_of(&events[0]).visibility,
-            RollVisibility::Public as i32
-        );
-        assert_eq!(
-            roll_of(&events[1]).visibility,
-            RollVisibility::GmOnly as i32
-        );
+        // One hidden combatant makes every initiative roll GM only (#133).
+        for i in [0, 1] {
+            assert_eq!(
+                roll_of(&events[i]).visibility,
+                RollVisibility::GmOnly as i32
+            );
+        }
         let (gm, alice) = (viewer(&c, "gm"), viewer(&c, "alice"));
-        assert!(c.event_for(&events[0], &alice).is_some());
+        assert!(c.event_for(&events[0], &alice).is_none());
+        assert!(c.event_for(&events[0], &gm).is_some());
         assert!(c.event_for(&events[1], &alice).is_none());
         assert!(c.event_for(&events[2], &alice).is_none());
         assert!(c.event_for(&events[2], &gm).is_some());
@@ -3563,13 +3884,24 @@ mod encountering {
     }
 
     #[test]
-    fn ended_encounter_reaches_everyone_even_when_it_was_gm_only() {
+    fn ended_encounter_with_a_hidden_combatant_reaches_the_gm_alone() {
         let mut c = world();
         running(&mut c, &["t-hidden", "t-alice"], 1);
         let events = run(&mut c, "gm", end_enc("enc-1")).unwrap();
         assert_eq!(events.len(), 1);
+        assert!(c.event_for(&events[0], &viewer(&c, "gm")).is_some());
+        for who in ["alice", "bob", "spec"] {
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_none(), "{who}");
+        }
+    }
+
+    #[test]
+    fn ended_all_visible_encounter_still_reaches_everyone() {
+        let mut c = world();
+        running(&mut c, &["t-alice", "t-goblin"], 1);
+        let events = run(&mut c, "gm", end_enc("enc-1")).unwrap();
         for who in ["gm", "alice", "bob", "spec"] {
-            assert!(c.event_for(&events[0], &viewer(&c, who)).is_some());
+            assert!(c.event_for(&events[0], &viewer(&c, who)).is_some(), "{who}");
         }
     }
 

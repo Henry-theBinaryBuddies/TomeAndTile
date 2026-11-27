@@ -274,6 +274,10 @@ export const AuraSchema: GenMessage<Aura> = /*@__PURE__*/
  * warning). Duration.concentration is ignored in M3.
  * Ending an encounter removes its timers and leaves the conditions on the
  * tokens.
+ * A non-GM viewer receives source_token_id "" when the source token is
+ * hidden or no longer exists, and encounter_id "" when they cannot see that
+ * encounter (it has a hidden combatant) or it no longer exists; ends_round
+ * and at_end_of_turn are always sent (#133). Treat "" as "unknown".
  *
  * @generated from message tomeandtile.v1.ConditionTimer
  */

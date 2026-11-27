@@ -735,6 +735,11 @@ export const IntentSchema: GenMessage<Intent> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_session, 15);
 
 /**
+ * What non-GM viewers receive (#133): the Token is redacted as described on
+ * Token in scene.proto, and Event.warnings (for example condition_immune from
+ * SetConditions) is sent only to viewers who may see the token's creature
+ * sheet; others get it empty.
+ *
  * @generated from message tomeandtile.v1.TokenUpserted
  */
 export type TokenUpserted = Message<"tomeandtile.v1.TokenUpserted"> & {
@@ -823,6 +828,10 @@ export const ChatPostedSchema: GenMessage<ChatPosted> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_session, 19);
 
 /**
+ * Only PUBLIC rolls reach non-GM viewers. A public roll by a creature the
+ * viewer cannot see arrives without dice, modifiers and notation (see
+ * RollResult in dice.proto).
+ *
  * @generated from message tomeandtile.v1.DiceRolled
  */
 export type DiceRolled = Message<"tomeandtile.v1.DiceRolled"> & {
@@ -857,6 +866,11 @@ export const EncounterUpdatedSchema: GenMessage<EncounterUpdated> = /*@__PURE__*
   messageDesc(file_tomeandtile_v1_session, 21);
 
 /**
+ * Sent to a non-GM viewer only if they could see the encounter when it ended,
+ * that is, none of its combatants was hidden (the same rule as
+ * EncounterUpdated). Seq numbers are global, so a viewer who is not sent an
+ * event sees a gap in seq (ADR 0004).
+ *
  * @generated from message tomeandtile.v1.EncounterEnded
  */
 export type EncounterEnded = Message<"tomeandtile.v1.EncounterEnded"> & {
@@ -875,6 +889,10 @@ export const EncounterEndedSchema: GenMessage<EncounterEnded> = /*@__PURE__*/
 
 /**
  * Sent each time a resolution changes state, so clients can animate it.
+ * Non-GM viewers never get the stat block of a creature they cannot see
+ * (#133): see Resolution and TargetOutcome in combat.proto and RollResult in
+ * dice.proto for the fields left blank, and Warning in common.proto for the
+ * warnings removed. The GM's copy is complete.
  *
  * @generated from message tomeandtile.v1.ResolutionUpdated
  */

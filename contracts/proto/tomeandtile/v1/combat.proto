@@ -62,7 +62,10 @@ message DamageApplied {
   int32 applied = 3;
 }
 
-// What happened to one target of an ability.
+// What happened to one target of an ability. For a non-GM viewer who cannot
+// see the target creature's sheet, `damage` is empty (applied against rolled
+// would show resistances and immunities); damage_rolls stay (#133). The rolls
+// inside are redacted as described on RollResult in dice.proto.
 message TargetOutcome {
   string token_id = 1;
   HitOutcome outcome = 2;
@@ -81,7 +84,8 @@ message TargetOutcome {
   uint32 step_index = 9;
 }
 
-// One use of an ability, from click to done.
+// One use of an ability, from click to done. For non-GM viewers, `warnings`
+// is filtered as described on Warning in common.proto.
 message Resolution {
   string resolution_id = 1;
   string source_token_id = 2;

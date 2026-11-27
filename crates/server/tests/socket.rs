@@ -882,7 +882,22 @@ async fn player_attack_damages_the_goblin_and_only_the_gm_sees_the_numbers() {
         .await;
     let from_player = player.recv_event().await;
     let from_gm = gm.recv_event().await;
-    assert_eq!(from_player, from_gm, "both see the same resolution");
+    // The player cannot see the goblin's sheet: no applied damage (#133);
+    // otherwise the same resolution.
+    let mut player_view = from_player.clone();
+    let Some(event::Kind::ResolutionUpdated(gm_u)) = from_gm.kind.as_ref() else {
+        panic!("expected ResolutionUpdated, got {:?}", from_gm.kind);
+    };
+    let gm_damage = gm_u.resolution.as_ref().expect("resolution").outcomes[0]
+        .damage
+        .clone();
+    assert_eq!(gm_damage.len(), 1, "the GM sees applied damage");
+    if let Some(event::Kind::ResolutionUpdated(u)) = player_view.kind.as_mut() {
+        let o = &mut u.resolution.as_mut().expect("resolution").outcomes[0];
+        assert!(o.damage.is_empty(), "the player does not");
+        o.damage = gm_damage;
+    }
+    assert_eq!(player_view, from_gm, "otherwise the same resolution");
     assert_eq!(from_player.seq, 1);
     assert_eq!(from_player.client_intent_id, "atk-1");
     assert_eq!(from_player.actor_user_id, "mock-player");
@@ -899,8 +914,7 @@ async fn player_attack_damages_the_goblin_and_only_the_gm_sees_the_numbers() {
     assert_eq!(o.damage_rolls.len(), 1);
     assert_eq!(o.damage_rolls[0].total, 6);
     assert_eq!(o.damage_rolls[0].roller_user_id, "mock-player");
-    assert_eq!(o.damage.len(), 1);
-    assert_eq!(o.damage[0].applied, 6);
+    assert!(o.damage.is_empty());
 
     // Then the goblin's token, with the same seq and intent id for both.
     let to_player = player.recv_event().await;

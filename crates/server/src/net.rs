@@ -254,6 +254,9 @@ async fn connection(mut socket: WebSocket, shared: Arc<Shared>) {
             }
             outgoing = rx.recv() => match outgoing {
                 Ok(event) => {
+                    // NOTE(#133): this filters against the campaign state NOW, not the state
+                    // when the event was applied. Harmless while `hidden` never changes; a
+                    // reveal/hide feature must filter at apply time (see the issue).
                     let filtered = shared.lock().campaign.event_for(&event, &viewer);
                     if let Some(event) = filtered {
                         let bytes = encode(server_message::Kind::Event(event));

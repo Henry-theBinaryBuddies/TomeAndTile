@@ -306,6 +306,10 @@ message Intent {
 
 // ----------------------------------------------------------------- Events
 
+// What non-GM viewers receive (#133): the Token is redacted as described on
+// Token in scene.proto, and Event.warnings (for example condition_immune from
+// SetConditions) is sent only to viewers who may see the token's creature
+// sheet; others get it empty.
 message TokenUpserted {
   Token token = 1;
 }
@@ -326,6 +330,9 @@ message ChatPosted {
   string text = 2;
 }
 
+// Only PUBLIC rolls reach non-GM viewers. A public roll by a creature the
+// viewer cannot see arrives without dice, modifiers and notation (see
+// RollResult in dice.proto).
 message DiceRolled {
   RollResult roll = 1;
 }
@@ -334,11 +341,19 @@ message EncounterUpdated {
   Encounter encounter = 1;
 }
 
+// Sent to a non-GM viewer only if they could see the encounter when it ended,
+// that is, none of its combatants was hidden (the same rule as
+// EncounterUpdated). Seq numbers are global, so a viewer who is not sent an
+// event sees a gap in seq (ADR 0004).
 message EncounterEnded {
   string encounter_id = 1;
 }
 
 // Sent each time a resolution changes state, so clients can animate it.
+// Non-GM viewers never get the stat block of a creature they cannot see
+// (#133): see Resolution and TargetOutcome in combat.proto and RollResult in
+// dice.proto for the fields left blank, and Warning in common.proto for the
+// warnings removed. The GM's copy is complete.
 message ResolutionUpdated {
   Resolution resolution = 1;
 }

@@ -144,7 +144,10 @@ export const DamageAppliedSchema: GenMessage<DamageApplied> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_combat, 2);
 
 /**
- * What happened to one target of an ability.
+ * What happened to one target of an ability. For a non-GM viewer who cannot
+ * see the target creature's sheet, `damage` is empty (applied against rolled
+ * would show resistances and immunities); damage_rolls stay (#133). The rolls
+ * inside are redacted as described on RollResult in dice.proto.
  *
  * @generated from message tomeandtile.v1.TargetOutcome
  */
@@ -213,7 +216,8 @@ export const TargetOutcomeSchema: GenMessage<TargetOutcome> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_combat, 3);
 
 /**
- * One use of an ability, from click to done.
+ * One use of an ability, from click to done. For non-GM viewers, `warnings`
+ * is filtered as described on Warning in common.proto.
  *
  * @generated from message tomeandtile.v1.Resolution
  */

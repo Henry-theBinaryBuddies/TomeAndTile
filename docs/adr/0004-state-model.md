@@ -23,3 +23,7 @@ Status: Accepted (2026-11-12)
 
 - **Peer-to-peer CRDT state:** cannot keep GM secrets or enforce rules.
 - **Mutable state with ad hoc undo:** each undoable action would need its own reversal code.
+
+## Seq numbers and withheld events (2026-11-27)
+
+`seq` is global to the campaign, not per viewer. The server does not renumber events for each viewer, so a player (or spectator) sees gaps in `seq` wherever an event was withheld from them, for example a GM-only roll or an encounter with a hidden combatant. The size of a gap tells them how many events were withheld, nothing more. Clients must tolerate gaps (the web client already does) and must not treat a gap as lost data; a reconnect gets a fresh Snapshot. Per-viewer numbering was considered and rejected: it would make `EventUndone.undone_seq`, the log and replay depend on the viewer.
