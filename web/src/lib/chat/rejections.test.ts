@@ -19,7 +19,11 @@ describe('rejectionText', () => {
 			'dice_too_many_terms',
 			'dice_bad_keep',
 			'dice_number_too_large',
-			'dice_too_long'
+			'dice_too_long',
+			'bad_condition_id',
+			'conflicting_conditions',
+			'too_many_conditions',
+			'unknown_token'
 		];
 		for (const code of codes) {
 			const text = rejectionText(code);

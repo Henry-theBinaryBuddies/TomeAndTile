@@ -156,8 +156,7 @@ export function statBlockView(c: Creature, token?: HealthInfo): StatBlockView {
 		{ label: 'Skills', value: c.skills.map((s) => `${title(s.skill.replaceAll('_', ' '))} ${signed(s.bonus)}`).join(', ') },
 		{ label: 'Resistances', value: words(c.resistances) },
 		{ label: 'Immunities', value: words(c.immunities) },
-		{ label: 'Vulnerabilities', value: words(c.vulnerabilities) },
-		{ label: 'Conditions', value: c.conditions.join(', ') }
+		{ label: 'Vulnerabilities', value: words(c.vulnerabilities) }
 	].filter((l) => l.value !== '');
 	return {
 		name: c.name.trim() || UNKNOWN,
