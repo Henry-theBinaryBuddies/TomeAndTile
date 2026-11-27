@@ -56,6 +56,11 @@ message Provenance {
 
 // A non-fatal note attached to an event: "out of range", "no spell slot".
 // The engine warns and never blocks (ADR 0005).
+// A non-GM viewer who cannot see the creature sheet a warning describes does
+// not receive it (#133): too_many_targets, out_of_range, ability_recharging
+// and not_enough_resource are removed unless they can see the source
+// creature's sheet; condition_immune unless they can see the sheet of the
+// target token named in its message. The GM receives every warning.
 message Warning {
   // Stable machine code, e.g. "out_of_range". The codes for UseAbilityIntent
   // (also listed on that message in session.proto):

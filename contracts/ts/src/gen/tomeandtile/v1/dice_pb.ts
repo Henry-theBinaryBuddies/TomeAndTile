@@ -70,6 +70,12 @@ export const ModifierSchema: GenMessage<Modifier> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_dice, 1);
 
 /**
+ * For a non-GM viewer, a roll made by a creature whose sheet they cannot see
+ * (roller_creature_id, for example a monster's attack, save or damage roll)
+ * is sent with dice and modifiers empty and notation "": only the total, the
+ * critical and fumble flags and the identifying fields remain, because the
+ * total plus the die would reveal the modifier (#133).
+ *
  * @generated from message tomeandtile.v1.RollResult
  */
 export type RollResult = Message<"tomeandtile.v1.RollResult"> & {
