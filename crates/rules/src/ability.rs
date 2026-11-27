@@ -107,8 +107,10 @@
 //! In this order: `ability_recharging`, `not_enough_resource`,
 //! `area_not_checked`, then `too_many_targets` or `extra_targets_ignored`,
 //! then one `out_of_range` per out-of-range target, then `condition_immune`
-//! and `duration_not_tracked` (apply-effect steps), then one `no_hit_points`
-//! per target token without hit points (in first-touched order).
+//! and `duration_not_tracked` (apply-effect steps), then one
+//! `too_many_conditions` per token that hit the cap (first-touched order),
+//! then one `no_hit_points` per target token without hit points (in
+//! first-touched order).
 //!
 //! | code                    | given when |
 //! |-------------------------|------------|
@@ -120,6 +122,7 @@
 //! | `out_of_range`          | a target is beyond range, as in [`attack`](crate::attack); not for area shapes, and once per target however many steps use it. |
 //! | `condition_immune`      | an effect was not applied because the target creature's `condition_immunities` has it. Once per target and step. |
 //! | `duration_not_tracked`  | an effect's duration gets no timer (minutes, hours, until dispelled, or rounds outside an encounter). Once per step. |
+//! | `too_many_conditions`   | a token already had [`MAX_CONDITIONS`] conditions, so an apply-effect step could not add one (the condition and its timer are skipped, the rest of the resolution stands). Once per token. |
 //! | `no_hit_points`         | a target token has no `hp_max`; its damage and healing are shown, not applied. Once per token. |
 //!
 //! All dice text (attack, save damage, flat damage and healing, and each
@@ -145,6 +148,7 @@ use crate::attack::{
 };
 use crate::conditions::{
     apply_condition, attack_mode, auto_crit, auto_fails_save, save_mode, timer_for, Timing,
+    MAX_CONDITIONS,
 };
 use crate::damage::{apply_damage, apply_healing, DamageRoll};
 use crate::dice::{Expr, ParseError, Rng};
@@ -365,6 +369,17 @@ fn roll_parts(
         .collect()
 }
 
+/// Number of attack steps in `ability`. More than one makes it a multiattack:
+/// target `n` is the target of attack step `n`, so one token may be listed
+/// up to this many times (the server's `duplicate_target` rule).
+pub fn attack_step_count(ability: &Ability) -> usize {
+    ability
+        .steps
+        .iter()
+        .filter(|s| matches!(s.step, Some(effect_step::Step::Attack(_))))
+        .count()
+}
+
 /// Resolve `ability_id` on `source`: attack, save, flat and apply-effect
 /// steps. See the module docs for the target rules, warnings and the
 /// `pending` damage handed to #98. `turn` is `Some((encounter_id, round))`
@@ -405,11 +420,7 @@ pub fn resolve_ability(
         _ => None,
     };
 
-    let attacks = ability
-        .steps
-        .iter()
-        .filter(|s| matches!(s.step, Some(effect_step::Step::Attack(_))))
-        .count();
+    let attacks = attack_step_count(ability);
     let multi = attacks > 1;
     let self_targeted = matches!(shape, Some(TargetShape::Self_) | None) && attacks == 0;
     let effective: Vec<(&Token, &Creature)> = if self_targeted {
@@ -777,6 +788,7 @@ pub fn resolve_ability(
     // Apply every outcome in order to its target's token.
     let mut touched: Vec<Token> = Vec::new();
     let mut no_hp: Vec<String> = Vec::new();
+    let mut capped: Vec<String> = Vec::new();
     for (i, ((o, p), &n)) in outcomes.iter_mut().zip(&pending).zip(&owners).enumerate() {
         let (listed, creature) = effective[n];
         let at = match touched.iter().position(|t| t.token_id == listed.token_id) {
@@ -793,13 +805,23 @@ pub fn resolve_ability(
         o.healing = healed.restored;
         touched[at] = healed.token;
         for (id, timer) in effects.remove(&i).unwrap_or_default() {
-            apply_condition(&mut touched[at], &id, timer);
+            if !apply_condition(&mut touched[at], &id, timer)
+                && !capped.contains(&listed.token_id)
+            {
+                capped.push(listed.token_id.clone());
+            }
         }
         if (hit.no_hit_points || healed.no_hit_points) && !no_hp.contains(&listed.token_id) {
             no_hp.push(listed.token_id.clone());
         }
     }
     warnings.extend(effect_warnings);
+    for id in capped {
+        warnings.push(warning(
+            "too_many_conditions",
+            format!("token {id} already has {MAX_CONDITIONS} conditions: the rest were not applied"),
+        ));
+    }
     for id in no_hp {
         warnings.push(warning(
             "no_hit_points",
@@ -1485,6 +1507,34 @@ mod tests {
         assert_eq!(o[0].effects_applied, ["bless"]);
         assert_eq!(r.pending.len(), 1);
         assert_eq!(r.targets[0].conditions, ["bless"]);
+    }
+
+    #[test]
+    fn conditions_stop_at_the_cap_with_one_warning_per_token() {
+        let mut src = sacred_flame();
+        src.abilities[0].steps = (0..40).map(|n| effect_only(&format!("fx{n}"))).collect();
+        let t = [at("t", 1.0, brannoch())];
+        let r = run(&src, "cantrip-sacred-flame", &t, &[]).unwrap();
+        assert_eq!(r.targets[0].conditions.len(), MAX_CONDITIONS);
+        assert_eq!(r.targets[0].conditions[0], "fx0");
+        assert_eq!(r.targets[0].conditions[MAX_CONDITIONS - 1], "fx31");
+        assert_eq!(codes(&r), ["too_many_conditions"]);
+    }
+
+    #[test]
+    fn attack_step_count_counts_only_attack_steps() {
+        let a = ability(
+            "a",
+            "a",
+            None,
+            vec![
+                attack_step(1, "1d4"),
+                effect_only("bless"),
+                attack_step(1, "1d4"),
+            ],
+        );
+        assert_eq!(attack_step_count(&a), 2);
+        assert_eq!(attack_step_count(&Ability::default()), 0);
     }
 
     #[test]
