@@ -2,6 +2,71 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-27 — PR #130/#131 CI, then Henry's review
+
+**Did:** No Rust toolchain exists in this environment, so #105 and #106 went up without a local
+`cargo` run at all. CI caught what I couldn't: two rounds of `cargo fmt --all --check` (plenty
+of spots that were already under 100 characters still needed reformatting — struct literals,
+multi-arg calls, `let-else` bodies and method chains all have their own rustfmt rules beyond
+plain width, so I stopped guessing by line length and started transcribing the exact CI diff
+each round) and two `clippy` lints (`type_complexity`, `manual_is_multiple_of`). Both PRs are
+green on all four checks now. Henry then reviewed #130 properly (CI passing isn't the same as
+correct): two real panics (`ability_modifier`'s subtraction and the save-bonus addition both
+overflow on adversarial `i32` input) and two cases the importer accepts that the server would
+then reject anyway (negative HP, a blank/120+ character name) -- real gaps a clean compile and
+green tests can't catch on their own. Fixing those now, plus his should-fix and minor list.
+**Directed Claude to:** Read Henry's PR #130 review in full and fix the required items first,
+then the should-fix and minor ones in the same pass if time allows.
+**Learned:** Green CI (even cargo test passing) only means the five real samples and the
+built-in-code edge cases I thought to write are covered -- it says nothing about adversarial
+input I didn't think to test. Henry fed it crafted JSON by hand and found panics in ten minutes
+that no amount of my own test-writing would have caught, since I was testing the *shape* of the
+mapping, not its numeric bounds.
+**Blocked on / next:** Done -- all required, should-fix and minor items fixed on #105
+(`require_i32_range`/`bounded_i32`/`bounded_speed`/`is_condition_id` plus ~16 new tests),
+merged forward onto #106 (one `optional_i32` visibility conflict, resolved keeping it
+`pub(crate)` for `abilities.rs`), one more `cargo fmt` round from CI on #105 fixed and merged
+forward too. Both PRs green on all four checks; left a summary comment on #130 for Henry's
+re-review, including a heads-up that `Cargo.lock` still looks stale for `tt-cauldron-import`.
+
+## 2026-11-26 — #105 Cauldron importer: envelope, identity, core stat block
+
+**Did:** Had Claude write `tt-cauldron-import` from scratch: `import_monster(bytes: &[u8]) ->
+Result<Import, ImportError>`, a pure function reading a Creature Cauldron monster export into a
+`Creature` (scores, AC, HP, all four movement speeds plus hover, saves, skills, resistances/
+immunities/vulnerabilities, condition immunities, passive perception, and a one-line `summary`),
+per `MAPPING.md`. Envelope checks (`app`/`kind`/`format_version`) run in order before anything
+else is read. Input is capped on size (256 KiB, checked before parsing), JSON nesting depth,
+list/object length and string length, walked once right after parsing; invalid UTF-8 and invalid
+JSON are errors, never panics. Unknown skill names and unknown damage types are reported and
+dropped rather than guessed at; a save-bonus mismatch (printed bonus vs. ability modifier +
+proficiency bonus) is reported without changing the creature. Senses other than passive
+perception (darkvision, blindsight, tremorsense, truesight) have no home on `Creature` and are
+reported when a sample sets them. Tests: one per sample file in `tests/samples/` checking exact
+mapped values, plus a save-mismatch and an unknown-skill case built in test code (not by editing
+a sample), plus the built-in-code error cases from the issue's acceptance list (oversized input,
+deep nesting, a list over its cap, a string over its cap, invalid UTF-8, truncated JSON, wrong
+app/kind/format_version, a missing required field, an unknown size string). Traits, actions,
+legendary actions and spellcasting are left empty — that's #106. Checked the server's
+`crates/server/src/import.rs` (merged to main since I last looked) to make sure nothing there
+assumes a different shape from this crate yet — it still 415s on any Cauldron-shaped file with
+"arrives with #105", so #103 hasn't been wired to this crate's API yet; nothing to reconcile.
+**Directed Claude to:** Read issue #105 in full against `MAPPING.md`, the five real sample
+files and the `Creature`/`Provenance`/`AbilityScore`/`CreatureSize`/`DamageType` contract types,
+then implement it end to end with tests.
+**Learned:** No Rust toolchain is available in this session (confirmed `cargo`/`rustc` missing
+before starting), so none of this has been run — not `cargo fmt --all --check`, not `cargo
+clippy -p tt-cauldron-import --all-targets -- -D warnings`, not `cargo test -p tt-cauldron-import`,
+not `bash tools/check-deps.sh` (that last one I *could* run, since it's a plain bash script with
+no Rust in it, and it passes). I chose to have Claude write the rest anyway rather than wait for
+a machine with the toolchain, on the understanding that it needs a real `cargo` run before I
+trust it.
+**Blocked on / next:** Run the three cargo checks above on a machine with Rust installed before
+asking for review; fix whatever they turn up. Then #106 (actions to abilities) can build on this.
+*(Update 2026-11-27: CI has since run all three, caught two rounds of `cargo fmt` issues and
+two `clippy` lints, all now fixed — see the newer entry above. Henry's review then turned up
+real input-validation gaps CI couldn't catch; fixing those now.)*
+
 ## 2026-11-24 — Fix CI: web/src/lib/video/ compile against PR #88's interface additions
 
 **Did:** Per Henry's PR #88 review: John's video panel (merged over the weekend) didn't account
