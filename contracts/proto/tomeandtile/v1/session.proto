@@ -51,8 +51,9 @@ message ChatIntent {
 //   no_targets             a TARGET_SHAPE_CREATURES ability with no targets
 //   unknown_target         a target token does not exist, is hidden from the
 //                          sender, or has no creature
-//   not_implemented        a step kind or target shape the engine does not
-//                          support yet (real server)
+//   not_implemented        a plugin step, or an ability with more than one
+//                          attack step that also has a save or flat step
+//                          (real server)
 //   rng_unavailable        the server could not get secure randomness
 //   not_supported_by_mock  the mock server does not handle this ability
 //
@@ -68,6 +69,20 @@ message ChatIntent {
 //   extra_targets_ignored  an ability with several attack steps lists more
 //                          targets than it has attack steps; the extra
 //                          entries are ignored
+//   area_not_checked       an area shape (SPHERE, CONE, LINE, CUBE) was used.
+//                          Area shapes are not rejected: the listed tokens
+//                          are the targets, no template is placed or checked,
+//                          and this warning is given once. (Burning Hands and
+//                          imported breath weapons work without templates.)
+//   no_hit_points          a target token has no hp_max; damage or healing is
+//                          shown, not applied
+//   condition_immune       an effect was not applied because the target's
+//                          creature is immune; it is left out of
+//                          TargetOutcome.effects_applied
+//   duration_not_tracked   an effect's duration gets no timer (see
+//                          ConditionTimer in scene.proto)
+//   ability_recharging     the ability's recharge_spent was already true; it
+//                          still resolves
 // Disadvantage at long range is not a warning; it shows in the attack roll's
 // mode.
 message UseAbilityIntent {
@@ -88,17 +103,31 @@ message UseAbilityIntent {
   RollMode mode = 6;
 }
 
-// GM only: start combat. The server rolls initiative for every token listed.
+// GM only: start combat. The server rolls initiative for each listed token:
+// one DiceRolled per combatant (purpose ROLL_PURPOSE_INITIATIVE, GM_ONLY for
+// a hidden token, PUBLIC otherwise), then EncounterUpdated. Duplicate token
+// ids are listed once.
+//
+// Rejection codes: not_permitted, unknown_scene, no_combatants (empty list),
+// unknown_token (missing, or not on that scene), encounter_running (the scene
+// already has one), rng_unavailable.
 message StartEncounterIntent {
   string scene_id = 1;
   repeated string token_ids = 2;
 }
 
+// GM, or a player who controls the current combatant's token. Answered with
+// EncounterUpdated and a TokenUpserted per token whose timed conditions ended.
+//
+// Rejection codes: not_permitted, unknown_encounter.
 message EndTurnIntent {
   string encounter_id = 1;
 }
 
 // GM only: overwrite a combatant's initiative or position in the order.
+// Answered with EncounterUpdated; the turn stays with the same combatant.
+//
+// Rejection codes: not_permitted, unknown_encounter, unknown_combatant.
 message SetInitiativeIntent {
   string encounter_id = 1;
   string token_id = 2;
@@ -106,12 +135,50 @@ message SetInitiativeIntent {
   uint32 order = 4;
 }
 
-// GM only: reverse an earlier event by appending a compensating one.
+// GM only: reverse an earlier group of events by appending compensating ones.
+//
+// One intent produces a group of events with consecutive seq and the same
+// client_intent_id. Undo reverses a whole group. event_seq must be the
+// group's first event: for an ability use its ResolutionUpdated, for set HP
+// or set conditions its TokenUpserted, for a move its TokenMoved, for a
+// create its TokenUpserted, for a remove its TokenRemoved. Naming any later
+// event of a group is refused with not_first_event.
+//
+// Undoable groups: UseAbilityIntent (HP, temporary HP, conditions, timers and
+// health state of every target, and the source creature's resources and
+// recharge_spent), SetHitPointsIntent, SetConditionsIntent, MoveTokenIntent,
+// CreateTokenIntent, RemoveTokenIntent.
+//
+// Not undoable (not_undoable): chat, dice rolls, set controllers, set level
+// background, the encounter intents, and undo itself (no redo in M3).
+//
+// Dependency rule: every group records the token ids and creature ids whose
+// stored state it changed. A group cannot be undone while a later group that
+// has not been undone changed any of the same tokens or creatures
+// (undo_blocked; the message names the later seq). Undo the later one first.
+//
+// The server appends compensating events (TokenUpserted, TokenMoved,
+// TokenRemoved, CreatureUpserted with the earlier state), then one EventUndone
+// per event of the undone group, in seq order. History is never deleted
+// (ADR 0004).
+//
+// Rejection codes: not_permitted (not the GM), unknown_event (no such seq in
+// the log), not_first_event, not_undoable, already_undone, undo_blocked.
 message UndoIntent {
   uint64 event_seq = 1;
 }
 
-// GM only, or the controller for their own creature: set HP directly.
+// GM, or a controller of a visible token: set HP directly. Both fields are
+// always set, so hp_temp 0 clears temporary HP. hp_max cannot be changed in
+// M3. Answered with TokenUpserted.
+//
+// Rejection codes:
+//   not_permitted    a player who does not control the token, or names a
+//                    hidden or missing token
+//   unknown_token    the GM names a missing token
+//   no_hit_points    the token has no hp_max
+//   bad_hit_points   hp_current below 0 or above hp_max, or hp_temp below 0
+//                    or above 999
 message SetHitPointsIntent {
   string token_id = 1;
   int32 hp_current = 2;
@@ -136,6 +203,65 @@ message SetLevelBackgroundIntent {
   string asset_id = 3;
 }
 
+// GM only: put a token on a scene. The server mints token_id and answers
+// with TokenUpserted (and CreatureUpserted when controllers are listed, so
+// they receive the sheet). The new token copies hp_current, hp_max and
+// hp_temp from the creature, and health_state is computed from them.
+// Conditions start empty.
+//
+// Rejection codes: not_permitted, unknown_scene, unknown_level,
+// unknown_creature, bad_coordinate, name_too_long (over 120 characters),
+// unknown_user, invalid_controller, too_many_tokens (the campaign already
+// has 500).
+message CreateTokenIntent {
+  string scene_id = 1;
+  // Empty: the scene's first level.
+  string level_id = 2;
+  // Empty: a prop with no creature, no HP and no abilities.
+  string creature_id = 3;
+  // Empty: the creature's name, or "Token" for a prop.
+  string name = 4;
+  // Centre in scene units; the server does not snap it.
+  Vec2 position = 5;
+  // Unspecified: the creature's size, or Medium.
+  CreatureSize size = 6;
+  bool hidden = 7;
+  repeated string controller_user_ids = 8;
+}
+
+// GM only: take a token off the map. Its creature stays in the campaign.
+// Answered with TokenRemoved.
+//
+// Rejection codes: not_permitted, unknown_token, in_encounter (the token is
+// a combatant in a running encounter; end the encounter first).
+message RemoveTokenIntent {
+  string token_id = 1;
+}
+
+// GM only: add or remove condition ids on a token. Added conditions have no
+// timer; removing a condition also removes its timer. Adding an id already
+// present, or removing one that is absent, changes nothing. Always answered
+// with TokenUpserted.
+//
+// Rejection codes: not_permitted, unknown_token, bad_condition_id (not
+// [a-z0-9_]{1,40}), conflicting_conditions (the same id in add and remove),
+// too_many_conditions (more than 32 on the token afterwards).
+// Warning codes: condition_immune (an added id is in the creature's
+// condition_immunities; the GM's choice wins and it is added anyway).
+message SetConditionsIntent {
+  string token_id = 1;
+  repeated string add = 2;
+  repeated string remove = 3;
+}
+
+// GM only: end a running encounter. Answered with EncounterEnded and a
+// TokenUpserted for each token whose condition timers were removed.
+//
+// Rejection codes: not_permitted, unknown_encounter.
+message EndEncounterIntent {
+  string encounter_id = 1;
+}
+
 message Intent {
   // Chosen by the client; echoed in the events it causes and in rejections.
   string client_intent_id = 1;
@@ -151,6 +277,10 @@ message Intent {
     SetHitPointsIntent set_hit_points = 18;
     SetControllersIntent set_controllers = 19;
     SetLevelBackgroundIntent set_level_background = 20;
+    CreateTokenIntent create_token = 21;
+    RemoveTokenIntent remove_token = 22;
+    SetConditionsIntent set_conditions = 23;
+    EndEncounterIntent end_encounter = 24;
   }
 }
 
@@ -202,7 +332,8 @@ message SceneUpserted {
   Scene scene = 1;
 }
 
-// Marks an earlier event as undone.
+// Marks an earlier event as undone. One is appended per event of an undone
+// group, in seq order, after the compensating events (see UndoIntent).
 message EventUndone {
   uint64 undone_seq = 1;
 }

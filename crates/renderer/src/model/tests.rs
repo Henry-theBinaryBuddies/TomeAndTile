@@ -1,12 +1,12 @@
 use tt_contracts::v1::{
-    client_message, event, intent, server_message, AssetRef, ClientMessage, CreatureSize, Event,
-    Grid, GridKind, IntentRejected, Level, Role, Scene, SceneUpserted, ServerMessage, Snapshot,
-    Token, TokenMoved, TokenRemoved, TokenUpserted, Vec2,
+    client_message, event, intent, server_message, AssetRef, ClientMessage, Creature, CreatureSize,
+    CreatureUpserted, Event, Grid, GridKind, IntentRejected, Level, Role, Scene, SceneUpserted,
+    ServerMessage, Snapshot, Token, TokenMoved, TokenRemoved, TokenUpserted, Vec2,
 };
 
 use super::*;
 use crate::camera::{Camera, MAX_ZOOM, MIN_ZOOM};
-use crate::draw::{color_for_id, DrawItem};
+use crate::draw::{color_for_id, DrawItem, DrawList};
 use crate::wire::encode_hello;
 
 // ------------------------------------------------------------------ builders
@@ -1594,6 +1594,168 @@ fn highlights_draw_with_picking_off_and_clearing_removes_them() {
     assert!(rings_of(&m, HIGHLIGHT_COLOR).is_empty());
 }
 
+// ------------------------------------------------------- health and conditions
+
+fn hurt(id: &str, state: HealthState) -> Token {
+    let mut t = token(id, 385.0, 245.0, CreatureSize::Small, &[]);
+    t.health_state = state as i32;
+    t
+}
+
+fn one_token_model(t: Token) -> Model {
+    model_as("p", Role::Player, vec![t])
+}
+
+/// Every ring drawn at the token's own edge (radius r, not the outer rings).
+fn edge_rings(m: &Model) -> Vec<([f32; 4], f32)> {
+    let r = (m.token_diameter(m.token("x").unwrap()) * 0.5 * m.camera().zoom) as f32;
+    m.draw_list()
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            DrawItem::Ring {
+                r: rr,
+                color,
+                thickness,
+                ..
+            } if (*rr - r).abs() < 1e-3 => Some((*color, *thickness)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn each_health_state_draws_its_ring_in_place_of_the_outline() {
+    for (state, colour, thickness) in [
+        (HealthState::Unspecified, OUTLINE_COLOR, 2.0),
+        (HealthState::Healthy, OUTLINE_COLOR, 2.0),
+        (HealthState::Bloodied, BLOODIED_COLOR, 3.0),
+        (HealthState::NearDeath, NEAR_DEATH_COLOR, 3.0),
+        (HealthState::Down, DOWN_COLOR, 3.0),
+    ] {
+        let m = one_token_model(hurt("x", state));
+        assert_eq!(edge_rings(&m), vec![(colour, thickness)], "{state:?}");
+    }
+}
+
+#[test]
+fn health_colours_never_match_the_selection_or_highlight_rings() {
+    for c in [BLOODIED_COLOR, NEAR_DEATH_COLOR, DOWN_COLOR] {
+        assert_ne!(c, SELECT_COLOUR);
+        assert_ne!(c, HIGHLIGHT_COLOR);
+    }
+}
+
+#[test]
+fn a_downed_token_is_drawn_faded() {
+    let disc_alpha = |m: &Model| {
+        m.draw_list()
+            .items
+            .iter()
+            .find_map(|i| match i {
+                DrawItem::Disc {
+                    color,
+                    image: None,
+                    r,
+                    ..
+                } if *r > CONDITION_MARKER_PX => Some(color[3]),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let up = one_token_model(hurt("x", HealthState::Bloodied));
+    let down = one_token_model(hurt("x", HealthState::Down));
+    assert!((disc_alpha(&down) - disc_alpha(&up) * DOWN_FADE).abs() < 1e-6);
+}
+
+#[test]
+fn hit_points_alone_never_draw_a_health_ring() {
+    let mut t = hurt("x", HealthState::Unspecified);
+    t.hp_current = Some(1);
+    t.hp_max = Some(40);
+    let m = one_token_model(t);
+    assert_eq!(edge_rings(&m), vec![(OUTLINE_COLOR, 2.0)]);
+}
+
+fn marker_count(m: &Model) -> usize {
+    m.draw_list()
+        .items
+        .iter()
+        .filter(|i| matches!(i, DrawItem::Disc { color, .. } if *color == CONDITION_MARKER_COLOR))
+        .count()
+}
+
+#[test]
+fn a_token_with_conditions_gets_one_marker_at_its_upper_right() {
+    let mut t = hurt("x", HealthState::Healthy);
+    let none = one_token_model(t.clone());
+    assert_eq!(marker_count(&none), 0);
+    t.conditions = vec!["poisoned".into(), "prone".into()];
+    let m = one_token_model(t);
+    assert_eq!(marker_count(&m), 1, "one marker, however many conditions");
+    let (cx, cy) = (385.0_f32, 245.0_f32);
+    let marker = m
+        .draw_list()
+        .items
+        .into_iter()
+        .find_map(|i| match i {
+            DrawItem::Disc {
+                cx: x,
+                cy: y,
+                r,
+                color,
+                ..
+            } if color == CONDITION_MARKER_COLOR => Some((x, y, r)),
+            _ => None,
+        })
+        .unwrap();
+    assert!(marker.0 > cx && marker.1 < cy, "upper right: {marker:?}");
+    assert!(marker.2 >= 6.0);
+}
+
+#[test]
+fn ring_and_marker_follow_token_upserted_and_go_with_token_removed() {
+    let mut m = one_token_model(hurt("x", HealthState::Healthy));
+    let mut changed = hurt("x", HealthState::NearDeath);
+    changed.conditions = vec!["blinded".into()];
+    m.apply_event(event_of(event::Kind::TokenUpserted(TokenUpserted {
+        token: Some(changed),
+    })));
+    assert_eq!(edge_rings(&m), vec![(NEAR_DEATH_COLOR, 3.0)]);
+    assert_eq!(marker_count(&m), 1);
+    m.apply_event(event_of(event::Kind::TokenRemoved(TokenRemoved {
+        token_id: "x".into(),
+    })));
+    assert_eq!(rings_of(&m, NEAR_DEATH_COLOR), Vec::<f32>::new());
+    assert_eq!(marker_count(&m), 0);
+}
+
+#[test]
+fn selected_highlighted_and_bloodied_draws_all_three_rings_inside_out() {
+    let mut m = one_token_model(hurt("x", HealthState::Bloodied));
+    m.pointer_down(385.0, 245.0, 0);
+    m.pointer_up(385.0, 245.0, 0.0);
+    m.set_highlights(["x".to_owned()]);
+    let rings: Vec<([f32; 4], f32)> = m
+        .draw_list()
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            DrawItem::Ring { r, color, .. }
+                if [BLOODIED_COLOR, SELECT_COLOUR, HIGHLIGHT_COLOR].contains(color) =>
+            {
+                Some((*color, *r))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        rings.iter().map(|x| x.0).collect::<Vec<_>>(),
+        vec![BLOODIED_COLOR, SELECT_COLOUR, HIGHLIGHT_COLOR]
+    );
+    assert!(rings[0].1 < rings[1].1 && rings[1].1 < rings[2].1);
+}
+
 // --------------------------------------------------------------------- wire
 
 #[test]
@@ -1648,4 +1810,386 @@ fn mock_fixture_shaped_snapshot_works_end_to_end() {
     assert_eq!(mv.token_id, "token-aria");
     assert_eq!(mv.level_id, "level-ground");
     assert_eq!((mv.path[0].x, mv.path[0].y), (315.0, 105.0));
+}
+
+// ------------------------------------------------------------- name labels
+
+fn creature(id: &str, name: &str) -> Creature {
+    Creature {
+        creature_id: id.into(),
+        name: name.into(),
+        ..Default::default()
+    }
+}
+
+fn named(id: &str, creature_id: &str, name: &str, x: f32, y: f32) -> Token {
+    Token {
+        creature_id: creature_id.into(),
+        name: name.into(),
+        ..token(id, x, y, CreatureSize::Medium, &[])
+    }
+}
+
+fn model_with_creatures(creatures: Vec<Creature>, tokens: Vec<Token>) -> Model {
+    let mut m = Model::new(1);
+    let mut s = snapshot("u", Role::Gm, tokens);
+    s.creatures = creatures;
+    m.apply_snapshot(s);
+    m.resize(800.0, 600.0);
+    m.camera = Camera {
+        origin: Pt::new(0.0, 0.0),
+        zoom: 1.0,
+        width: 800.0,
+        height: 600.0,
+    };
+    m.needs_fit = false;
+    m
+}
+
+fn upsert_creature(m: &mut Model, id: &str, name: &str) {
+    m.apply_event(event_of(event::Kind::CreatureUpserted(CreatureUpserted {
+        creature: Some(creature(id, name)),
+    })));
+}
+
+/// Answer every label request with an 80x20 bitmap; returns the requests.
+fn load_labels(m: &mut Model) -> Vec<LabelRequest> {
+    let reqs = m.take_label_requests();
+    for r in &reqs {
+        m.mark_label_loaded(&r.key, 80, 20);
+    }
+    reqs
+}
+
+fn label_texts(m: &mut Model) -> Vec<String> {
+    let mut v: Vec<String> = m
+        .take_label_requests()
+        .into_iter()
+        .map(|r| r.text)
+        .collect();
+    v.sort();
+    v
+}
+
+fn is_label(i: &DrawItem) -> bool {
+    matches!(i, DrawItem::Image { url, .. } if url.starts_with("label:"))
+}
+
+fn label_items(list: &DrawList) -> Vec<(usize, &DrawItem)> {
+    list.items
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| is_label(i))
+        .collect()
+}
+
+fn label_origin(list: &DrawList) -> (f32, f32) {
+    match label_items(list)[0].1 {
+        DrawItem::Image { x0, y0, .. } => (*x0, *y0),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn label_uses_the_creature_name_over_the_token_name() {
+    let mut m = model_with_creatures(
+        vec![creature("c1", "Aria Vell")],
+        vec![named("a", "c1", "old token name", 105.0, 105.0)],
+    );
+    assert_eq!(label_texts(&mut m), vec!["Aria Vell".to_string()]);
+}
+
+#[test]
+fn label_falls_back_to_the_token_name_without_the_creature() {
+    // The viewer never received creature "c9" (a monster, for a player).
+    let mut m = model_with_creatures(
+        vec![creature("c1", "Aria Vell")],
+        vec![
+            named("a", "c9", "Goblin", 105.0, 105.0),
+            named("b", "", "Ember Wisp", 175.0, 105.0),
+        ],
+    );
+    assert_eq!(
+        label_texts(&mut m),
+        vec!["Ember Wisp".to_string(), "Goblin".to_string()]
+    );
+}
+
+#[test]
+fn label_follows_a_creature_rename() {
+    let mut m = model_with_creatures(
+        vec![creature("c1", "Aria")],
+        vec![named("a", "c1", "tok", 105.0, 105.0)],
+    );
+    assert_eq!(load_labels(&mut m).len(), 1);
+    assert_eq!(label_items(&m.draw_list()).len(), 1);
+
+    upsert_creature(&mut m, "c1", "Aria the Bold");
+    // The new text is not ready yet, so nothing is drawn; it is asked for once.
+    assert!(label_items(&m.draw_list()).is_empty());
+    let again = load_labels(&mut m);
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].text, "Aria the Bold");
+    assert_eq!(label_items(&m.draw_list()).len(), 1);
+}
+
+#[test]
+fn a_creature_arriving_later_replaces_the_token_name() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "c1", "Goblin", 105.0, 105.0)]);
+    assert_eq!(label_texts(&mut m), vec!["Goblin".to_string()]);
+    upsert_creature(&mut m, "c1", "Skrag");
+    assert_eq!(label_texts(&mut m), vec!["Skrag".to_string()]);
+}
+
+#[test]
+fn a_new_snapshot_replaces_the_creature_names() {
+    let mut m = model_with_creatures(
+        vec![creature("c1", "Aria")],
+        vec![named("a", "c1", "tok", 105.0, 105.0)],
+    );
+    let mut s = snapshot("u", Role::Gm, vec![named("a", "c1", "tok", 105.0, 105.0)]);
+    s.creatures = vec![];
+    m.apply_snapshot(s);
+    assert!(label_texts(&mut m).contains(&"tok".to_string()));
+}
+
+#[test]
+fn token_upsert_changes_the_token_name_label() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "", "Goblin", 105.0, 105.0)]);
+    load_labels(&mut m);
+    m.apply_event(event_of(event::Kind::TokenUpserted(TokenUpserted {
+        token: Some(named("a", "", "Hobgoblin", 105.0, 105.0)),
+    })));
+    assert!(label_items(&m.draw_list()).is_empty());
+    assert_eq!(label_texts(&mut m), vec!["Hobgoblin".to_string()]);
+}
+
+#[test]
+fn no_name_means_no_label() {
+    let mut m = model_with_creatures(
+        vec![creature("c1", "   ")],
+        vec![
+            named("a", "", "", 105.0, 105.0),
+            named("b", "c1", "\u{7}  ", 175.0, 105.0),
+            named("c", "zz", "", 245.0, 105.0),
+        ],
+    );
+    assert!(m.take_label_requests().is_empty());
+    assert!(label_items(&m.draw_list()).is_empty());
+}
+
+#[test]
+fn a_removed_token_loses_its_label() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "", "Goblin", 105.0, 105.0)]);
+    load_labels(&mut m);
+    assert_eq!(label_items(&m.draw_list()).len(), 1);
+    m.apply_event(event_of(event::Kind::TokenRemoved(TokenRemoved {
+        token_id: "a".into(),
+    })));
+    assert!(label_items(&m.draw_list()).is_empty());
+}
+
+#[test]
+fn label_is_below_the_token_centred_and_fixed_size() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "", "Goblin", 105.0, 105.0)]);
+    m.set_device_pixel_ratio(2.0);
+    for zoom in [1.0, 0.5, 3.0] {
+        m.camera.zoom = zoom;
+        m.camera.origin = Pt::new(0.0, 0.0);
+        for r in m.take_label_requests() {
+            m.mark_label_loaded(&r.key, 160, 40); // 80x20 CSS px at dpr 2
+        }
+        let list = m.draw_list();
+        let items = label_items(&list);
+        assert_eq!(items.len(), 1);
+        let DrawItem::Image { x0, y0, x1, y1, .. } = items[0].1 else {
+            unreachable!()
+        };
+        let cx = (105.0 * zoom) as f32;
+        let r = (35.0 * zoom).max(3.0) as f32;
+        assert!(((x0 + x1) * 0.5 - cx).abs() < 0.01, "centred");
+        assert!((x1 - x0 - 80.0).abs() < 0.01 && (y1 - y0 - 20.0).abs() < 0.01);
+        assert!((y0 - (105.0 * zoom as f32 + r + LABEL_GAP_PX)).abs() < 0.01);
+    }
+}
+
+#[test]
+fn label_is_drawn_after_the_token_and_every_ring() {
+    let mut t = named("a", "", "Goblin", 105.0, 105.0);
+    t.health_state = HealthState::Bloodied as i32;
+    t.conditions = vec!["prone".into()];
+    let mut other = named("b", "", "Wisp", 120.0, 120.0);
+    other.health_state = HealthState::Down as i32;
+    let mut m = model_with_creatures(vec![], vec![t, other]);
+    m.pointer_down(105.0, 105.0, 0); // selects a token
+    m.set_highlights(["a".to_string(), "b".to_string()]);
+    load_labels(&mut m);
+    let list = m.draw_list();
+    let labels = label_items(&list);
+    assert_eq!(labels.len(), 2);
+    let last_other = list.items.iter().rposition(|i| !is_label(i)).unwrap();
+    assert!(labels.iter().all(|(i, _)| *i > last_other));
+}
+
+#[test]
+fn a_label_is_not_drawn_until_it_is_ready() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "", "Goblin", 105.0, 105.0)]);
+    let reqs = m.take_label_requests();
+    assert!(label_items(&m.draw_list()).is_empty());
+    m.mark_label_failed(&reqs[0].key);
+    assert!(label_items(&m.draw_list()).is_empty());
+    assert_eq!(m.label_state(&reqs[0].key), Some(ImageState::Failed));
+}
+
+#[test]
+fn each_label_is_requested_once_per_text_and_ratio() {
+    let mut m = model_with_creatures(
+        vec![],
+        vec![
+            named("a", "", "Goblin", 105.0, 105.0),
+            named("b", "", "Goblin", 175.0, 105.0),
+        ],
+    );
+    assert_eq!(m.take_label_requests().len(), 1);
+    assert!(m.take_label_requests().is_empty());
+    // A new device pixel ratio is a new bitmap.
+    m.set_device_pixel_ratio(3.0);
+    let r = m.take_label_requests();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].dpr, 3.0);
+    m.set_device_pixel_ratio(f64::NAN);
+    m.set_device_pixel_ratio(-1.0);
+    assert!(m.take_label_requests().is_empty());
+}
+
+#[test]
+fn labels_for_tokens_not_drawn_are_not_requested() {
+    let mut other_scene = named("a", "", "Elsewhere", 105.0, 105.0);
+    other_scene.scene_id = "other".into();
+    let mut other_level = named("b", "", "Upstairs", 105.0, 105.0);
+    other_level.level_id = "L2".into();
+    let mut m = model_with_creatures(
+        vec![],
+        vec![
+            other_scene,
+            other_level,
+            named("c", "", "Here", 105.0, 105.0),
+        ],
+    );
+    assert_eq!(label_texts(&mut m), vec!["Here".to_string()]);
+}
+
+#[test]
+fn a_dragged_tokens_label_follows_it() {
+    let mut t = named("a", "", "Aria", 105.0, 105.0);
+    t.controller_user_ids = vec!["u".into()];
+    let mut m = model_with_creatures(vec![], vec![t]);
+    load_labels(&mut m);
+    let before = label_origin(&m.draw_list());
+    m.pointer_down(105.0, 105.0, 0);
+    m.pointer_move(130.0, 120.0);
+    m.pointer_move(305.0, 205.0);
+    assert!(m.is_dragging());
+    let list = m.draw_list();
+    let after = label_origin(&list);
+    assert!((after.0 - before.0 - 200.0).abs() < 0.01);
+    assert!((after.1 - before.1 - 100.0).abs() < 0.01);
+    // Still on top of the dragged token's own rings.
+    let last_ring = list
+        .items
+        .iter()
+        .rposition(|i| matches!(i, DrawItem::Ring { .. }))
+        .unwrap();
+    assert!(label_items(&list)[0].0 > last_ring);
+}
+
+#[test]
+fn a_url_shaped_label_key_never_becomes_a_fetch() {
+    // Names that look like URLs or like the key prefix itself.
+    let mut m = model_with_creatures(
+        vec![],
+        vec![
+            named("a", "", "https://evil.example/x.png", 105.0, 105.0),
+            named("b", "", "label:1.00:80:Goblin", 175.0, 105.0),
+            named("c", "", "javascript:alert(1)", 245.0, 105.0),
+        ],
+    );
+    let reqs = m.take_label_requests();
+    assert_eq!(reqs.len(), 3);
+    for r in &reqs {
+        assert!(!loadable_url(&r.key), "{} must not be fetchable", r.key);
+    }
+    // No token has an image, so nothing at all is fetched.
+    assert!(m.take_image_requests().is_empty());
+}
+
+#[test]
+fn label_text_is_capped_and_cleaned() {
+    let long = "x".repeat(500);
+    let mut m = model_with_creatures(vec![], vec![named("a", "", &long, 105.0, 105.0)]);
+    let reqs = m.take_label_requests();
+    assert_eq!(reqs[0].text.chars().count(), 120);
+    let t = named("b", "", "  Aria\n\t ", 0.0, 0.0);
+    assert_eq!(m.label_text(&t).as_deref(), Some("Aria"));
+}
+
+#[test]
+fn label_width_step_follows_the_token_diameter() {
+    let w = Model::label_width_for;
+    assert_eq!(w(19.9), None);
+    assert_eq!(w(f64::NAN), None);
+    assert_eq!(w(20.0), Some(40)); // 25 clamps up to 40
+    assert_eq!(w(40.0), Some(40)); // 50 rounds down to 40
+    assert_eq!(w(48.0), Some(60)); // 60 exactly
+    assert_eq!(w(70.0), Some(80)); // 87.5 -> 80
+    assert_eq!(w(112.0), Some(140)); // 140 exactly
+    assert_eq!(w(500.0), Some(140)); // clamps down to 140
+}
+
+#[test]
+fn request_carries_the_width_and_the_key_includes_it() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "", "Goblin", 105.0, 105.0)]);
+    let r = m.take_label_requests();
+    assert_eq!(
+        (r[0].max_width, r[0].key.as_str()),
+        (80, "label:1.00:80:Goblin")
+    );
+    // Zooming to another step asks again, once; coming back reuses the cache.
+    m.camera.zoom = 2.0; // 140 px across -> 140
+    let r = m.take_label_requests();
+    assert_eq!((r.len(), r[0].max_width), (1, 140));
+    assert!(m.take_label_requests().is_empty());
+    m.camera.zoom = 1.0;
+    assert!(m.take_label_requests().is_empty());
+    // Zooming within one step does not ask again.
+    m.camera.zoom = 1.05;
+    assert!(m.take_label_requests().is_empty());
+}
+
+#[test]
+fn labels_are_hidden_below_twenty_px_and_not_requested() {
+    let mut m = model_with_creatures(vec![], vec![named("a", "", "Goblin", 105.0, 105.0)]);
+    m.camera.zoom = 0.28; // 19.6 px across
+    assert!(m.take_label_requests().is_empty());
+    assert!(label_items(&m.draw_list()).is_empty());
+    m.camera.zoom = 0.3; // 21 px across
+    for r in load_labels(&mut m) {
+        assert_eq!(r.max_width, 40);
+    }
+    assert_eq!(label_items(&m.draw_list()).len(), 1);
+    m.camera.zoom = 0.25;
+    assert!(label_items(&m.draw_list()).is_empty());
+}
+
+#[test]
+fn rename_still_updates_the_label_at_the_current_width() {
+    let mut m = model_with_creatures(
+        vec![creature("c1", "Aria")],
+        vec![named("a", "c1", "tok", 105.0, 105.0)],
+    );
+    load_labels(&mut m);
+    upsert_creature(&mut m, "c1", "Brannoch Vale");
+    let r = load_labels(&mut m);
+    assert_eq!((r[0].text.as_str(), r[0].max_width), ("Brannoch Vale", 80));
+    assert_eq!(label_items(&m.draw_list()).len(), 1);
 }

@@ -12,9 +12,9 @@ use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
-    client_message, event, intent, server_message, ChatIntent, ClientMessage, Event, Hello,
-    HitOutcome, Intent, IntentRejected, Resolution, ResolutionState, Role, RollMode, RollPurpose,
-    RollVisibility, ServerMessage, Snapshot, UseAbilityIntent,
+    client_message, event, intent, server_message, ChatIntent, ClientMessage, Event, HealthState,
+    Hello, HitOutcome, Intent, IntentRejected, Resolution, ResolutionState, Role, RollMode,
+    RollPurpose, RollVisibility, ServerMessage, Snapshot, UseAbilityIntent,
 };
 use tt_mock_server::dice::Rng;
 
@@ -175,7 +175,7 @@ async fn player_snapshot_has_the_pregens_but_not_the_goblin_creature() {
             "creature-tamsin"
         ]
     );
-    assert_eq!(s.tokens.len(), 7);
+    assert_eq!(s.tokens.len(), 8);
 }
 
 #[tokio::test]
@@ -183,7 +183,7 @@ async fn gm_snapshot_has_every_creature() {
     let addr = start(faces(&[])).await;
     let (_ws, s) = join(addr, "gm").await;
     assert_eq!(s.role, Role::Gm as i32);
-    assert_eq!(s.creatures.len(), 6);
+    assert_eq!(s.creatures.len(), 7);
     assert!(s
         .creatures
         .iter()
@@ -191,21 +191,26 @@ async fn gm_snapshot_has_every_creature() {
 }
 
 #[tokio::test]
-async fn token_hp_is_not_redacted_for_anyone() {
+async fn token_hp_is_redacted_for_a_viewer_who_does_not_control_the_token() {
     let addr = start(faces(&[])).await;
-    for token in ["player", "gm"] {
-        let (_ws, s) = join(addr, token).await;
-        let hp = |id: &str| {
-            s.tokens
-                .iter()
-                .find(|t| t.token_id == id)
-                .unwrap()
-                .hp_current
-        };
-        assert_eq!(hp("token-aria"), Some(24));
-        assert_eq!(hp("token-brannoch"), Some(28));
-        assert_eq!(hp("token-goblin"), None);
-    }
+    let tok = |s: &Snapshot, id: &str| s.tokens.iter().find(|t| t.token_id == id).unwrap().clone();
+
+    // The player controls Aria and the pregens, so their numbers show; the
+    // goblin's do not, but its health state does.
+    let (_ws, s) = join(addr, "player").await;
+    assert_eq!(tok(&s, "token-aria").hp_current, Some(24));
+    assert_eq!(tok(&s, "token-brannoch").hp_current, Some(28));
+    let goblin = tok(&s, "token-goblin");
+    assert_eq!(goblin.hp_current, None);
+    assert_eq!(goblin.hp_max, None);
+    assert_eq!(goblin.hp_temp, None);
+    assert_eq!(goblin.health_state, HealthState::Healthy as i32);
+
+    // The GM controls everything.
+    let (_ws, s) = join(addr, "gm").await;
+    let goblin = tok(&s, "token-goblin");
+    assert_eq!((goblin.hp_current, goblin.hp_max), (Some(9), Some(9)));
+    assert_eq!(tok(&s, "token-ember-wisp").hp_current, Some(11));
 }
 
 // ----------------------------------------------------------------- attacks
@@ -240,7 +245,8 @@ async fn hit_rolls_attack_and_damage_with_exact_values() {
     assert_eq!(o.token_id, "token-goblin");
     assert_eq!(o.outcome, HitOutcome::Hit as i32);
     assert_eq!(o.step_index, 0);
-    assert!(o.damage.is_empty());
+    assert_eq!(o.damage.len(), 1);
+    assert_eq!((o.damage[0].rolled, o.damage[0].applied), (7, 7));
     assert!(!o.dropped_to_zero);
 
     let attack = o.roll.as_ref().unwrap();
@@ -497,7 +503,7 @@ async fn too_many_targets_warns_and_still_resolves_every_target() {
 }
 
 #[tokio::test]
-async fn both_connections_get_the_same_event_and_no_upserts() {
+async fn both_connections_get_the_same_resolution_and_a_redacted_upsert() {
     let addr = start(faces(&[10, 4])).await;
     let (mut player, _) = join(addr, "player").await;
     let (mut gm, _) = join(addr, "gm").await;
@@ -517,15 +523,27 @@ async fn both_connections_get_the_same_event_and_no_upserts() {
         Some(event::Kind::ResolutionUpdated(_))
     ));
 
-    // The very next thing each side sees is the chat: no CreatureUpserted or
-    // TokenUpserted slipped in after the attack.
+    // The goblin took 7 of 9: both sides get the upsert, only the GM sees HP.
+    let upserted = |e: Event| match e.kind {
+        Some(event::Kind::TokenUpserted(u)) => (e.seq, e.client_intent_id, u.token.unwrap()),
+        other => panic!("expected token_upserted, got {other:?}"),
+    };
+    let (seq, intent_id, token) = upserted(recv_event(&mut player).await);
+    assert_eq!((seq, intent_id.as_str()), (2, "u1"));
+    assert_eq!(token.token_id, "token-goblin");
+    assert_eq!(token.hp_current, None);
+    assert_eq!(token.health_state, HealthState::NearDeath as i32);
+    let (seq, intent_id, token) = upserted(recv_event(&mut gm).await);
+    assert_eq!((seq, intent_id.as_str()), (2, "u1"));
+    assert_eq!(token.hp_current, Some(2));
+
+    // Nothing else followed the upsert: the next event is the chat.
     send_chat(&mut player, "after").await;
     for ws in [&mut player, &mut gm] {
         let next = recv_event(ws).await;
-        assert_eq!(next.seq, 2);
+        assert_eq!(next.seq, 3);
         assert!(matches!(next.kind, Some(event::Kind::ChatPosted(_))));
     }
-    // And the state did not change: HP in a fresh snapshot is as seeded.
     let (_ws, s) = join(addr, "gm").await;
     let hp = |id: &str| {
         s.tokens
@@ -535,7 +553,7 @@ async fn both_connections_get_the_same_event_and_no_upserts() {
             .hp_current
     };
     assert_eq!(hp("token-brannoch"), Some(28));
-    assert_eq!(hp("token-goblin"), None);
+    assert_eq!(hp("token-goblin"), Some(2));
 }
 
 #[tokio::test]
@@ -586,7 +604,11 @@ async fn resolution_and_roll_ids_are_unique_across_resolutions_and_freeform_roll
             }),
         )
         .await;
-        let e = recv_event(&mut ws).await;
+        let mut e = recv_event(&mut ws).await;
+        // The first resolution also upserts the goblin it knocked down.
+        if matches!(e.kind, Some(event::Kind::TokenUpserted(_))) {
+            e = recv_event(&mut ws).await;
+        }
         match e.kind {
             Some(event::Kind::DiceRolled(d)) => {
                 assert!(ids.insert(d.roll.unwrap().roll_id));
@@ -602,7 +624,7 @@ async fn resolution_and_roll_ids_are_unique_across_resolutions_and_freeform_roll
 
 /// Each case combines two faults and expects the code for the earlier check.
 #[tokio::test]
-async fn rejection_order_is_permission_then_ability_then_targets_then_support() {
+async fn rejection_order_is_permission_then_ability_then_targets() {
     let addr = start(faces(&[])).await;
     let (mut player, _) = join(addr, "player").await;
     // Permission beats the ability and target lookups.
@@ -629,7 +651,7 @@ async fn rejection_order_is_permission_then_ability_then_targets_then_support() 
     )
     .await;
     assert_rejected(&mut player, "unknown_ability").await;
-    // Target checks beat the attack-only support check.
+    // Target checks come before the steps are looked at.
     use_ability(&mut player, "o5", "token-maribel", "cure-wounds", &[]).await;
     assert_rejected(&mut player, "no_targets").await;
     use_ability(
@@ -770,39 +792,17 @@ async fn missing_or_creatureless_target_is_unknown_target() {
 }
 
 #[tokio::test]
-async fn non_attack_abilities_are_not_supported_by_the_mock() {
+async fn an_ability_with_no_steps_resolves_with_no_outcomes() {
     let addr = start(faces(&[])).await;
     let (mut ws, _) = join(addr, "player").await;
-    // A flat (healing) step, a save step, and a passive with no steps.
-    use_ability(
-        &mut ws,
-        "u1",
-        "token-maribel",
-        "cure-wounds",
-        &["token-brannoch"],
-    )
-    .await;
-    assert_rejected(&mut ws, "not_supported_by_mock").await;
-    use_ability(
-        &mut ws,
-        "u2",
-        "token-maribel",
-        "cantrip-sacred-flame",
-        &["token-goblin"],
-    )
-    .await;
-    assert_rejected(&mut ws, "not_supported_by_mock").await;
-    use_ability(
-        &mut ws,
-        "u3",
-        "token-brannoch",
-        "action-surge",
-        &["token-goblin"],
-    )
-    .await;
-    assert_rejected(&mut ws, "not_supported_by_mock").await;
+    // Action Surge targets self and has no steps: nothing rolls, nothing changes.
+    use_ability(&mut ws, "u1", "token-brannoch", "action-surge", &[]).await;
+    let e = recv_event(&mut ws).await;
+    let r = resolution(&e);
+    assert_eq!(r.state, ResolutionState::Done as i32);
+    assert!(r.outcomes.is_empty() && r.warnings.is_empty());
 
-    // Rejections used no seq.
+    // Rejections used no seq; the resolution used seq 1.
     send_chat(&mut ws, "x").await;
-    assert_eq!(recv_event(&mut ws).await.seq, 1);
+    assert_eq!(recv_event(&mut ws).await.seq, 2);
 }

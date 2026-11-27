@@ -69,7 +69,7 @@ impl Campaign {
 
     /// Non-GM viewers see an encounter only if none of its combatants is a
     /// hidden (or unknown) token, so the turn order cannot reveal one.
-    fn encounter_visible(&self, encounter: &Encounter, viewer: &Viewer) -> bool {
+    pub(crate) fn encounter_visible(&self, encounter: &Encounter, viewer: &Viewer) -> bool {
         viewer.is_gm()
             || encounter
                 .combatants
@@ -107,6 +107,19 @@ impl Campaign {
         }
     }
 
+    /// May `viewer` receive `original`, an event that has been undone? As
+    /// `event_for` with the current state, except a `TokenRemoved` whose token
+    /// undo has put back: that is judged by the restored token, because the
+    /// hidden flag kept for removed tokens is deleted on restore.
+    fn undone_original_visible(&self, original: &Event, viewer: &Viewer) -> bool {
+        if let Some(event::Kind::TokenRemoved(r)) = original.kind.as_ref() {
+            if let Some(t) = self.token_by_id(&r.token_id) {
+                return viewer.is_gm() || !t.hidden;
+            }
+        }
+        self.event_for(original, viewer).is_some()
+    }
+
     /// The version of `event` this viewer may receive, or `None`.
     pub fn event_for(&self, event: &Event, viewer: &Viewer) -> Option<Event> {
         let gm = viewer.is_gm();
@@ -124,9 +137,12 @@ impl Campaign {
                 ));
                 return Some(out);
             }
-            // The token may already be gone, so its hidden flag is unknown:
-            // GM only until a removal intent carries that information.
-            event::Kind::TokenRemoved(_) => gm,
+            // The token is gone, so the campaign kept whether it was hidden:
+            // everyone for a visible token, the GM otherwise (also for an id
+            // that was never removed through an intent).
+            event::Kind::TokenRemoved(r) => {
+                gm || self.removed_token_hidden.get(&r.token_id) == Some(&false)
+            }
             // Unknown or hidden tokens: GM only.
             event::Kind::TokenMoved(m) => {
                 gm || self.token_by_id(&m.token_id).is_some_and(|t| !t.hidden)
@@ -185,8 +201,16 @@ impl Campaign {
                     true
                 }
             }
-            // Not emitted in v0 and its payload is not yet filterable.
-            event::Kind::EventUndone(_) => gm,
+            // Exactly the viewers who may receive the undone original,
+            // filtered with the current state. An original not in the log
+            // is GM only.
+            event::Kind::EventUndone(u) => {
+                gm || self
+                    .log
+                    .binary_search_by_key(&u.undone_seq, |e| e.seq)
+                    .ok()
+                    .is_some_and(|i| self.undone_original_visible(&self.log[i], viewer))
+            }
             event::Kind::CreatureUpserted(c) => c
                 .creature
                 .as_ref()

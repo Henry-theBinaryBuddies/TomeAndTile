@@ -14,7 +14,7 @@ import type { RollMode, RollResult, RollVisibility } from "./dice_pb";
 import { file_tomeandtile_v1_dice } from "./dice_pb";
 import type { MediaToken, MediaTokenRequest } from "./media_pb";
 import { file_tomeandtile_v1_media } from "./media_pb";
-import type { Scene, Token } from "./scene_pb";
+import type { CreatureSize, Scene, Token } from "./scene_pb";
 import { file_tomeandtile_v1_scene } from "./scene_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tomeandtile/v1/session.proto.
  */
 export const file_tomeandtile_v1_session: GenFile = /*@__PURE__*/
-  fileDesc("Chx0b21lYW5kdGlsZS92MS9zZXNzaW9uLnByb3RvEg50b21lYW5kdGlsZS52MSJZCg9Nb3ZlVG9rZW5JbnRlbnQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkijQEKDlJvbGxEaWNlSW50ZW50EhAKCG5vdGF0aW9uGAEgASgJEiYKBG1vZGUYAiABKA4yGC50b21lYW5kdGlsZS52MS5Sb2xsTW9kZRIyCgp2aXNpYmlsaXR5GAMgASgOMh4udG9tZWFuZHRpbGUudjEuUm9sbFZpc2liaWxpdHkSDQoFbGFiZWwYBCABKAkiGgoKQ2hhdEludGVudBIMCgR0ZXh0GAEgASgJItQBChBVc2VBYmlsaXR5SW50ZW50EhcKD3NvdXJjZV90b2tlbl9pZBgBIAEoCRISCgphYmlsaXR5X2lkGAIgASgJEhgKEHRhcmdldF90b2tlbl9pZHMYAyADKAkSLQoPdGVtcGxhdGVfb3JpZ2luGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIiChp0ZW1wbGF0ZV9kaXJlY3Rpb25fZGVncmVlcxgFIAEoAhImCgRtb2RlGAYgASgOMhgudG9tZWFuZHRpbGUudjEuUm9sbE1vZGUiOwoUU3RhcnRFbmNvdW50ZXJJbnRlbnQSEAoIc2NlbmVfaWQYASABKAkSEQoJdG9rZW5faWRzGAIgAygJIiUKDUVuZFR1cm5JbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJImAKE1NldEluaXRpYXRpdmVJbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJEhAKCHRva2VuX2lkGAIgASgJEhIKCmluaXRpYXRpdmUYAyABKAUSDQoFb3JkZXIYBCABKA0iHwoKVW5kb0ludGVudBIRCglldmVudF9zZXEYASABKAQiSwoSU2V0SGl0UG9pbnRzSW50ZW50EhAKCHRva2VuX2lkGAEgASgJEhIKCmhwX2N1cnJlbnQYAiABKAUSDwoHaHBfdGVtcBgDIAEoBSJFChRTZXRDb250cm9sbGVyc0ludGVudBIQCgh0b2tlbl9pZBgBIAEoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGAIgAygJIlAKGFNldExldmVsQmFja2dyb3VuZEludGVudBIQCghzY2VuZV9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIQCghhc3NldF9pZBgDIAEoCSKjBQoGSW50ZW50EhgKEGNsaWVudF9pbnRlbnRfaWQYASABKAkSNQoKbW92ZV90b2tlbhgKIAEoCzIfLnRvbWVhbmR0aWxlLnYxLk1vdmVUb2tlbkludGVudEgAEjMKCXJvbGxfZGljZRgLIAEoCzIeLnRvbWVhbmR0aWxlLnYxLlJvbGxEaWNlSW50ZW50SAASKgoEY2hhdBgMIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkNoYXRJbnRlbnRIABI3Cgt1c2VfYWJpbGl0eRgNIAEoCzIgLnRvbWVhbmR0aWxlLnYxLlVzZUFiaWxpdHlJbnRlbnRIABI/Cg9zdGFydF9lbmNvdW50ZXIYDiABKAsyJC50b21lYW5kdGlsZS52MS5TdGFydEVuY291bnRlckludGVudEgAEjEKCGVuZF90dXJuGA8gASgLMh0udG9tZWFuZHRpbGUudjEuRW5kVHVybkludGVudEgAEj0KDnNldF9pbml0aWF0aXZlGBAgASgLMiMudG9tZWFuZHRpbGUudjEuU2V0SW5pdGlhdGl2ZUludGVudEgAEioKBHVuZG8YESABKAsyGi50b21lYW5kdGlsZS52MS5VbmRvSW50ZW50SAASPAoOc2V0X2hpdF9wb2ludHMYEiABKAsyIi50b21lYW5kdGlsZS52MS5TZXRIaXRQb2ludHNJbnRlbnRIABI/Cg9zZXRfY29udHJvbGxlcnMYEyABKAsyJC50b21lYW5kdGlsZS52MS5TZXRDb250cm9sbGVyc0ludGVudEgAEkgKFHNldF9sZXZlbF9iYWNrZ3JvdW5kGBQgASgLMigudG9tZWFuZHRpbGUudjEuU2V0TGV2ZWxCYWNrZ3JvdW5kSW50ZW50SABCBgoEa2luZCI1Cg1Ub2tlblVwc2VydGVkEiQKBXRva2VuGAEgASgLMhUudG9tZWFuZHRpbGUudjEuVG9rZW4iIAoMVG9rZW5SZW1vdmVkEhAKCHRva2VuX2lkGAEgASgJImsKClRva2VuTW92ZWQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkSFQoNZGlzdGFuY2VfZmVldBgEIAEoAiIrCgpDaGF0UG9zdGVkEg8KB3VzZXJfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI2CgpEaWNlUm9sbGVkEigKBHJvbGwYASABKAsyGi50b21lYW5kdGlsZS52MS5Sb2xsUmVzdWx0IkAKEEVuY291bnRlclVwZGF0ZWQSLAoJZW5jb3VudGVyGAEgASgLMhkudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyIiYKDkVuY291bnRlckVuZGVkEhQKDGVuY291bnRlcl9pZBgBIAEoCSJDChFSZXNvbHV0aW9uVXBkYXRlZBIuCgpyZXNvbHV0aW9uGAEgASgLMhoudG9tZWFuZHRpbGUudjEuUmVzb2x1dGlvbiI+ChBDcmVhdHVyZVVwc2VydGVkEioKCGNyZWF0dXJlGAEgASgLMhgudG9tZWFuZHRpbGUudjEuQ3JlYXR1cmUiNQoNU2NlbmVVcHNlcnRlZBIkCgVzY2VuZRgBIAEoCzIVLnRvbWVhbmR0aWxlLnYxLlNjZW5lIiEKC0V2ZW50VW5kb25lEhIKCnVuZG9uZV9zZXEYASABKAQiigYKBUV2ZW50EgsKA3NlcRgBIAEoBBINCgVhdF9tcxgCIAEoAxIQCghzY2VuZV9pZBgDIAEoCRIVCg1hY3Rvcl91c2VyX2lkGAQgASgJEhgKEGNsaWVudF9pbnRlbnRfaWQYBSABKAkSKQoId2FybmluZ3MYBiADKAsyFy50b21lYW5kdGlsZS52MS5XYXJuaW5nEjcKDnRva2VuX3Vwc2VydGVkGAogASgLMh0udG9tZWFuZHRpbGUudjEuVG9rZW5VcHNlcnRlZEgAEjUKDXRva2VuX3JlbW92ZWQYCyABKAsyHC50b21lYW5kdGlsZS52MS5Ub2tlblJlbW92ZWRIABIxCgt0b2tlbl9tb3ZlZBgMIAEoCzIaLnRvbWVhbmR0aWxlLnYxLlRva2VuTW92ZWRIABIxCgtjaGF0X3Bvc3RlZBgNIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkNoYXRQb3N0ZWRIABIxCgtkaWNlX3JvbGxlZBgOIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkRpY2VSb2xsZWRIABI9ChFlbmNvdW50ZXJfdXBkYXRlZBgPIAEoCzIgLnRvbWVhbmR0aWxlLnYxLkVuY291bnRlclVwZGF0ZWRIABI5Cg9lbmNvdW50ZXJfZW5kZWQYECABKAsyHi50b21lYW5kdGlsZS52MS5FbmNvdW50ZXJFbmRlZEgAEj8KEnJlc29sdXRpb25fdXBkYXRlZBgRIAEoCzIhLnRvbWVhbmR0aWxlLnYxLlJlc29sdXRpb25VcGRhdGVkSAASPQoRY3JlYXR1cmVfdXBzZXJ0ZWQYEiABKAsyIC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVVwc2VydGVkSAASNwoOc2NlbmVfdXBzZXJ0ZWQYEyABKAsyHS50b21lYW5kdGlsZS52MS5TY2VuZVVwc2VydGVkSAASMwoMZXZlbnRfdW5kb25lGBQgASgLMhsudG9tZWFuZHRpbGUudjEuRXZlbnRVbmRvbmVIAEIGCgRraW5kIkUKBUhlbGxvEhMKC2NhbXBhaWduX2lkGAEgASgJEhUKDXNlc3Npb25fdG9rZW4YAiABKAkSEAoIbGFzdF9zZXEYAyABKAQiYwoGTWVtYmVyEg8KB3VzZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEiIKBHJvbGUYAyABKA4yFC50b21lYW5kdGlsZS52MS5Sb2xlEg4KBm9ubGluZRgEIAEoCCK4AgoIU25hcHNob3QSCwoDc2VxGAEgASgEEg8KB3VzZXJfaWQYAiABKAkSIgoEcm9sZRgDIAEoDjIULnRvbWVhbmR0aWxlLnYxLlJvbGUSJwoHbWVtYmVycxgEIAMoCzIWLnRvbWVhbmR0aWxlLnYxLk1lbWJlchIlCgZzY2VuZXMYBSADKAsyFS50b21lYW5kdGlsZS52MS5TY2VuZRIlCgZ0b2tlbnMYBiADKAsyFS50b21lYW5kdGlsZS52MS5Ub2tlbhIrCgljcmVhdHVyZXMYByADKAsyGC50b21lYW5kdGlsZS52MS5DcmVhdHVyZRItCgplbmNvdW50ZXJzGAggAygLMhkudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyEhcKD2FjdGl2ZV9zY2VuZV9pZBgJIAEoCSJJCg5JbnRlbnRSZWplY3RlZBIYChBjbGllbnRfaW50ZW50X2lkGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKrAQoNQ2xpZW50TWVzc2FnZRImCgVoZWxsbxgBIAEoCzIVLnRvbWVhbmR0aWxlLnYxLkhlbGxvSAASKAoGaW50ZW50GAIgASgLMhYudG9tZWFuZHRpbGUudjEuSW50ZW50SAASQAoTbWVkaWFfdG9rZW5fcmVxdWVzdBgKIAEoCzIhLnRvbWVhbmR0aWxlLnYxLk1lZGlhVG9rZW5SZXF1ZXN0SABCBgoEa2luZCLbAQoNU2VydmVyTWVzc2FnZRIsCghzbmFwc2hvdBgBIAEoCzIYLnRvbWVhbmR0aWxlLnYxLlNuYXBzaG90SAASJgoFZXZlbnQYAiABKAsyFS50b21lYW5kdGlsZS52MS5FdmVudEgAEjkKD2ludGVudF9yZWplY3RlZBgDIAEoCzIeLnRvbWVhbmR0aWxlLnYxLkludGVudFJlamVjdGVkSAASMQoLbWVkaWFfdG9rZW4YCiABKAsyGi50b21lYW5kdGlsZS52MS5NZWRpYVRva2VuSABCBgoEa2luZGIGcHJvdG8z", [file_tomeandtile_v1_combat, file_tomeandtile_v1_common, file_tomeandtile_v1_creature, file_tomeandtile_v1_dice, file_tomeandtile_v1_media, file_tomeandtile_v1_scene]);
+  fileDesc("Chx0b21lYW5kdGlsZS92MS9zZXNzaW9uLnByb3RvEg50b21lYW5kdGlsZS52MSJZCg9Nb3ZlVG9rZW5JbnRlbnQSEAoIdG9rZW5faWQYASABKAkSIgoEcGF0aBgCIAMoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISEAoIbGV2ZWxfaWQYAyABKAkijQEKDlJvbGxEaWNlSW50ZW50EhAKCG5vdGF0aW9uGAEgASgJEiYKBG1vZGUYAiABKA4yGC50b21lYW5kdGlsZS52MS5Sb2xsTW9kZRIyCgp2aXNpYmlsaXR5GAMgASgOMh4udG9tZWFuZHRpbGUudjEuUm9sbFZpc2liaWxpdHkSDQoFbGFiZWwYBCABKAkiGgoKQ2hhdEludGVudBIMCgR0ZXh0GAEgASgJItQBChBVc2VBYmlsaXR5SW50ZW50EhcKD3NvdXJjZV90b2tlbl9pZBgBIAEoCRISCgphYmlsaXR5X2lkGAIgASgJEhgKEHRhcmdldF90b2tlbl9pZHMYAyADKAkSLQoPdGVtcGxhdGVfb3JpZ2luGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIiChp0ZW1wbGF0ZV9kaXJlY3Rpb25fZGVncmVlcxgFIAEoAhImCgRtb2RlGAYgASgOMhgudG9tZWFuZHRpbGUudjEuUm9sbE1vZGUiOwoUU3RhcnRFbmNvdW50ZXJJbnRlbnQSEAoIc2NlbmVfaWQYASABKAkSEQoJdG9rZW5faWRzGAIgAygJIiUKDUVuZFR1cm5JbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJImAKE1NldEluaXRpYXRpdmVJbnRlbnQSFAoMZW5jb3VudGVyX2lkGAEgASgJEhAKCHRva2VuX2lkGAIgASgJEhIKCmluaXRpYXRpdmUYAyABKAUSDQoFb3JkZXIYBCABKA0iHwoKVW5kb0ludGVudBIRCglldmVudF9zZXEYASABKAQiSwoSU2V0SGl0UG9pbnRzSW50ZW50EhAKCHRva2VuX2lkGAEgASgJEhIKCmhwX2N1cnJlbnQYAiABKAUSDwoHaHBfdGVtcBgDIAEoBSJFChRTZXRDb250cm9sbGVyc0ludGVudBIQCgh0b2tlbl9pZBgBIAEoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGAIgAygJIlAKGFNldExldmVsQmFja2dyb3VuZEludGVudBIQCghzY2VuZV9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIQCghhc3NldF9pZBgDIAEoCSLbAQoRQ3JlYXRlVG9rZW5JbnRlbnQSEAoIc2NlbmVfaWQYASABKAkSEAoIbGV2ZWxfaWQYAiABKAkSEwoLY3JlYXR1cmVfaWQYAyABKAkSDAoEbmFtZRgEIAEoCRImCghwb3NpdGlvbhgFIAEoCzIULnRvbWVhbmR0aWxlLnYxLlZlYzISKgoEc2l6ZRgGIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkNyZWF0dXJlU2l6ZRIOCgZoaWRkZW4YByABKAgSGwoTY29udHJvbGxlcl91c2VyX2lkcxgIIAMoCSIlChFSZW1vdmVUb2tlbkludGVudBIQCgh0b2tlbl9pZBgBIAEoCSJEChNTZXRDb25kaXRpb25zSW50ZW50EhAKCHRva2VuX2lkGAEgASgJEgsKA2FkZBgCIAMoCRIOCgZyZW1vdmUYAyADKAkiKgoSRW5kRW5jb3VudGVySW50ZW50EhQKDGVuY291bnRlcl9pZBgBIAEoCSKVBwoGSW50ZW50EhgKEGNsaWVudF9pbnRlbnRfaWQYASABKAkSNQoKbW92ZV90b2tlbhgKIAEoCzIfLnRvbWVhbmR0aWxlLnYxLk1vdmVUb2tlbkludGVudEgAEjMKCXJvbGxfZGljZRgLIAEoCzIeLnRvbWVhbmR0aWxlLnYxLlJvbGxEaWNlSW50ZW50SAASKgoEY2hhdBgMIAEoCzIaLnRvbWVhbmR0aWxlLnYxLkNoYXRJbnRlbnRIABI3Cgt1c2VfYWJpbGl0eRgNIAEoCzIgLnRvbWVhbmR0aWxlLnYxLlVzZUFiaWxpdHlJbnRlbnRIABI/Cg9zdGFydF9lbmNvdW50ZXIYDiABKAsyJC50b21lYW5kdGlsZS52MS5TdGFydEVuY291bnRlckludGVudEgAEjEKCGVuZF90dXJuGA8gASgLMh0udG9tZWFuZHRpbGUudjEuRW5kVHVybkludGVudEgAEj0KDnNldF9pbml0aWF0aXZlGBAgASgLMiMudG9tZWFuZHRpbGUudjEuU2V0SW5pdGlhdGl2ZUludGVudEgAEioKBHVuZG8YESABKAsyGi50b21lYW5kdGlsZS52MS5VbmRvSW50ZW50SAASPAoOc2V0X2hpdF9wb2ludHMYEiABKAsyIi50b21lYW5kdGlsZS52MS5TZXRIaXRQb2ludHNJbnRlbnRIABI/Cg9zZXRfY29udHJvbGxlcnMYEyABKAsyJC50b21lYW5kdGlsZS52MS5TZXRDb250cm9sbGVyc0ludGVudEgAEkgKFHNldF9sZXZlbF9iYWNrZ3JvdW5kGBQgASgLMigudG9tZWFuZHRpbGUudjEuU2V0TGV2ZWxCYWNrZ3JvdW5kSW50ZW50SAASOQoMY3JlYXRlX3Rva2VuGBUgASgLMiEudG9tZWFuZHRpbGUudjEuQ3JlYXRlVG9rZW5JbnRlbnRIABI5CgxyZW1vdmVfdG9rZW4YFiABKAsyIS50b21lYW5kdGlsZS52MS5SZW1vdmVUb2tlbkludGVudEgAEj0KDnNldF9jb25kaXRpb25zGBcgASgLMiMudG9tZWFuZHRpbGUudjEuU2V0Q29uZGl0aW9uc0ludGVudEgAEjsKDWVuZF9lbmNvdW50ZXIYGCABKAsyIi50b21lYW5kdGlsZS52MS5FbmRFbmNvdW50ZXJJbnRlbnRIAEIGCgRraW5kIjUKDVRva2VuVXBzZXJ0ZWQSJAoFdG9rZW4YASABKAsyFS50b21lYW5kdGlsZS52MS5Ub2tlbiIgCgxUb2tlblJlbW92ZWQSEAoIdG9rZW5faWQYASABKAkiawoKVG9rZW5Nb3ZlZBIQCgh0b2tlbl9pZBgBIAEoCRIiCgRwYXRoGAIgAygLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIQCghsZXZlbF9pZBgDIAEoCRIVCg1kaXN0YW5jZV9mZWV0GAQgASgCIisKCkNoYXRQb3N0ZWQSDwoHdXNlcl9pZBgBIAEoCRIMCgR0ZXh0GAIgASgJIjYKCkRpY2VSb2xsZWQSKAoEcm9sbBgBIAEoCzIaLnRvbWVhbmR0aWxlLnYxLlJvbGxSZXN1bHQiQAoQRW5jb3VudGVyVXBkYXRlZBIsCgllbmNvdW50ZXIYASABKAsyGS50b21lYW5kdGlsZS52MS5FbmNvdW50ZXIiJgoORW5jb3VudGVyRW5kZWQSFAoMZW5jb3VudGVyX2lkGAEgASgJIkMKEVJlc29sdXRpb25VcGRhdGVkEi4KCnJlc29sdXRpb24YASABKAsyGi50b21lYW5kdGlsZS52MS5SZXNvbHV0aW9uIj4KEENyZWF0dXJlVXBzZXJ0ZWQSKgoIY3JlYXR1cmUYASABKAsyGC50b21lYW5kdGlsZS52MS5DcmVhdHVyZSI1Cg1TY2VuZVVwc2VydGVkEiQKBXNjZW5lGAEgASgLMhUudG9tZWFuZHRpbGUudjEuU2NlbmUiIQoLRXZlbnRVbmRvbmUSEgoKdW5kb25lX3NlcRgBIAEoBCKKBgoFRXZlbnQSCwoDc2VxGAEgASgEEg0KBWF0X21zGAIgASgDEhAKCHNjZW5lX2lkGAMgASgJEhUKDWFjdG9yX3VzZXJfaWQYBCABKAkSGAoQY2xpZW50X2ludGVudF9pZBgFIAEoCRIpCgh3YXJuaW5ncxgGIAMoCzIXLnRvbWVhbmR0aWxlLnYxLldhcm5pbmcSNwoOdG9rZW5fdXBzZXJ0ZWQYCiABKAsyHS50b21lYW5kdGlsZS52MS5Ub2tlblVwc2VydGVkSAASNQoNdG9rZW5fcmVtb3ZlZBgLIAEoCzIcLnRvbWVhbmR0aWxlLnYxLlRva2VuUmVtb3ZlZEgAEjEKC3Rva2VuX21vdmVkGAwgASgLMhoudG9tZWFuZHRpbGUudjEuVG9rZW5Nb3ZlZEgAEjEKC2NoYXRfcG9zdGVkGA0gASgLMhoudG9tZWFuZHRpbGUudjEuQ2hhdFBvc3RlZEgAEjEKC2RpY2Vfcm9sbGVkGA4gASgLMhoudG9tZWFuZHRpbGUudjEuRGljZVJvbGxlZEgAEj0KEWVuY291bnRlcl91cGRhdGVkGA8gASgLMiAudG9tZWFuZHRpbGUudjEuRW5jb3VudGVyVXBkYXRlZEgAEjkKD2VuY291bnRlcl9lbmRlZBgQIAEoCzIeLnRvbWVhbmR0aWxlLnYxLkVuY291bnRlckVuZGVkSAASPwoScmVzb2x1dGlvbl91cGRhdGVkGBEgASgLMiEudG9tZWFuZHRpbGUudjEuUmVzb2x1dGlvblVwZGF0ZWRIABI9ChFjcmVhdHVyZV91cHNlcnRlZBgSIAEoCzIgLnRvbWVhbmR0aWxlLnYxLkNyZWF0dXJlVXBzZXJ0ZWRIABI3Cg5zY2VuZV91cHNlcnRlZBgTIAEoCzIdLnRvbWVhbmR0aWxlLnYxLlNjZW5lVXBzZXJ0ZWRIABIzCgxldmVudF91bmRvbmUYFCABKAsyGy50b21lYW5kdGlsZS52MS5FdmVudFVuZG9uZUgAQgYKBGtpbmQiRQoFSGVsbG8SEwoLY2FtcGFpZ25faWQYASABKAkSFQoNc2Vzc2lvbl90b2tlbhgCIAEoCRIQCghsYXN0X3NlcRgDIAEoBCJjCgZNZW1iZXISDwoHdXNlcl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSIgoEcm9sZRgDIAEoDjIULnRvbWVhbmR0aWxlLnYxLlJvbGUSDgoGb25saW5lGAQgASgIIrgCCghTbmFwc2hvdBILCgNzZXEYASABKAQSDwoHdXNlcl9pZBgCIAEoCRIiCgRyb2xlGAMgASgOMhQudG9tZWFuZHRpbGUudjEuUm9sZRInCgdtZW1iZXJzGAQgAygLMhYudG9tZWFuZHRpbGUudjEuTWVtYmVyEiUKBnNjZW5lcxgFIAMoCzIVLnRvbWVhbmR0aWxlLnYxLlNjZW5lEiUKBnRva2VucxgGIAMoCzIVLnRvbWVhbmR0aWxlLnYxLlRva2VuEisKCWNyZWF0dXJlcxgHIAMoCzIYLnRvbWVhbmR0aWxlLnYxLkNyZWF0dXJlEi0KCmVuY291bnRlcnMYCCADKAsyGS50b21lYW5kdGlsZS52MS5FbmNvdW50ZXISFwoPYWN0aXZlX3NjZW5lX2lkGAkgASgJIkkKDkludGVudFJlamVjdGVkEhgKEGNsaWVudF9pbnRlbnRfaWQYASABKAkSDAoEY29kZRgCIAEoCRIPCgdtZXNzYWdlGAMgASgJIqsBCg1DbGllbnRNZXNzYWdlEiYKBWhlbGxvGAEgASgLMhUudG9tZWFuZHRpbGUudjEuSGVsbG9IABIoCgZpbnRlbnQYAiABKAsyFi50b21lYW5kdGlsZS52MS5JbnRlbnRIABJAChNtZWRpYV90b2tlbl9yZXF1ZXN0GAogASgLMiEudG9tZWFuZHRpbGUudjEuTWVkaWFUb2tlblJlcXVlc3RIAEIGCgRraW5kItsBCg1TZXJ2ZXJNZXNzYWdlEiwKCHNuYXBzaG90GAEgASgLMhgudG9tZWFuZHRpbGUudjEuU25hcHNob3RIABImCgVldmVudBgCIAEoCzIVLnRvbWVhbmR0aWxlLnYxLkV2ZW50SAASOQoPaW50ZW50X3JlamVjdGVkGAMgASgLMh4udG9tZWFuZHRpbGUudjEuSW50ZW50UmVqZWN0ZWRIABIxCgttZWRpYV90b2tlbhgKIAEoCzIaLnRvbWVhbmR0aWxlLnYxLk1lZGlhVG9rZW5IAEIGCgRraW5kYgZwcm90bzM", [file_tomeandtile_v1_combat, file_tomeandtile_v1_common, file_tomeandtile_v1_creature, file_tomeandtile_v1_dice, file_tomeandtile_v1_media, file_tomeandtile_v1_scene]);
 
 /**
  * Move a token the sender controls.
@@ -122,8 +122,9 @@ export const ChatIntentSchema: GenMessage<ChatIntent> = /*@__PURE__*/
  *   no_targets             a TARGET_SHAPE_CREATURES ability with no targets
  *   unknown_target         a target token does not exist, is hidden from the
  *                          sender, or has no creature
- *   not_implemented        a step kind or target shape the engine does not
- *                          support yet (real server)
+ *   not_implemented        a plugin step, or an ability with more than one
+ *                          attack step that also has a save or flat step
+ *                          (real server)
  *   rng_unavailable        the server could not get secure randomness
  *   not_supported_by_mock  the mock server does not handle this ability
  *
@@ -139,6 +140,20 @@ export const ChatIntentSchema: GenMessage<ChatIntent> = /*@__PURE__*/
  *   extra_targets_ignored  an ability with several attack steps lists more
  *                          targets than it has attack steps; the extra
  *                          entries are ignored
+ *   area_not_checked       an area shape (SPHERE, CONE, LINE, CUBE) was used.
+ *                          Area shapes are not rejected: the listed tokens
+ *                          are the targets, no template is placed or checked,
+ *                          and this warning is given once. (Burning Hands and
+ *                          imported breath weapons work without templates.)
+ *   no_hit_points          a target token has no hp_max; damage or healing is
+ *                          shown, not applied
+ *   condition_immune       an effect was not applied because the target's
+ *                          creature is immune; it is left out of
+ *                          TargetOutcome.effects_applied
+ *   duration_not_tracked   an effect's duration gets no timer (see
+ *                          ConditionTimer in scene.proto)
+ *   ability_recharging     the ability's recharge_spent was already true; it
+ *                          still resolves
  * Disadvantage at long range is not a warning; it shows in the attack roll's
  * mode.
  *
@@ -195,7 +210,14 @@ export const UseAbilityIntentSchema: GenMessage<UseAbilityIntent> = /*@__PURE__*
   messageDesc(file_tomeandtile_v1_session, 3);
 
 /**
- * GM only: start combat. The server rolls initiative for every token listed.
+ * GM only: start combat. The server rolls initiative for each listed token:
+ * one DiceRolled per combatant (purpose ROLL_PURPOSE_INITIATIVE, GM_ONLY for
+ * a hidden token, PUBLIC otherwise), then EncounterUpdated. Duplicate token
+ * ids are listed once.
+ *
+ * Rejection codes: not_permitted, unknown_scene, no_combatants (empty list),
+ * unknown_token (missing, or not on that scene), encounter_running (the scene
+ * already has one), rng_unavailable.
  *
  * @generated from message tomeandtile.v1.StartEncounterIntent
  */
@@ -219,6 +241,11 @@ export const StartEncounterIntentSchema: GenMessage<StartEncounterIntent> = /*@_
   messageDesc(file_tomeandtile_v1_session, 4);
 
 /**
+ * GM, or a player who controls the current combatant's token. Answered with
+ * EncounterUpdated and a TokenUpserted per token whose timed conditions ended.
+ *
+ * Rejection codes: not_permitted, unknown_encounter.
+ *
  * @generated from message tomeandtile.v1.EndTurnIntent
  */
 export type EndTurnIntent = Message<"tomeandtile.v1.EndTurnIntent"> & {
@@ -237,6 +264,9 @@ export const EndTurnIntentSchema: GenMessage<EndTurnIntent> = /*@__PURE__*/
 
 /**
  * GM only: overwrite a combatant's initiative or position in the order.
+ * Answered with EncounterUpdated; the turn stays with the same combatant.
+ *
+ * Rejection codes: not_permitted, unknown_encounter, unknown_combatant.
  *
  * @generated from message tomeandtile.v1.SetInitiativeIntent
  */
@@ -270,7 +300,35 @@ export const SetInitiativeIntentSchema: GenMessage<SetInitiativeIntent> = /*@__P
   messageDesc(file_tomeandtile_v1_session, 6);
 
 /**
- * GM only: reverse an earlier event by appending a compensating one.
+ * GM only: reverse an earlier group of events by appending compensating ones.
+ *
+ * One intent produces a group of events with consecutive seq and the same
+ * client_intent_id. Undo reverses a whole group. event_seq must be the
+ * group's first event: for an ability use its ResolutionUpdated, for set HP
+ * or set conditions its TokenUpserted, for a move its TokenMoved, for a
+ * create its TokenUpserted, for a remove its TokenRemoved. Naming any later
+ * event of a group is refused with not_first_event.
+ *
+ * Undoable groups: UseAbilityIntent (HP, temporary HP, conditions, timers and
+ * health state of every target, and the source creature's resources and
+ * recharge_spent), SetHitPointsIntent, SetConditionsIntent, MoveTokenIntent,
+ * CreateTokenIntent, RemoveTokenIntent.
+ *
+ * Not undoable (not_undoable): chat, dice rolls, set controllers, set level
+ * background, the encounter intents, and undo itself (no redo in M3).
+ *
+ * Dependency rule: every group records the token ids and creature ids whose
+ * stored state it changed. A group cannot be undone while a later group that
+ * has not been undone changed any of the same tokens or creatures
+ * (undo_blocked; the message names the later seq). Undo the later one first.
+ *
+ * The server appends compensating events (TokenUpserted, TokenMoved,
+ * TokenRemoved, CreatureUpserted with the earlier state), then one EventUndone
+ * per event of the undone group, in seq order. History is never deleted
+ * (ADR 0004).
+ *
+ * Rejection codes: not_permitted (not the GM), unknown_event (no such seq in
+ * the log), not_first_event, not_undoable, already_undone, undo_blocked.
  *
  * @generated from message tomeandtile.v1.UndoIntent
  */
@@ -289,7 +347,17 @@ export const UndoIntentSchema: GenMessage<UndoIntent> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_session, 7);
 
 /**
- * GM only, or the controller for their own creature: set HP directly.
+ * GM, or a controller of a visible token: set HP directly. Both fields are
+ * always set, so hp_temp 0 clears temporary HP. hp_max cannot be changed in
+ * M3. Answered with TokenUpserted.
+ *
+ * Rejection codes:
+ *   not_permitted    a player who does not control the token, or names a
+ *                    hidden or missing token
+ *   unknown_token    the GM names a missing token
+ *   no_hit_points    the token has no hp_max
+ *   bad_hit_points   hp_current below 0 or above hp_max, or hp_temp below 0
+ *                    or above 999
  *
  * @generated from message tomeandtile.v1.SetHitPointsIntent
  */
@@ -377,6 +445,162 @@ export const SetLevelBackgroundIntentSchema: GenMessage<SetLevelBackgroundIntent
   messageDesc(file_tomeandtile_v1_session, 10);
 
 /**
+ * GM only: put a token on a scene. The server mints token_id and answers
+ * with TokenUpserted (and CreatureUpserted when controllers are listed, so
+ * they receive the sheet). The new token copies hp_current, hp_max and
+ * hp_temp from the creature, and health_state is computed from them.
+ * Conditions start empty.
+ *
+ * Rejection codes: not_permitted, unknown_scene, unknown_level,
+ * unknown_creature, bad_coordinate, name_too_long (over 120 characters),
+ * unknown_user, invalid_controller, too_many_tokens (the campaign already
+ * has 500).
+ *
+ * @generated from message tomeandtile.v1.CreateTokenIntent
+ */
+export type CreateTokenIntent = Message<"tomeandtile.v1.CreateTokenIntent"> & {
+  /**
+   * @generated from field: string scene_id = 1;
+   */
+  sceneId: string;
+
+  /**
+   * Empty: the scene's first level.
+   *
+   * @generated from field: string level_id = 2;
+   */
+  levelId: string;
+
+  /**
+   * Empty: a prop with no creature, no HP and no abilities.
+   *
+   * @generated from field: string creature_id = 3;
+   */
+  creatureId: string;
+
+  /**
+   * Empty: the creature's name, or "Token" for a prop.
+   *
+   * @generated from field: string name = 4;
+   */
+  name: string;
+
+  /**
+   * Centre in scene units; the server does not snap it.
+   *
+   * @generated from field: tomeandtile.v1.Vec2 position = 5;
+   */
+  position?: Vec2 | undefined;
+
+  /**
+   * Unspecified: the creature's size, or Medium.
+   *
+   * @generated from field: tomeandtile.v1.CreatureSize size = 6;
+   */
+  size: CreatureSize;
+
+  /**
+   * @generated from field: bool hidden = 7;
+   */
+  hidden: boolean;
+
+  /**
+   * @generated from field: repeated string controller_user_ids = 8;
+   */
+  controllerUserIds: string[];
+};
+
+/**
+ * Describes the message tomeandtile.v1.CreateTokenIntent.
+ * Use `create(CreateTokenIntentSchema)` to create a new message.
+ */
+export const CreateTokenIntentSchema: GenMessage<CreateTokenIntent> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_session, 11);
+
+/**
+ * GM only: take a token off the map. Its creature stays in the campaign.
+ * Answered with TokenRemoved.
+ *
+ * Rejection codes: not_permitted, unknown_token, in_encounter (the token is
+ * a combatant in a running encounter; end the encounter first).
+ *
+ * @generated from message tomeandtile.v1.RemoveTokenIntent
+ */
+export type RemoveTokenIntent = Message<"tomeandtile.v1.RemoveTokenIntent"> & {
+  /**
+   * @generated from field: string token_id = 1;
+   */
+  tokenId: string;
+};
+
+/**
+ * Describes the message tomeandtile.v1.RemoveTokenIntent.
+ * Use `create(RemoveTokenIntentSchema)` to create a new message.
+ */
+export const RemoveTokenIntentSchema: GenMessage<RemoveTokenIntent> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_session, 12);
+
+/**
+ * GM only: add or remove condition ids on a token. Added conditions have no
+ * timer; removing a condition also removes its timer. Adding an id already
+ * present, or removing one that is absent, changes nothing. Always answered
+ * with TokenUpserted.
+ *
+ * Rejection codes: not_permitted, unknown_token, bad_condition_id (not
+ * [a-z0-9_]{1,40}), conflicting_conditions (the same id in add and remove),
+ * too_many_conditions (more than 32 on the token afterwards).
+ * Warning codes: condition_immune (an added id is in the creature's
+ * condition_immunities; the GM's choice wins and it is added anyway).
+ *
+ * @generated from message tomeandtile.v1.SetConditionsIntent
+ */
+export type SetConditionsIntent = Message<"tomeandtile.v1.SetConditionsIntent"> & {
+  /**
+   * @generated from field: string token_id = 1;
+   */
+  tokenId: string;
+
+  /**
+   * @generated from field: repeated string add = 2;
+   */
+  add: string[];
+
+  /**
+   * @generated from field: repeated string remove = 3;
+   */
+  remove: string[];
+};
+
+/**
+ * Describes the message tomeandtile.v1.SetConditionsIntent.
+ * Use `create(SetConditionsIntentSchema)` to create a new message.
+ */
+export const SetConditionsIntentSchema: GenMessage<SetConditionsIntent> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_session, 13);
+
+/**
+ * GM only: end a running encounter. Answered with EncounterEnded and a
+ * TokenUpserted for each token whose condition timers were removed.
+ *
+ * Rejection codes: not_permitted, unknown_encounter.
+ *
+ * @generated from message tomeandtile.v1.EndEncounterIntent
+ */
+export type EndEncounterIntent = Message<"tomeandtile.v1.EndEncounterIntent"> & {
+  /**
+   * @generated from field: string encounter_id = 1;
+   */
+  encounterId: string;
+};
+
+/**
+ * Describes the message tomeandtile.v1.EndEncounterIntent.
+ * Use `create(EndEncounterIntentSchema)` to create a new message.
+ */
+export const EndEncounterIntentSchema: GenMessage<EndEncounterIntent> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_session, 14);
+
+/**
  * @generated from message tomeandtile.v1.Intent
  */
 export type Intent = Message<"tomeandtile.v1.Intent"> & {
@@ -456,6 +680,30 @@ export type Intent = Message<"tomeandtile.v1.Intent"> & {
      */
     value: SetLevelBackgroundIntent;
     case: "setLevelBackground";
+  } | {
+    /**
+     * @generated from field: tomeandtile.v1.CreateTokenIntent create_token = 21;
+     */
+    value: CreateTokenIntent;
+    case: "createToken";
+  } | {
+    /**
+     * @generated from field: tomeandtile.v1.RemoveTokenIntent remove_token = 22;
+     */
+    value: RemoveTokenIntent;
+    case: "removeToken";
+  } | {
+    /**
+     * @generated from field: tomeandtile.v1.SetConditionsIntent set_conditions = 23;
+     */
+    value: SetConditionsIntent;
+    case: "setConditions";
+  } | {
+    /**
+     * @generated from field: tomeandtile.v1.EndEncounterIntent end_encounter = 24;
+     */
+    value: EndEncounterIntent;
+    case: "endEncounter";
   } | { case: undefined; value?: undefined };
 };
 
@@ -464,7 +712,7 @@ export type Intent = Message<"tomeandtile.v1.Intent"> & {
  * Use `create(IntentSchema)` to create a new message.
  */
 export const IntentSchema: GenMessage<Intent> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 11);
+  messageDesc(file_tomeandtile_v1_session, 15);
 
 /**
  * @generated from message tomeandtile.v1.TokenUpserted
@@ -481,7 +729,7 @@ export type TokenUpserted = Message<"tomeandtile.v1.TokenUpserted"> & {
  * Use `create(TokenUpsertedSchema)` to create a new message.
  */
 export const TokenUpsertedSchema: GenMessage<TokenUpserted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 12);
+  messageDesc(file_tomeandtile_v1_session, 16);
 
 /**
  * @generated from message tomeandtile.v1.TokenRemoved
@@ -498,7 +746,7 @@ export type TokenRemoved = Message<"tomeandtile.v1.TokenRemoved"> & {
  * Use `create(TokenRemovedSchema)` to create a new message.
  */
 export const TokenRemovedSchema: GenMessage<TokenRemoved> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 13);
+  messageDesc(file_tomeandtile_v1_session, 17);
 
 /**
  * @generated from message tomeandtile.v1.TokenMoved
@@ -530,7 +778,7 @@ export type TokenMoved = Message<"tomeandtile.v1.TokenMoved"> & {
  * Use `create(TokenMovedSchema)` to create a new message.
  */
 export const TokenMovedSchema: GenMessage<TokenMoved> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 14);
+  messageDesc(file_tomeandtile_v1_session, 18);
 
 /**
  * @generated from message tomeandtile.v1.ChatPosted
@@ -552,7 +800,7 @@ export type ChatPosted = Message<"tomeandtile.v1.ChatPosted"> & {
  * Use `create(ChatPostedSchema)` to create a new message.
  */
 export const ChatPostedSchema: GenMessage<ChatPosted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 15);
+  messageDesc(file_tomeandtile_v1_session, 19);
 
 /**
  * @generated from message tomeandtile.v1.DiceRolled
@@ -569,7 +817,7 @@ export type DiceRolled = Message<"tomeandtile.v1.DiceRolled"> & {
  * Use `create(DiceRolledSchema)` to create a new message.
  */
 export const DiceRolledSchema: GenMessage<DiceRolled> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 16);
+  messageDesc(file_tomeandtile_v1_session, 20);
 
 /**
  * @generated from message tomeandtile.v1.EncounterUpdated
@@ -586,7 +834,7 @@ export type EncounterUpdated = Message<"tomeandtile.v1.EncounterUpdated"> & {
  * Use `create(EncounterUpdatedSchema)` to create a new message.
  */
 export const EncounterUpdatedSchema: GenMessage<EncounterUpdated> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 17);
+  messageDesc(file_tomeandtile_v1_session, 21);
 
 /**
  * @generated from message tomeandtile.v1.EncounterEnded
@@ -603,7 +851,7 @@ export type EncounterEnded = Message<"tomeandtile.v1.EncounterEnded"> & {
  * Use `create(EncounterEndedSchema)` to create a new message.
  */
 export const EncounterEndedSchema: GenMessage<EncounterEnded> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 18);
+  messageDesc(file_tomeandtile_v1_session, 22);
 
 /**
  * Sent each time a resolution changes state, so clients can animate it.
@@ -622,7 +870,7 @@ export type ResolutionUpdated = Message<"tomeandtile.v1.ResolutionUpdated"> & {
  * Use `create(ResolutionUpdatedSchema)` to create a new message.
  */
 export const ResolutionUpdatedSchema: GenMessage<ResolutionUpdated> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 19);
+  messageDesc(file_tomeandtile_v1_session, 23);
 
 /**
  * Full sheet, sent only to viewers allowed to see it.
@@ -641,7 +889,7 @@ export type CreatureUpserted = Message<"tomeandtile.v1.CreatureUpserted"> & {
  * Use `create(CreatureUpsertedSchema)` to create a new message.
  */
 export const CreatureUpsertedSchema: GenMessage<CreatureUpserted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 20);
+  messageDesc(file_tomeandtile_v1_session, 24);
 
 /**
  * @generated from message tomeandtile.v1.SceneUpserted
@@ -658,10 +906,11 @@ export type SceneUpserted = Message<"tomeandtile.v1.SceneUpserted"> & {
  * Use `create(SceneUpsertedSchema)` to create a new message.
  */
 export const SceneUpsertedSchema: GenMessage<SceneUpserted> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 21);
+  messageDesc(file_tomeandtile_v1_session, 25);
 
 /**
- * Marks an earlier event as undone.
+ * Marks an earlier event as undone. One is appended per event of an undone
+ * group, in seq order, after the compensating events (see UndoIntent).
  *
  * @generated from message tomeandtile.v1.EventUndone
  */
@@ -677,7 +926,7 @@ export type EventUndone = Message<"tomeandtile.v1.EventUndone"> & {
  * Use `create(EventUndoneSchema)` to create a new message.
  */
 export const EventUndoneSchema: GenMessage<EventUndone> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 22);
+  messageDesc(file_tomeandtile_v1_session, 26);
 
 /**
  * @generated from message tomeandtile.v1.Event
@@ -798,7 +1047,7 @@ export type Event = Message<"tomeandtile.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 23);
+  messageDesc(file_tomeandtile_v1_session, 27);
 
 /**
  * First message on a new socket.
@@ -831,7 +1080,7 @@ export type Hello = Message<"tomeandtile.v1.Hello"> & {
  * Use `create(HelloSchema)` to create a new message.
  */
 export const HelloSchema: GenMessage<Hello> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 24);
+  messageDesc(file_tomeandtile_v1_session, 28);
 
 /**
  * @generated from message tomeandtile.v1.Member
@@ -863,7 +1112,7 @@ export type Member = Message<"tomeandtile.v1.Member"> & {
  * Use `create(MemberSchema)` to create a new message.
  */
 export const MemberSchema: GenMessage<Member> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 25);
+  messageDesc(file_tomeandtile_v1_session, 29);
 
 /**
  * Reply to Hello: everything this viewer may see, as of `seq`.
@@ -924,7 +1173,7 @@ export type Snapshot = Message<"tomeandtile.v1.Snapshot"> & {
  * Use `create(SnapshotSchema)` to create a new message.
  */
 export const SnapshotSchema: GenMessage<Snapshot> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 26);
+  messageDesc(file_tomeandtile_v1_session, 30);
 
 /**
  * The server refused an intent outright (not permitted, malformed). Rule
@@ -956,7 +1205,7 @@ export type IntentRejected = Message<"tomeandtile.v1.IntentRejected"> & {
  * Use `create(IntentRejectedSchema)` to create a new message.
  */
 export const IntentRejectedSchema: GenMessage<IntentRejected> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 27);
+  messageDesc(file_tomeandtile_v1_session, 31);
 
 /**
  * @generated from message tomeandtile.v1.ClientMessage
@@ -991,7 +1240,7 @@ export type ClientMessage = Message<"tomeandtile.v1.ClientMessage"> & {
  * Use `create(ClientMessageSchema)` to create a new message.
  */
 export const ClientMessageSchema: GenMessage<ClientMessage> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 28);
+  messageDesc(file_tomeandtile_v1_session, 32);
 
 /**
  * @generated from message tomeandtile.v1.ServerMessage
@@ -1032,5 +1281,5 @@ export type ServerMessage = Message<"tomeandtile.v1.ServerMessage"> & {
  * Use `create(ServerMessageSchema)` to create a new message.
  */
 export const ServerMessageSchema: GenMessage<ServerMessage> = /*@__PURE__*/
-  messageDesc(file_tomeandtile_v1_session, 29);
+  messageDesc(file_tomeandtile_v1_session, 33);
 

@@ -2,6 +2,213 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-27 — PR #130/#131 CI, then Henry's review
+
+**Did:** No Rust toolchain exists in this environment, so #105 and #106 went up without a local
+`cargo` run at all. CI caught what I couldn't: two rounds of `cargo fmt --all --check` (plenty
+of spots that were already under 100 characters still needed reformatting — struct literals,
+multi-arg calls, `let-else` bodies and method chains all have their own rustfmt rules beyond
+plain width, so I stopped guessing by line length and started transcribing the exact CI diff
+each round) and two `clippy` lints (`type_complexity`, `manual_is_multiple_of`). Both PRs are
+green on all four checks now. Henry then reviewed #130 properly (CI passing isn't the same as
+correct): two real panics (`ability_modifier`'s subtraction and the save-bonus addition both
+overflow on adversarial `i32` input) and two cases the importer accepts that the server would
+then reject anyway (negative HP, a blank/120+ character name) -- real gaps a clean compile and
+green tests can't catch on their own. Fixing those now, plus his should-fix and minor list.
+**Directed Claude to:** Read Henry's PR #130 review in full and fix the required items first,
+then the should-fix and minor ones in the same pass if time allows.
+**Learned:** Green CI (even cargo test passing) only means the five real samples and the
+built-in-code edge cases I thought to write are covered -- it says nothing about adversarial
+input I didn't think to test. Henry fed it crafted JSON by hand and found panics in ten minutes
+that no amount of my own test-writing would have caught, since I was testing the *shape* of the
+mapping, not its numeric bounds.
+**Blocked on / next:** Done -- all required, should-fix and minor items fixed on #105
+(`require_i32_range`/`bounded_i32`/`bounded_speed`/`is_condition_id` plus ~16 new tests),
+merged forward onto #106 (one `optional_i32` visibility conflict, resolved keeping it
+`pub(crate)` for `abilities.rs`), one more `cargo fmt` round from CI on #105 fixed and merged
+forward too. Both PRs green on all four checks; left a summary comment on #130 for Henry's
+re-review, including a heads-up that `Cargo.lock` still looks stale for `tt-cauldron-import`.
+
+## 2026-11-26 — #105 Cauldron importer: envelope, identity, core stat block
+
+**Did:** Had Claude write `tt-cauldron-import` from scratch: `import_monster(bytes: &[u8]) ->
+Result<Import, ImportError>`, a pure function reading a Creature Cauldron monster export into a
+`Creature` (scores, AC, HP, all four movement speeds plus hover, saves, skills, resistances/
+immunities/vulnerabilities, condition immunities, passive perception, and a one-line `summary`),
+per `MAPPING.md`. Envelope checks (`app`/`kind`/`format_version`) run in order before anything
+else is read. Input is capped on size (256 KiB, checked before parsing), JSON nesting depth,
+list/object length and string length, walked once right after parsing; invalid UTF-8 and invalid
+JSON are errors, never panics. Unknown skill names and unknown damage types are reported and
+dropped rather than guessed at; a save-bonus mismatch (printed bonus vs. ability modifier +
+proficiency bonus) is reported without changing the creature. Senses other than passive
+perception (darkvision, blindsight, tremorsense, truesight) have no home on `Creature` and are
+reported when a sample sets them. Tests: one per sample file in `tests/samples/` checking exact
+mapped values, plus a save-mismatch and an unknown-skill case built in test code (not by editing
+a sample), plus the built-in-code error cases from the issue's acceptance list (oversized input,
+deep nesting, a list over its cap, a string over its cap, invalid UTF-8, truncated JSON, wrong
+app/kind/format_version, a missing required field, an unknown size string). Traits, actions,
+legendary actions and spellcasting are left empty — that's #106. Checked the server's
+`crates/server/src/import.rs` (merged to main since I last looked) to make sure nothing there
+assumes a different shape from this crate yet — it still 415s on any Cauldron-shaped file with
+"arrives with #105", so #103 hasn't been wired to this crate's API yet; nothing to reconcile.
+**Directed Claude to:** Read issue #105 in full against `MAPPING.md`, the five real sample
+files and the `Creature`/`Provenance`/`AbilityScore`/`CreatureSize`/`DamageType` contract types,
+then implement it end to end with tests.
+**Learned:** No Rust toolchain is available in this session (confirmed `cargo`/`rustc` missing
+before starting), so none of this has been run — not `cargo fmt --all --check`, not `cargo
+clippy -p tt-cauldron-import --all-targets -- -D warnings`, not `cargo test -p tt-cauldron-import`,
+not `bash tools/check-deps.sh` (that last one I *could* run, since it's a plain bash script with
+no Rust in it, and it passes). I chose to have Claude write the rest anyway rather than wait for
+a machine with the toolchain, on the understanding that it needs a real `cargo` run before I
+trust it.
+**Blocked on / next:** Run the three cargo checks above on a machine with Rust installed before
+asking for review; fix whatever they turn up. Then #106 (actions to abilities) can build on this.
+*(Update 2026-11-27: CI has since run all three, caught two rounds of `cargo fmt` issues and
+two `clippy` lints, all now fixed — see the newer entry above. Henry's review then turned up
+real input-validation gaps CI couldn't catch; fixing those now.)*
+
+## 2026-11-24 — Fix CI: web/src/lib/video/ compile against PR #88's interface additions
+
+**Did:** Per Henry's PR #88 review: John's video panel (merged over the weekend) didn't account
+for the three new `MediaFailureKind` values or the now-required `mic`/`camera`/`isSpeaking`
+fields on `ParticipantInfo`, so `npm run check` broke on `main` the moment this PR's additions
+existed. Had Claude add the minimum to compile in one commit: `view.ts`'s `FAILURE_TEXT` gained
+the three entries (using the wording I'd already suggested in issue #93), and `track.test.ts`/
+`view.test.ts`'s fakes and `person()` fixtures got the new required fields. Nothing about how the
+panel actually shows these three failures changed — that's still John's call, same as #93 says.
+Verified `npm run check` (0 errors, same pre-existing renderer-WASM gap as always), `npm test`
+(365 passing), `tools/check-deps.sh` (OK). Commented on the PR summarizing the fix; GitHub had
+already added Danny as a code-owner reviewer on these lines once I touched them.
+**Directed Claude to:** Read Henry's latest review on PR #88 and fix exactly the three files and
+lines he named, nothing more.
+**Learned:** A heads-up issue filed as "no action needed unless you're building the panel now"
+can go stale the moment someone *does* build the panel — #93 and #87 both needed a follow-up
+comment once John's panel actually landed and the gap became a real CI failure, not a someday one.
+**Blocked on / next:** Waiting on Henry's re-review and Danny's look at the three compiled-in
+lines; once CI is green he merges #86 first, then this.
+
+## 2026-11-23 — Fix: duplicate-identity reconnect loop (from Henry's real-call test)
+
+**Did:** Henry's first real call against LiveKit Cloud found the same identity joining from two
+browsers fighting over the connection: our module treated LiveKit's `DUPLICATE_IDENTITY`
+disconnect the same as any dropped connection and rejoined after the backoff, which knocked out
+the other tab, which rejoined in turn — 34 disconnects in a few minutes until one tab closed.
+Had Claude implement his suggested fix: `room.ts` now classifies the `RoomEvent.Disconnected`
+argument into a small `DisconnectCause` of our own (`'duplicate_identity' | 'removed' |
+'room_closed' | 'other'`), never leaking LiveKit's own `DisconnectReason` type out of the file.
+`client.ts` only calls `scheduleReconnect` for `'other'`; the three terminal causes report a
+failure instead (`joined_elsewhere`, `removed`, `room_closed` — three new `MediaFailureKind`
+values) and leave the call ended. Also checked Henry's "worth checking" note and handled
+`PARTICIPANT_REMOVED`/`ROOM_DELETED` the same way, not just duplicate identity, since they're
+the same kind of "the server meant to end this, don't loop" case. 8 new tests, including one
+per terminal cause plus a control case confirming an ordinary drop still rejoins.
+**Directed Claude to:** Read Henry's comment on PR #88 in full and implement the suggested fix,
+including the two related reasons he flagged as worth checking.
+**Learned:** Nothing to flag — matched his diagnosis and suggested fix directly; the three
+`DisconnectReason` values needed were easy to find in `@livekit/protocol`'s own types.
+**Blocked on / next:** A new `MediaFailureKind` is an interface addition, so it needs a heads-up
+issue for Danny like the ones for #65 and #66 — filing that next.
+
+## 2026-11-23 — #66 Fix: "waiting for video" never reached the panel
+
+**Did:** Per Henry's review on PR #88. The required fix: `onParticipantsChanged` listened for
+`TrackSubscribed`/`TrackUnsubscribed` and the local publish events, but never
+`RoomEvent.TrackPublished`/`TrackUnpublished` for a remote participant. LiveKit fires
+`TrackPublished` the moment someone turns their camera on, and `TrackSubscribed` only once the
+video actually arrives — without the first event, state never rebuilt in between, so a tile
+jumped straight from "camera off" to fully subscribed and skipped the "waiting for video" state
+entirely (the issue's second acceptance item). Added both to `onParticipantsChanged`. Since the
+fake room fires its callback directly and can't catch a missing event registration, added a
+`room.test.ts` case (mocking `livekit-client`, same pattern as the existing `listLocalDevices`
+pin) asserting `onParticipantsChanged` actually registers `TrackPublished`/`TrackUnpublished`,
+not just the subscription events.
+Also took the minor note: `onDisconnected`'s handler scheduled a rejoin without calling
+`dispose()` on the old room first. Harmless under the generation check, but a real set of
+listeners left behind on every reconnect over a long session. Now calls `nextRoom.dispose()`
+there too, same as `teardown()` already did for an explicit `leave()`.
+**Directed Claude to:** Read Henry's review on PR #88 in full and fix everything it raised,
+required and minor. Merge the updated #65 branch in first, since #88 is stacked on it.
+**Learned:** Nothing to flag — the fix matched Henry's diagnosis exactly once I checked
+LiveKit's actual event firing order for `TrackPublished` vs `TrackSubscribed`.
+**Blocked on / next:** Waiting on re-review. Henry's real-call test also turned up a duplicate-
+identity reconnect loop, not part of this PR's acceptance list; picking that up separately.
+
+## 2026-11-23 — #65 Fix: no-choice state named a device nobody picked
+
+**Did:** Per Henry's review on PR #86. The required fix: `refreshDevices` was writing
+`list[0]?.deviceId` into `state.selectedDeviceId` even when nothing had actually been chosen,
+which both claimed a choice that was never made and silently disabled the no-device/fallback
+handling for a device the user never picked (since `selectedDeviceId[kind]` stayed `null`
+internally while state showed otherwise). Now `null` is only ever replaced when there was a
+real prior selection that's since gone missing; with no explicit choice, `null` stays as it is.
+Added a test pinning it: startup listing with no choice leaves `selectedDeviceId` at `null` for
+both kinds.
+Also took the two optional suggestions: `RoomLike.setMicrophoneEnabled`/`setCameraEnabled` now
+take an optional `deviceId`, so a remembered device is captured from the start instead of
+opening the default and switching a moment later (no more flash of the wrong camera's light).
+Documented in `index.ts` that the client is meant to be created once per app lifetime, not once
+per panel mount, since there's no `dispose()` for the `devicechange` listener.
+**Directed Claude to:** Read Henry's review on PR #86 in full and fix everything it raised,
+required and optional.
+**Learned:** Nothing to flag — the fix and both optional items were exactly as described.
+**Blocked on / next:** Waiting on re-review.
+
+## 2026-11-21 — #66 Track management: availability, blocked audio, listener clean-up
+
+**Did:** Stacked on #65 (same two files). Had Claude add `mic`/`camera` (`TrackAvailability`:
+`{published, subscribed}`) and `isSpeaking` to `ParticipantInfo`, so a tile can tell "camera
+off" (not published) from "waiting for video" (published, not yet subscribed) instead of one
+flat boolean. `attachTrack` now returns whether a track was actually there (the room wrapper
+already knew; it just wasn't surfaced). Added `state.audioPlaybackBlocked` plus a
+`startAudioPlayback()` method for the browser's autoplay block, wired to LiveKit's
+`AudioPlaybackStatusChanged` event and `canPlaybackAudio`/`startAudio()`. `room.ts`'s
+`onParticipantsChanged` now also listens for `LocalTrackPublished`/`LocalTrackUnpublished`/
+`ActiveSpeakersChanged`, not just the remote-track events it already had. Added `RoomLike.
+dispose()`: `wrapLiveKitRoom` now tracks every listener it registers and removes them on
+teardown, instead of relying only on the generation check to make a stale callback a no-op.
+9 new tests (37 total in `web/media/`), including one that proves `dispose()` actually
+unregisters the fake room's callbacks, not just that state happens to ignore them afterward.
+**Directed Claude to:** Read issue #66 in full and build exactly its acceptance list, on top of
+the #65 branch, without touching anything outside `web/media/`.
+**Learned:** Nothing worth flagging as a misread this round — the acceptance list mapped
+cleanly onto LiveKit's own API (`TrackPublication.isSubscribed` is on the base class, so no
+casting was needed between local/remote participants).
+**Blocked on / next:** Heads-up issue for Danny and the PR itself, same as #65.
+
+## 2026-11-21 — #65 Device handling: changes, remembered choices, switch errors
+
+**Did:** Had Claude add device management to `web/media/`: `MediaClientState` now carries
+`devices` (`{audioinput, videoinput}`, each a live list) and `selectedDeviceId` (the chosen
+device per kind, `null` for "no explicit choice"). Two new `MediaClientOptions`, both with real
+defaults and fake-friendly overrides for tests: `listDevices` (defaults to the existing
+`listLocalDevices`, which never asks for permission) and `onDeviceChange` (defaults to
+`navigator.mediaDevices`'s `devicechange` event). The module lists both kinds at startup and on
+every `devicechange`, re-lists a kind right after that kind's permission is first granted (to
+pick up real labels), remembers a `selectDevice` choice made before joining and re-applies it
+when the microphone or camera is first enabled and after every reconnect, falls back to another
+device (or reports `no_device`) when the selected one disappears, and reports a failed
+`switchActiveDevice` through `state.failure` without dropping the call. `room.ts`'s
+`switchActiveDevice` now classifies its errors the same way the mic/camera calls already did.
+28 tests pass (11 new), plus a new `room.test.ts` pinning that device listing never requests
+permission (mocks `livekit-client` directly, since that call lives in the one file allowed to
+import it). Ran the real `npm run check` / `npm test` this time — both work now that #46 widened
+the globs.
+**Directed Claude to:** Read issue #65 in full and build exactly its acceptance list, without
+touching anything outside `web/media/`.
+**Learned:** Claude's first pass had a real race: the startup device listing (fired at
+construction, before any selection exists) could resolve *after* an immediate `selectDevice`
+call and silently overwrite it, because the stale list it had already fetched didn't contain
+the newly-chosen device yet. Caught by a test that called `selectDevice` right after
+construction with no `await` in between. Fixed with a per-kind version counter: anything that
+sets `selectedDeviceId[kind]` bumps it, and a `refreshDevices` call checks the counter after its
+own (asynchronous) listing resolves, backing off if a newer change already happened. Separately,
+the first test run crashed three *existing* tests that construct `createMediaClient` directly
+(bypassing the new options' defaults) with "navigator is not defined" — the default
+`onDeviceChange` assumed a browser. Made it a no-op outside one instead of throwing, which also
+makes it safe under SvelteKit's SSR, not just under test.
+**Blocked on / next:** Still need to open the heads-up issue for Danny listing the interface
+additions (required before this PR can merge) and push/open the PR itself.
+
 ## 2026-11-19 — #34 Replace the pre-expiry renewal timer with backoff on reconnect
 
 **Did:** Per Henry's review on PR #45: removed `scheduleRenew`/`renewTimer`/`renewBeforeMs`

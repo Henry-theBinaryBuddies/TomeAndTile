@@ -13,10 +13,12 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tt_contracts::v1::{
-    client_message, event, intent, server_message, ChatIntent, ClientMessage, Creature, Event,
-    Hello, HitOutcome, Intent, Level, MediaToken, MediaTokenRequest, Member, MoveTokenIntent,
-    ResolutionState, Role, RollDiceIntent, RollMode, RollVisibility, Scene, ServerMessage,
-    SetControllersIntent, Snapshot, Token, UseAbilityIntent, Vec2,
+    client_message, event, intent, server_message, ChatIntent, ClientMessage, CreateTokenIntent,
+    Creature, EndTurnIntent, Event, HealthState, Hello, HitOutcome, Intent, Level, MediaToken,
+    MediaTokenRequest, Member, MoveTokenIntent, RemoveTokenIntent, ResolutionState, Role,
+    RollDiceIntent, RollMode, RollPurpose, RollVisibility, Scene, ServerMessage,
+    SetControllersIntent, Snapshot, StartEncounterIntent, Token, UndoIntent, UseAbilityIntent,
+    Vec2,
 };
 use tt_server::media::MediaConfig;
 use tt_server::net::MAX_MESSAGE_BYTES;
@@ -135,6 +137,8 @@ async fn start_with_media(dev_auth: bool, media: Option<MediaConfig>) -> Server 
 
 struct Client {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    /// Scratch for tests that keep an id they read from an event.
+    encounter_id: String,
 }
 
 fn client_message(kind: client_message::Kind) -> Vec<u8> {
@@ -184,7 +188,10 @@ impl Client {
             .await
             .expect("connect in time")
             .expect("handshake");
-        Client { ws }
+        Client {
+            ws,
+            encounter_id: String::new(),
+        }
     }
 
     async fn send_raw(&mut self, bytes: Vec<u8>) {
@@ -822,10 +829,11 @@ impl RollSource for FixedRolls {
 
 const PREGEN_SEED: &str = include_str!("../../../contracts/fixtures/seeds/pregen-table.json");
 
-#[tokio::test]
-async fn player_attack_is_one_public_resolution_for_everyone() {
+/// The pregen table with fixed dice, on 127.0.0.1 only.
+async fn start_pregen(values: Vec<u64>) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
+    assert!(addr.ip().is_loopback());
     let handle = tokio::spawn(serve(
         listener,
         Config {
@@ -833,14 +841,24 @@ async fn player_attack_is_one_public_resolution_for_everyone() {
             dev_auth: true,
             media: None,
             assets: None,
-            // Attack 15 + 5 = 20 beats the goblin's AC 13; damage 4 + 3 = 7.
-            rolls: Some(Box::new(FixedRolls {
-                values: vec![14, 3],
-                i: 0,
-            })),
+            rolls: Some(Box::new(FixedRolls { values, i: 0 })),
         },
     ));
-    let server = Server { addr, handle };
+    Server { addr, handle }
+}
+
+fn token_event(e: &Event) -> &Token {
+    match e.kind.as_ref() {
+        Some(event::Kind::TokenUpserted(u)) => u.token.as_ref().expect("token"),
+        other => panic!("expected TokenUpserted, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn player_attack_damages_the_goblin_and_only_the_gm_sees_the_numbers() {
+    // Attack: d20 15 + 5 = 20 beats the goblin's AC 13. Damage: 1d8 shows 3,
+    // +3 = 6. The goblin goes from 9 to 3 hit points: bloodied.
+    let server = start_pregen(vec![14, 2]).await;
     let (mut gm, _) = join(&server, "mock-gm").await;
     let (mut player, snapshot) = join(&server, "mock-player").await;
     assert!(
@@ -864,7 +882,7 @@ async fn player_attack_is_one_public_resolution_for_everyone() {
         .await;
     let from_player = player.recv_event().await;
     let from_gm = gm.recv_event().await;
-    assert_eq!(from_player, from_gm, "both see the same event");
+    assert_eq!(from_player, from_gm, "both see the same resolution");
     assert_eq!(from_player.seq, 1);
     assert_eq!(from_player.client_intent_id, "atk-1");
     assert_eq!(from_player.actor_user_id, "mock-player");
@@ -879,11 +897,261 @@ async fn player_attack_is_one_public_resolution_for_everyone() {
     assert_eq!(o.outcome, HitOutcome::Hit as i32);
     assert_eq!(o.roll.as_ref().expect("attack").total, 20);
     assert_eq!(o.damage_rolls.len(), 1);
-    assert_eq!(o.damage_rolls[0].total, 7);
+    assert_eq!(o.damage_rolls[0].total, 6);
     assert_eq!(o.damage_rolls[0].roller_user_id, "mock-player");
+    assert_eq!(o.damage.len(), 1);
+    assert_eq!(o.damage[0].applied, 6);
 
-    // Nothing else followed: no token or creature event reached anyone.
+    // Then the goblin's token, with the same seq and intent id for both.
+    let to_player = player.recv_event().await;
+    let to_gm = gm.recv_event().await;
+    assert_eq!((to_player.seq, to_gm.seq), (2, 2));
+    assert_eq!(to_player.client_intent_id, "atk-1");
+    let (p, g) = (token_event(&to_player), token_event(&to_gm));
+    assert_eq!(
+        (p.token_id.as_str(), g.token_id.as_str()),
+        ("token-goblin", "token-goblin")
+    );
+    assert_eq!(p.health_state, HealthState::Bloodied as i32);
+    assert_eq!(g.health_state, HealthState::Bloodied as i32);
+    assert_eq!(
+        (g.hp_current, g.hp_max, g.hp_temp),
+        (Some(3), Some(9), g.hp_temp)
+    );
+    assert_eq!((p.hp_current, p.hp_max, p.hp_temp), (None, None, None));
+
+    // Nothing else followed (no creature event, nothing for the goblin sheet).
     let s = sentinel(&mut player, 1).await;
     player.expect_chat(&s).await;
     gm.expect_chat(&s).await;
+}
+
+#[tokio::test]
+async fn a_hidden_token_is_created_and_removed_for_the_gm_alone() {
+    let server = start_pregen(vec![0]).await;
+    let (mut gm, _) = join(&server, "mock-gm").await;
+    let (mut player, _) = join(&server, "mock-player").await;
+    let create = |hidden: bool| {
+        intent::Kind::CreateToken(CreateTokenIntent {
+            scene_id: "scene-mock".into(),
+            creature_id: "creature-goblin".into(),
+            position: Some(Vec2 { x: 210.0, y: 210.0 }),
+            hidden,
+            ..Default::default()
+        })
+    };
+
+    gm.send_intent("mk-1", create(true)).await;
+    let made = gm.recv_event().await;
+    let token_id = token_event(&made).token_id.clone();
+    assert!(!token_id.is_empty());
+    assert!(token_event(&made).hidden);
+    assert_eq!(token_event(&made).hp_current, Some(9));
+    gm.send_intent(
+        "rm-1",
+        intent::Kind::RemoveToken(RemoveTokenIntent {
+            token_id: token_id.clone(),
+        }),
+    )
+    .await;
+    let gone = gm.recv_event().await;
+    assert_eq!(gone.seq, made.seq + 1);
+    match gone.kind {
+        Some(event::Kind::TokenRemoved(r)) => assert_eq!(r.token_id, token_id),
+        other => panic!("expected TokenRemoved, got {other:?}"),
+    }
+    // The player received neither: the sentinel is the next thing.
+    let s = sentinel(&mut gm, 1).await;
+    player.expect_chat(&s).await;
+    gm.expect_chat(&s).await;
+
+    // A visible token goes to everyone, and so does its removal.
+    gm.send_intent("mk-2", create(false)).await;
+    let made = gm.recv_event().await;
+    let seen = player.recv_event().await;
+    assert_eq!(token_event(&seen).token_id, token_event(&made).token_id);
+    assert_eq!(
+        token_event(&seen).hp_current,
+        None,
+        "no numbers for a player"
+    );
+    let token_id = token_event(&made).token_id.clone();
+    gm.send_intent(
+        "rm-2",
+        intent::Kind::RemoveToken(RemoveTokenIntent {
+            token_id: token_id.clone(),
+        }),
+    )
+    .await;
+    for client in [&mut gm, &mut player] {
+        match client.recv_event().await.kind {
+            Some(event::Kind::TokenRemoved(r)) => assert_eq!(r.token_id, token_id),
+            other => panic!("expected TokenRemoved, got {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_gm_undoes_a_players_attack_and_both_see_it() {
+    let server = start_pregen(vec![14, 2]).await;
+    let (mut gm, _) = join(&server, "mock-gm").await;
+    let (mut player, _) = join(&server, "mock-player").await;
+    player
+        .send_intent(
+            "atk-1",
+            intent::Kind::UseAbility(UseAbilityIntent {
+                source_token_id: "token-brannoch".into(),
+                ability_id: "longsword".into(),
+                target_token_ids: vec!["token-goblin".into()],
+                ..Default::default()
+            }),
+        )
+        .await;
+    let resolution = player.recv_event().await;
+    assert_eq!(gm.recv_event().await.seq, resolution.seq);
+    assert!(matches!(
+        resolution.kind,
+        Some(event::Kind::ResolutionUpdated(_))
+    ));
+    let hit = player.recv_event().await;
+    assert_eq!(token_event(&gm.recv_event().await).hp_current, Some(3));
+    assert_eq!(token_event(&hit).hp_current, None);
+
+    // A player may not undo; only the sender hears the refusal.
+    player
+        .send_intent(
+            "undo-p",
+            intent::Kind::Undo(UndoIntent {
+                event_seq: resolution.seq,
+            }),
+        )
+        .await;
+    assert_eq!(player.recv_rejection().await.code, "not_permitted");
+
+    gm.send_intent(
+        "undo-1",
+        intent::Kind::Undo(UndoIntent {
+            event_seq: resolution.seq,
+        }),
+    )
+    .await;
+    for (client, is_gm) in [(&mut gm, true), (&mut player, false)] {
+        let restored = client.recv_event().await;
+        assert_eq!(restored.client_intent_id, "undo-1");
+        let t = token_event(&restored);
+        assert_eq!(t.token_id, "token-goblin");
+        assert_eq!(t.health_state, HealthState::Healthy as i32);
+        if is_gm {
+            assert_eq!((t.hp_current, t.hp_max), (Some(9), Some(9)));
+        } else {
+            assert_eq!((t.hp_current, t.hp_max, t.hp_temp), (None, None, None));
+        }
+        let mut undone = Vec::new();
+        for _ in 0..2 {
+            match client.recv_event().await.kind {
+                Some(event::Kind::EventUndone(u)) => undone.push(u.undone_seq),
+                other => panic!("expected EventUndone, got {other:?}"),
+            }
+        }
+        assert_eq!(undone, [resolution.seq, resolution.seq + 1]);
+    }
+    let s = sentinel(&mut gm, 1).await;
+    player.expect_chat(&s).await;
+    gm.expect_chat(&s).await;
+}
+
+#[tokio::test]
+async fn a_gm_starts_an_encounter_and_the_player_ends_only_brannochs_turn() {
+    // Initiative d20s show 15 and 5: Brannoch 15 + 2 goes first, the goblin
+    // 5 + 2 second.
+    let server = start_pregen(vec![14, 4]).await;
+    let (mut gm, _) = join(&server, "mock-gm").await;
+    let (mut player, _) = join(&server, "mock-player").await;
+    gm.send_intent(
+        "start-1",
+        intent::Kind::StartEncounter(StartEncounterIntent {
+            scene_id: "scene-mock".into(),
+            token_ids: vec!["token-brannoch".into(), "token-goblin".into()],
+        }),
+    )
+    .await;
+    for client in [&mut gm, &mut player] {
+        let mut totals = Vec::new();
+        for n in 0..2 {
+            let e = client.recv_event().await;
+            assert_eq!(e.seq, n as u64 + 1);
+            assert_eq!(e.client_intent_id, "start-1");
+            let Some(event::Kind::DiceRolled(d)) = e.kind else {
+                panic!("expected DiceRolled, got {:?}", e.kind);
+            };
+            let r = d.roll.expect("roll");
+            assert_eq!(r.purpose, RollPurpose::Initiative as i32);
+            assert_eq!(r.visibility, RollVisibility::Public as i32);
+            assert!(r.label.ends_with("initiative"), "{}", r.label);
+            assert!(!r.roll_id.is_empty());
+            totals.push(r.total);
+        }
+        assert_eq!(totals, [17, 7]);
+        let e = client.recv_event().await;
+        assert_eq!(e.seq, 3);
+        let Some(event::Kind::EncounterUpdated(u)) = e.kind else {
+            panic!("expected EncounterUpdated, got {:?}", e.kind);
+        };
+        let enc = u.encounter.expect("encounter");
+        assert_eq!((enc.round, enc.turn_index), (1, 0));
+        let order: Vec<_> = enc.combatants.iter().map(|c| c.token_id.as_str()).collect();
+        assert_eq!(order, ["token-brannoch", "token-goblin"]);
+        client.encounter_id = enc.encounter_id;
+    }
+    let id = player.encounter_id.clone();
+
+    // Brannoch is current: his controller may end the turn.
+    player
+        .send_intent(
+            "end-1",
+            intent::Kind::EndTurn(EndTurnIntent {
+                encounter_id: id.clone(),
+            }),
+        )
+        .await;
+    for client in [&mut gm, &mut player] {
+        let e = client.recv_event().await;
+        assert_eq!((e.seq, e.client_intent_id.as_str()), (4, "end-1"));
+        let Some(event::Kind::EncounterUpdated(u)) = e.kind else {
+            panic!("expected EncounterUpdated, got {:?}", e.kind);
+        };
+        assert_eq!(u.encounter.expect("encounter").turn_index, 1);
+    }
+
+    // The goblin is current: the player may not end its turn, and only the
+    // sender hears about it.
+    player
+        .send_intent(
+            "end-2",
+            intent::Kind::EndTurn(EndTurnIntent {
+                encounter_id: id.clone(),
+            }),
+        )
+        .await;
+    assert_eq!(player.recv_rejection().await.code, "not_permitted");
+    let s = sentinel(&mut gm, 1).await;
+    player.expect_chat(&s).await;
+    gm.expect_chat(&s).await;
+
+    // The GM can, and a late joiner's snapshot carries the encounter.
+    gm.send_intent(
+        "end-3",
+        intent::Kind::EndTurn(EndTurnIntent { encounter_id: id }),
+    )
+    .await;
+    for client in [&mut gm, &mut player] {
+        let e = client.recv_event().await;
+        let Some(event::Kind::EncounterUpdated(u)) = e.kind else {
+            panic!("expected EncounterUpdated, got {:?}", e.kind);
+        };
+        let enc = u.encounter.expect("encounter");
+        assert_eq!((enc.round, enc.turn_index), (2, 0));
+    }
+    let (_late, snap) = join(&server, "mock-player").await;
+    assert_eq!(snap.encounters.len(), 1);
 }

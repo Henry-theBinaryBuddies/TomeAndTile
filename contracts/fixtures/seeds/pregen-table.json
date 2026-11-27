@@ -61,7 +61,9 @@
         "y": 245
       },
       "size": "CREATURE_SIZE_SMALL",
-      "healthState": "HEALTH_STATE_HEALTHY"
+      "healthState": "HEALTH_STATE_HEALTHY",
+      "hpCurrent": 9,
+      "hpMax": 9
     },
     {
       "tokenId": "token-brannoch",
@@ -152,6 +154,21 @@
       "controllerUserIds": [
         "mock-player"
       ]
+    },
+    {
+      "tokenId": "token-ember-wisp",
+      "sceneId": "scene-mock",
+      "levelId": "level-ground",
+      "creatureId": "creature-ember-wisp",
+      "name": "Ember Wisp",
+      "position": {
+        "x": 455,
+        "y": 245
+      },
+      "size": "CREATURE_SIZE_SMALL",
+      "healthState": "HEALTH_STATE_HEALTHY",
+      "hpCurrent": 11,
+      "hpMax": 11
     }
   ],
   "creatures": [
@@ -1298,6 +1315,87 @@
         "source": "tome-and-tile"
       },
       "passivePerception": 9
+    },
+    {
+      "creatureId": "creature-ember-wisp",
+      "kind": "CREATURE_KIND_MONSTER",
+      "name": "Ember Wisp",
+      "edition": "RULES_EDITION_2024",
+      "size": "CREATURE_SIZE_SMALL",
+      "scores": {
+        "strength": 4,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 6,
+        "wisdom": 12,
+        "charisma": 8
+      },
+      "proficiencyBonus": 2,
+      "armorClass": 12,
+      "hpCurrent": 11,
+      "hpMax": 11,
+      "speedFeet": 0,
+      "flySpeedFeet": 30,
+      "canHover": true,
+      "initiativeBonus": 2,
+      "saveProficiencies": [
+        "ABILITY_SCORE_DEXTERITY"
+      ],
+      "resistances": [
+        "DAMAGE_TYPE_PIERCING"
+      ],
+      "immunities": [
+        "DAMAGE_TYPE_FIRE"
+      ],
+      "conditionImmunities": [
+        "poisoned"
+      ],
+      "summary": "Drifting spark of cellar fire (invented for the dev seed)",
+      "abilities": [
+        {
+          "abilityId": "choking-ash",
+          "name": "Choking Ash",
+          "description": "A puff of acrid ash. Constitution save DC 11: 2d4 poison damage, half on a success. On a failure the target is also blinded for 1 round.",
+          "cost": "ACTION_COST_ACTION",
+          "targeting": {
+            "shape": "TARGET_SHAPE_CREATURES",
+            "rangeFeet": 10,
+            "maxTargets": 1
+          },
+          "steps": [
+            {
+              "save": {
+                "ability": "ABILITY_SCORE_CONSTITUTION",
+                "dc": 11,
+                "damage": [
+                  {
+                    "dice": "2d4",
+                    "type": "DAMAGE_TYPE_POISON"
+                  }
+                ],
+                "halfOnSuccess": true
+              }
+            },
+            {
+              "applyEffect": {
+                "effectId": "blinded",
+                "duration": {
+                  "unit": "DURATION_UNIT_ROUNDS",
+                  "amount": 1
+                },
+                "onlyOnFailure": true
+              }
+            }
+          ],
+          "provenance": {
+            "source": "tome-and-tile"
+          }
+        }
+      ],
+      "provenance": {
+        "source": "tome-and-tile"
+      },
+      "passivePerception": 11
     }
   ],
   "activeSceneId": "scene-mock"
