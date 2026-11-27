@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ActionCost, Role, TargetShape, type Token } from '@tomeandtile/contracts';
+import { ActionCost, HealthState, Role, TargetShape, type Token } from '@tomeandtile/contracts';
 import { applySnapshot } from '../net/state';
 import { CHARACTER_FILES, loadCharacter, loadPregenTable } from './fixtures';
 import { abilityGroups, abilityView, actingTokenId, sheetChoices, signed, statBlockView } from './view';
@@ -263,5 +263,30 @@ describe('sheetChoices', () => {
 	it('acts with the only token without being asked', () => {
 		const choice = sheetChoices(asPlayer()).find((c) => c.creatureId === 'creature-brannoch')!;
 		expect(actingTokenId(choice, '')).toBe('token-brannoch');
+	});
+});
+
+describe('statBlockView hit points and health from the token', () => {
+	const stat = (b: ReturnType<typeof statBlockView>, label: string) =>
+		b.stats.find((x) => x.label === label)?.value;
+
+	it('shows the token numbers and state, and the token wins over the creature', () => {
+		const c = brannoch();
+		const t = { healthState: HealthState.BLOODIED, hpCurrent: 3, hpMax: 20, hpTemp: 2 };
+		const b = statBlockView(c, t);
+		expect(stat(b, 'Hit points')).toBe('3 of 20 (+2 temporary)');
+		expect(stat(b, 'Health')).toBe('Bloodied');
+	});
+
+	it('shows Unknown, not 0, when the token has a state but no numbers', () => {
+		const b = statBlockView(brannoch(), { healthState: HealthState.HEALTHY });
+		expect(stat(b, 'Hit points')).toBe('Unknown');
+		expect(stat(b, 'Health')).toBe('Healthy');
+	});
+
+	it('shows the creature numbers and unknown health when there is no token', () => {
+		const b = statBlockView(brannoch());
+		expect(stat(b, 'Hit points')).not.toBe('Unknown');
+		expect(stat(b, 'Health')).toBe('Health unknown');
 	});
 });

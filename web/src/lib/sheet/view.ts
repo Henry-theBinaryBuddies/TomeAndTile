@@ -15,6 +15,7 @@ import {
 	type EffectStep,
 	type Token
 } from '@tomeandtile/contracts';
+import { healthView, type HealthInfo } from '../health';
 
 const UNKNOWN = 'Unknown';
 
@@ -125,13 +126,24 @@ function words(list: readonly DamageType[]): string {
 	return text;
 }
 
-export function statBlockView(c: Creature): StatBlockView {
-	const hp =
+/**
+ * `token` is the viewer's token for this creature, if there is one. Hit points are live on the
+ * token, not on the creature, so when there is a token it decides both the numbers and the
+ * health state, even if the creature says something different (scene.proto: several tokens can
+ * share one creature). Without a token the creature's own numbers are shown and the health
+ * state is unknown.
+ */
+export function statBlockView(c: Creature, token?: HealthInfo): StatBlockView {
+	const health = healthView(token);
+	const creatureHp =
 		c.hpMax > 0
 			? `${c.hpCurrent} of ${c.hpMax}${c.hpTemp > 0 ? ` (+${c.hpTemp} temporary)` : ''}`
 			: UNKNOWN;
+	const tokenHp = health.hp ? `${health.hp}${health.temp ? ` (${health.temp})` : ''}` : null;
+	const hp = token ? (tokenHp ?? UNKNOWN) : creatureHp;
 	const stats: Labelled[] = [
 		{ label: 'Hit points', value: hp },
+		{ label: 'Health', value: health.stateText },
 		{ label: 'Armor class', value: c.armorClass > 0 ? String(c.armorClass) : UNKNOWN },
 		{ label: 'Speed', value: `${c.speedFeet} ft` },
 		{ label: 'Initiative', value: signed(c.initiativeBonus) },

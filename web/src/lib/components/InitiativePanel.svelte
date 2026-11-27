@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getGameClient } from '../net';
+	import HealthBadge from './HealthBadge.svelte';
 	import { currentEncounter, initiativeView, turnAnnouncement } from '../initiative';
 
 	const { state: panelState } = getGameClient();
@@ -19,6 +20,7 @@
 					{#if row.current}<span class="marker" aria-hidden="true">▶</span>{/if}
 					<span class="name">{row.name}</span>
 					<span class="score" title="Initiative">{row.initiative}</span>
+					<HealthBadge view={row.health} />
 					{#if row.current}<span class="sr-only">(current turn)</span>{/if}
 				</li>
 			{/each}

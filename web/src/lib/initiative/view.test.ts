@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf';
 import { describe, expect, it } from 'vitest';
-import { CombatantSchema, EncounterSchema } from '@tomeandtile/contracts';
+import { CombatantSchema, EncounterSchema, HealthState } from '@tomeandtile/contracts';
 import { currentEncounter, initiativeView, nameFor, turnAnnouncement } from './view';
 
 const named = (m: Record<string, string>) =>
@@ -105,5 +105,28 @@ describe('nameFor and turnAnnouncement', () => {
 	it('announces the round and whose turn it is', () => {
 		expect(turnAnnouncement(initiativeView(encounter(), names))).toBe("Round 2. It is Aria's turn.");
 		expect(turnAnnouncement(initiativeView(encounter({ turnIndex: 9 }), names))).toBe('Round 2');
+	});
+});
+
+describe('initiative rows show health', () => {
+	const tokens = {
+		a: { name: 'Aria', healthState: HealthState.BLOODIED, hpCurrent: 6, hpMax: 13, hpTemp: 0 },
+		gb: { name: 'Goblin Boss', healthState: HealthState.NEAR_DEATH },
+		g: { name: 'Goblin', healthState: HealthState.DOWN }
+	};
+
+	it('shows numbers where the server sent them and the state where it did not', () => {
+		const rows = initiativeView(encounter(), tokens).rows;
+		expect(rows.map((r) => r.health.short)).toEqual(['Near death', '6 of 13, Bloodied', 'Down']);
+	});
+
+	it('marks Down so it is not colour alone', () => {
+		const rows = initiativeView(encounter(), tokens).rows;
+		expect(rows.map((r) => r.health.down)).toEqual([false, false, true]);
+	});
+
+	it('says health is unknown when the token has no state', () => {
+		const rows = initiativeView(encounter(), names).rows;
+		expect(rows[0].health.short).toBe('Health unknown');
 	});
 });

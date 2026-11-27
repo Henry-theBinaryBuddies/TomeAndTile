@@ -29,6 +29,13 @@
 					{#each target.damageRolls as damage, i (i)}
 						<RollCard who={view.sourceName} view={damage} {undone} />
 					{/each}
+					{#if target.damage.length > 0 || target.healing || target.droppedToZero}
+						<p class="applied">
+							{#if target.damage.length > 0}<span>Damage: {target.damage.join(', ')}</span>{/if}
+							{#if target.healing}<span>{target.healing}</span>{/if}
+							{#if target.droppedToZero}<strong class="zero">Dropped to 0</strong>{/if}
+						</p>
+					{/if}
 				</li>
 			{/each}
 		</ol>
@@ -39,6 +46,19 @@
 </article>
 
 <style>
+	.applied {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem 0.7rem;
+		margin: 0.25rem 0 0;
+		font-size: 0.9rem;
+	}
+	/* Said in words, with a border: never colour alone. */
+	.zero {
+		padding: 0 0.35rem;
+		border: 1px solid var(--text);
+		border-radius: 4px;
+	}
 	.result {
 		margin: 0.4rem 0;
 		padding: 0.5rem 0.65rem;

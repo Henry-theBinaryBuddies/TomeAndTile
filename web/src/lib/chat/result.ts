@@ -2,10 +2,12 @@
 // computes a roll, a total, a hit or damage (ADR 0005, ADR 0006): every number and every
 // outcome here is the server's, laid out for reading. Anything missing shows as unknown.
 import {
+	DamageType,
 	HitOutcome,
 	ResolutionState,
 	RollPurpose,
 	type Creature,
+	type DamageApplied,
 	type Resolution,
 	type TargetOutcome,
 	type Token,
@@ -44,14 +46,26 @@ export function outcomeView(outcome: HitOutcome): OutcomeView {
 		case HitOutcome.MISS:
 			return { text: 'Miss', kind: 'miss' };
 		case HitOutcome.SAVE_FAILED:
-			return { text: 'Save failed', kind: 'other' };
+			return { text: 'Failed the save', kind: 'other' };
 		case HitOutcome.SAVE_SUCCEEDED:
-			return { text: 'Save succeeded', kind: 'other' };
+			return { text: 'Saved', kind: 'other' };
 		case HitOutcome.AUTOMATIC:
-			return { text: 'No roll needed', kind: 'other' };
+			return { text: 'Automatic', kind: 'other' };
 		default:
 			return { text: 'Unknown', kind: 'other' };
 	}
+}
+
+/**
+ * One damage entry, as the server sent it: "7 fire". The applied figure is the server's, after
+ * resistance, immunity, vulnerability and half on a save. When it differs from the rolled figure
+ * the rolled one is shown too. The card never says why: the contract does not.
+ */
+export function damageText(d: DamageApplied): string {
+	const kind = d.type === DamageType.UNSPECIFIED ? 'damage' : (DamageType[d.type] ?? 'damage').toLowerCase();
+	return d.applied === d.rolled
+		? `${d.applied} ${kind}`
+		: `${d.applied} ${kind} (rolled ${d.rolled})`;
 }
 
 export interface TargetView {
@@ -71,6 +85,12 @@ export interface TargetView {
 	/** Said instead of a roll: "Roll: unknown" when it is missing, or nothing when none was needed. */
 	rollNote: string;
 	damageRolls: RollCardView[];
+	/** Damage actually applied, one entry per type. Empty when the server sent none: never "0 damage". */
+	damage: string[];
+	/** "Healed 8" when healing is above 0, else null. */
+	healing: string | null;
+	/** True when the server flagged that this dropped the target to 0. Nothing about death saves. */
+	droppedToZero: boolean;
 }
 
 export interface ResultCardView {
@@ -136,7 +156,10 @@ function targetView(
 		outcome: view,
 		roll: outcome.roll ? rollCardView(outcome.roll) : null,
 		rollNote: outcome.roll || noRollNeeded ? '' : 'Roll: unknown',
-		damageRolls: outcome.damageRolls.map(rollCardView)
+		damageRolls: outcome.damageRolls.map(rollCardView),
+		damage: outcome.damage.map(damageText),
+		healing: outcome.healing > 0 ? `Healed ${outcome.healing}` : null,
+		droppedToZero: outcome.droppedToZero
 	};
 }
 
@@ -153,7 +176,10 @@ export function resultCardView(
 	const multi = (steps !== null && steps > 1) || distinctSteps > 1;
 	const targets = resolution.outcomes.map((o, i) => targetView(o, i, tokens, multi, sourceName));
 	const results = targets
-		.map((t) => `${t.attackNumber ? `attack ${t.attackNumber} ` : ''}${t.name}: ${t.outcome.text}`)
+		.map((t) => {
+			const parts = [t.outcome.text, ...t.damage, t.healing?.toLowerCase(), t.droppedToZero ? 'dropped to 0' : undefined];
+			return `${t.attackNumber ? `attack ${t.attackNumber} ` : ''}${t.name}: ${parts.filter(Boolean).join(', ')}`;
+		})
 		.join('; ');
 	return {
 		abilityName,

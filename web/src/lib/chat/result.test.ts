@@ -4,6 +4,8 @@ import {
 	AbilitySchema,
 	AttackStepSchema,
 	CreatureSchema,
+	DamageAppliedSchema,
+	DamageType,
 	DieSchema,
 	EffectStepSchema,
 	HitOutcome,
@@ -16,7 +18,7 @@ import {
 	WarningSchema
 } from '@tomeandtile/contracts';
 import { rollAnnouncement } from './format';
-import { outcomeView, resultCardView, warningText } from './result';
+import { damageText, outcomeView, resultCardView, warningText } from './result';
 
 const roll = (total: number, label = '', notation = '1d20+5', sides = 20) =>
 	create(RollResultSchema, {
@@ -99,7 +101,7 @@ describe('resultCardView', () => {
 	it('does not call a missing roll unknown when none was needed', () => {
 		const v = view(resolution({ outcomes: [outcome('gob', HitOutcome.AUTOMATIC)] }));
 		expect(v.targets[0].rollNote).toBe('');
-		expect(v.targets[0].outcome.text).toBe('No roll needed');
+		expect(v.targets[0].outcome.text).toBe('Automatic');
 	});
 
 	it('says Unknown for a missing token or ability name, never a guess', () => {
@@ -116,8 +118,8 @@ describe('resultCardView', () => {
 
 	it('says an unspecified outcome is unknown', () => {
 		expect(outcomeView(HitOutcome.UNSPECIFIED).text).toBe('Unknown');
-		expect(outcomeView(HitOutcome.SAVE_FAILED).text).toBe('Save failed');
-		expect(outcomeView(HitOutcome.SAVE_SUCCEEDED).text).toBe('Save succeeded');
+		expect(outcomeView(HitOutcome.SAVE_FAILED).text).toBe('Failed the save');
+		expect(outcomeView(HitOutcome.SAVE_SUCCEEDED).text).toBe('Saved');
 	});
 
 	it('shows the state while the resolution is not finished', () => {
@@ -256,5 +258,95 @@ describe('who rolled what', () => {
 			resolution({ outcomes: [outcome('nobody', HitOutcome.SAVE_FAILED, { roll: savingThrow() })] })
 		);
 		expect(save.targets[0].rollWho).toBe('Unknown');
+	});
+});
+
+describe('applied damage, healing and dropping to 0', () => {
+	const dmg = (type: DamageType, rolled: number, applied: number) =>
+		create(DamageAppliedSchema, { type, rolled, applied });
+	const one = (o: ReturnType<typeof outcome>) => view(resolution({ outcomes: [o] })).targets[0];
+
+	it('shows the damage the server applied, as "7 fire"', () => {
+		const t = one(outcome('gob', HitOutcome.HIT, { damage: [dmg(DamageType.FIRE, 7, 7)] }));
+		expect(t.damage).toEqual(['7 fire']);
+	});
+
+	it('shows the rolled figure too when a save halved the damage', () => {
+		const t = one(
+			outcome('gob', HitOutcome.SAVE_SUCCEEDED, { damage: [dmg(DamageType.FIRE, 14, 7)] })
+		);
+		expect(t.outcome.text).toBe('Saved');
+		expect(t.damage).toEqual(['7 fire (rolled 14)']);
+	});
+
+	it('shows a resisted hit as applied and rolled, without inventing a reason', () => {
+		const t = one(outcome('gob', HitOutcome.HIT, { damage: [dmg(DamageType.SLASHING, 9, 4)] }));
+		expect(t.damage).toEqual(['4 slashing (rolled 9)']);
+		expect(JSON.stringify(t)).not.toMatch(/resist|immune|half/i);
+	});
+
+	it('shows 0 applied when the server said 0, with the rolled figure', () => {
+		const t = one(outcome('gob', HitOutcome.HIT, { damage: [dmg(DamageType.POISON, 5, 0)] }));
+		expect(t.damage).toEqual(['0 poison (rolled 5)']);
+	});
+
+	it('lists one entry per damage type', () => {
+		const t = one(
+			outcome('gob', HitOutcome.HIT, {
+				damage: [dmg(DamageType.SLASHING, 6, 6), dmg(DamageType.FIRE, 3, 3)]
+			})
+		);
+		expect(t.damage).toEqual(['6 slashing', '3 fire']);
+	});
+
+	it('says "damage" when the type is unset', () => {
+		expect(damageText(dmg(DamageType.UNSPECIFIED, 4, 4))).toBe('4 damage');
+	});
+
+	it('shows only the rolls, not "0 damage", when the server sent no damage list', () => {
+		const t = one(
+			outcome('gob', HitOutcome.HIT, { damageRolls: [roll(7, 'Damage', '1d8+3', 8)] })
+		);
+		expect(t.damage).toEqual([]);
+		expect(t.damageRolls).toHaveLength(1);
+	});
+
+	it('shows healing above 0 as "Healed 8" and nothing for 0', () => {
+		expect(one(outcome('t1', HitOutcome.AUTOMATIC, { healing: 8 })).healing).toBe('Healed 8');
+		expect(one(outcome('t1', HitOutcome.AUTOMATIC, { healing: 0 })).healing).toBeNull();
+	});
+
+	it('flags a drop to 0 and says nothing about death saves', () => {
+		const t = one(
+			outcome('gob', HitOutcome.HIT, {
+				damage: [dmg(DamageType.SLASHING, 9, 9)],
+				droppedToZero: true
+			})
+		);
+		expect(t.droppedToZero).toBe(true);
+		expect(JSON.stringify(t)).not.toMatch(/death|dying|dead/i);
+		expect(one(outcome('gob', HitOutcome.HIT)).droppedToZero).toBe(false);
+	});
+
+	it('puts damage, healing and the drop in the screen reader announcement', () => {
+		const v = view(
+			resolution({
+				outcomes: [
+					outcome('gob', HitOutcome.HIT, {
+						damage: [dmg(DamageType.FIRE, 14, 7)],
+						droppedToZero: true
+					}),
+					outcome('t1', HitOutcome.AUTOMATIC, { healing: 8 })
+				]
+			})
+		);
+		expect(v.announcement).toBe(
+			'Brannoch used Longsword. Goblin: Hit, 7 fire (rolled 14), dropped to 0; Brannoch: Automatic, healed 8.'
+		);
+	});
+
+	it('keeps untrusted names as plain text', () => {
+		const t = one(outcome('gob2', HitOutcome.HIT));
+		expect(t.name).toBe('<img src=x onerror=alert(1)>');
 	});
 });
