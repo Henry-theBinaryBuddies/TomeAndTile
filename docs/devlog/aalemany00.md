@@ -2,6 +2,72 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-24 — Fix CI: web/src/lib/video/ compile against PR #88's interface additions
+
+**Did:** Per Henry's PR #88 review: John's video panel (merged over the weekend) didn't account
+for the three new `MediaFailureKind` values or the now-required `mic`/`camera`/`isSpeaking`
+fields on `ParticipantInfo`, so `npm run check` broke on `main` the moment this PR's additions
+existed. Had Claude add the minimum to compile in one commit: `view.ts`'s `FAILURE_TEXT` gained
+the three entries (using the wording I'd already suggested in issue #93), and `track.test.ts`/
+`view.test.ts`'s fakes and `person()` fixtures got the new required fields. Nothing about how the
+panel actually shows these three failures changed — that's still John's call, same as #93 says.
+Verified `npm run check` (0 errors, same pre-existing renderer-WASM gap as always), `npm test`
+(365 passing), `tools/check-deps.sh` (OK). Commented on the PR summarizing the fix; GitHub had
+already added Danny as a code-owner reviewer on these lines once I touched them.
+**Directed Claude to:** Read Henry's latest review on PR #88 and fix exactly the three files and
+lines he named, nothing more.
+**Learned:** A heads-up issue filed as "no action needed unless you're building the panel now"
+can go stale the moment someone *does* build the panel — #93 and #87 both needed a follow-up
+comment once John's panel actually landed and the gap became a real CI failure, not a someday one.
+**Blocked on / next:** Waiting on Henry's re-review and Danny's look at the three compiled-in
+lines; once CI is green he merges #86 first, then this.
+
+## 2026-11-23 — Fix: duplicate-identity reconnect loop (from Henry's real-call test)
+
+**Did:** Henry's first real call against LiveKit Cloud found the same identity joining from two
+browsers fighting over the connection: our module treated LiveKit's `DUPLICATE_IDENTITY`
+disconnect the same as any dropped connection and rejoined after the backoff, which knocked out
+the other tab, which rejoined in turn — 34 disconnects in a few minutes until one tab closed.
+Had Claude implement his suggested fix: `room.ts` now classifies the `RoomEvent.Disconnected`
+argument into a small `DisconnectCause` of our own (`'duplicate_identity' | 'removed' |
+'room_closed' | 'other'`), never leaking LiveKit's own `DisconnectReason` type out of the file.
+`client.ts` only calls `scheduleReconnect` for `'other'`; the three terminal causes report a
+failure instead (`joined_elsewhere`, `removed`, `room_closed` — three new `MediaFailureKind`
+values) and leave the call ended. Also checked Henry's "worth checking" note and handled
+`PARTICIPANT_REMOVED`/`ROOM_DELETED` the same way, not just duplicate identity, since they're
+the same kind of "the server meant to end this, don't loop" case. 8 new tests, including one
+per terminal cause plus a control case confirming an ordinary drop still rejoins.
+**Directed Claude to:** Read Henry's comment on PR #88 in full and implement the suggested fix,
+including the two related reasons he flagged as worth checking.
+**Learned:** Nothing to flag — matched his diagnosis and suggested fix directly; the three
+`DisconnectReason` values needed were easy to find in `@livekit/protocol`'s own types.
+**Blocked on / next:** A new `MediaFailureKind` is an interface addition, so it needs a heads-up
+issue for Danny like the ones for #65 and #66 — filing that next.
+
+## 2026-11-23 — #66 Fix: "waiting for video" never reached the panel
+
+**Did:** Per Henry's review on PR #88. The required fix: `onParticipantsChanged` listened for
+`TrackSubscribed`/`TrackUnsubscribed` and the local publish events, but never
+`RoomEvent.TrackPublished`/`TrackUnpublished` for a remote participant. LiveKit fires
+`TrackPublished` the moment someone turns their camera on, and `TrackSubscribed` only once the
+video actually arrives — without the first event, state never rebuilt in between, so a tile
+jumped straight from "camera off" to fully subscribed and skipped the "waiting for video" state
+entirely (the issue's second acceptance item). Added both to `onParticipantsChanged`. Since the
+fake room fires its callback directly and can't catch a missing event registration, added a
+`room.test.ts` case (mocking `livekit-client`, same pattern as the existing `listLocalDevices`
+pin) asserting `onParticipantsChanged` actually registers `TrackPublished`/`TrackUnpublished`,
+not just the subscription events.
+Also took the minor note: `onDisconnected`'s handler scheduled a rejoin without calling
+`dispose()` on the old room first. Harmless under the generation check, but a real set of
+listeners left behind on every reconnect over a long session. Now calls `nextRoom.dispose()`
+there too, same as `teardown()` already did for an explicit `leave()`.
+**Directed Claude to:** Read Henry's review on PR #88 in full and fix everything it raised,
+required and minor. Merge the updated #65 branch in first, since #88 is stacked on it.
+**Learned:** Nothing to flag — the fix matched Henry's diagnosis exactly once I checked
+LiveKit's actual event firing order for `TrackPublished` vs `TrackSubscribed`.
+**Blocked on / next:** Waiting on re-review. Henry's real-call test also turned up a duplicate-
+identity reconnect loop, not part of this PR's acceptance list; picking that up separately.
+
 ## 2026-11-23 — #65 Fix: no-choice state named a device nobody picked
 
 **Did:** Per Henry's review on PR #86. The required fix: `refreshDevices` was writing
@@ -21,6 +87,28 @@ per panel mount, since there's no `dispose()` for the `devicechange` listener.
 required and optional.
 **Learned:** Nothing to flag — the fix and both optional items were exactly as described.
 **Blocked on / next:** Waiting on re-review.
+
+## 2026-11-21 — #66 Track management: availability, blocked audio, listener clean-up
+
+**Did:** Stacked on #65 (same two files). Had Claude add `mic`/`camera` (`TrackAvailability`:
+`{published, subscribed}`) and `isSpeaking` to `ParticipantInfo`, so a tile can tell "camera
+off" (not published) from "waiting for video" (published, not yet subscribed) instead of one
+flat boolean. `attachTrack` now returns whether a track was actually there (the room wrapper
+already knew; it just wasn't surfaced). Added `state.audioPlaybackBlocked` plus a
+`startAudioPlayback()` method for the browser's autoplay block, wired to LiveKit's
+`AudioPlaybackStatusChanged` event and `canPlaybackAudio`/`startAudio()`. `room.ts`'s
+`onParticipantsChanged` now also listens for `LocalTrackPublished`/`LocalTrackUnpublished`/
+`ActiveSpeakersChanged`, not just the remote-track events it already had. Added `RoomLike.
+dispose()`: `wrapLiveKitRoom` now tracks every listener it registers and removes them on
+teardown, instead of relying only on the generation check to make a stale callback a no-op.
+9 new tests (37 total in `web/media/`), including one that proves `dispose()` actually
+unregisters the fake room's callbacks, not just that state happens to ignore them afterward.
+**Directed Claude to:** Read issue #66 in full and build exactly its acceptance list, on top of
+the #65 branch, without touching anything outside `web/media/`.
+**Learned:** Nothing worth flagging as a misread this round — the acceptance list mapped
+cleanly onto LiveKit's own API (`TrackPublication.isSubscribed` is on the base class, so no
+casting was needed between local/remote participants).
+**Blocked on / next:** Heads-up issue for Danny and the PR itself, same as #65.
 
 ## 2026-11-21 — #65 Device handling: changes, remembered choices, switch errors
 
