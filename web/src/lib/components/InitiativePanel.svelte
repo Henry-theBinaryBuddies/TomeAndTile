@@ -191,7 +191,7 @@
 							aria-label={`Edit conditions for ${row.name}`}
 							onclick={() => (editing = { tokenId: row.tokenId, index: row.index })}
 						>
-							Edit
+							Conditions
 						</button>
 					{/if}
 				</li>
@@ -264,13 +264,17 @@
 	}
 	li {
 		display: flex;
-		gap: 0.45rem;
-		align-items: baseline;
+		/* A row with health, conditions and GM controls wraps onto more lines instead of
+		   squeezing the name into a column of single letters on a phone (#113). */
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		align-items: center;
 		max-width: 100%;
-		padding: 0.3rem 0.65rem;
+		min-width: 0;
+		padding: 0.3rem 0.8rem;
 		background: var(--panel-head);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 1.2rem;
 	}
 	li.current {
 		border-color: var(--accent);
@@ -281,7 +285,9 @@
 		color: var(--accent);
 	}
 	.name {
-		overflow-wrap: anywhere;
+		flex: 0 1 auto;
+		min-width: min(100%, 5rem);
+		overflow-wrap: break-word;
 	}
 	.conds {
 		color: var(--muted);
@@ -322,6 +328,16 @@
 	.error {
 		margin: 0;
 		color: #ff9e9e;
+	}
+	/* On a phone each combatant is a full-width row, so the list reads as a list. */
+	@media (max-width: 640px) {
+		.order {
+			flex-direction: column;
+			flex-wrap: nowrap;
+		}
+		li {
+			width: 100%;
+		}
 	}
 	.empty {
 		margin: 0;

@@ -82,7 +82,7 @@
 	.start {
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: 0.6rem;
 		align-items: flex-start;
 		min-width: 0;
 	}
@@ -99,8 +99,8 @@
 	ul {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.15rem 0.9rem;
-		margin: 0.3rem 0;
+		gap: 0.6rem 0.9rem;
+		margin: 0.6rem 0;
 		padding: 0;
 		list-style: none;
 	}

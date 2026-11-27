@@ -536,7 +536,7 @@
 		padding: 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.4rem;
+		gap: 0.6rem;
 	}
 	.tokens button {
 		min-height: 44px;
@@ -564,7 +564,7 @@
 	.mode {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem 0.9rem;
+		gap: 0.6rem 0.9rem;
 		border: 1px solid var(--border);
 		border-radius: 8px;
 		margin: 0;
@@ -581,9 +581,18 @@
 		align-items: center;
 		min-height: 44px;
 	}
+	/* Confirm and Cancel stay on screen however long the target list is (#113). */
+	.targeting .actions {
+		position: sticky;
+		bottom: -0.8rem; /* the panel body pads 0.8rem; stick to its edge */
+		z-index: 1;
+		padding: 0.5rem 0;
+		background: var(--panel-head);
+		box-shadow: 0 -6px 8px -4px rgb(0 0 0 / 0.4);
+	}
 	.actions {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.6rem;
 	}
 	.actions button {
 		min-height: 44px;

@@ -100,7 +100,7 @@
 	ul {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.6rem;
 		margin: 0;
 		padding: 0;
 		list-style: none;
@@ -108,7 +108,7 @@
 	li {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem 0.6rem;
+		gap: 0.6rem;
 		align-items: center;
 	}
 	.name {

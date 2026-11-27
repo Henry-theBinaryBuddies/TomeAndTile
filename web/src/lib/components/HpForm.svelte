@@ -87,7 +87,7 @@
 	.hp {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem 0.8rem;
+		gap: 0.6rem 0.8rem;
 		align-items: center;
 		margin: 0.3rem 0;
 		padding: 0.4rem 0.55rem;

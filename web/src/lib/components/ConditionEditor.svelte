@@ -134,8 +134,8 @@
 	ul {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-		gap: 0.15rem 0.6rem;
-		margin: 0.3rem 0;
+		gap: 0.6rem;
+		margin: 0.6rem 0;
 		padding: 0;
 		list-style: none;
 	}

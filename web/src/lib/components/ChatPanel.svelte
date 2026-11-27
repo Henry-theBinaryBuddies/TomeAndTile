@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { Role, RollMode } from '@tomeandtile/contracts';
+	import { get } from 'svelte/store';
 	import { getGameClient } from '../net';
+	import { isPhone } from '../layout/viewport';
 	import {
 		buildChatKind,
 		buildRollKind,
@@ -21,6 +23,11 @@
 	const { state: panelState, connection, lastRejection } = client;
 
 	const isGm = $derived($panelState.role === Role.GM);
+	let rollerOpen = $state(!get(isPhone));
+	// Widening the window shows the roller for good: its heading is hidden there.
+	$effect(() => {
+		if (!$isPhone) rollerOpen = true;
+	});
 	const status = $derived(
 		$connection === 'connecting'
 			? 'Connecting…'
@@ -182,6 +189,9 @@
 		<p class="error" role="alert">{chatNote || chatRejection}</p>
 	{/if}
 
+	<!-- On a phone the dice roller starts folded, so the log keeps most of the sheet (#113). -->
+	<details class="roller" open={rollerOpen} ontoggle={(e) => (rollerOpen = e.currentTarget.open)}>
+	<summary>Roll dice</summary>
 	<form class="roll-form" onsubmit={submitRoll}>
 		<label class="dice">
 			<span>Dice</span>
@@ -207,6 +217,7 @@
 		{/if}
 		<button type="submit">Roll</button>
 	</form>
+	</details>
 	{#if rollNote || rollRejection}
 		<p class="error" role="alert">{rollNote || rollRejection}</p>
 	{/if}
@@ -216,7 +227,7 @@
 	.chat {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.6rem;
 		height: 100%;
 		min-height: 0;
 	}
@@ -256,7 +267,7 @@
 	}
 	.chat-form {
 		display: flex;
-		gap: 0.4rem;
+		gap: 0.6rem;
 	}
 	.chat-form input {
 		flex: 1;
@@ -264,6 +275,22 @@
 	}
 	/* Dice and the Roll button share the first row; the button is last in the page order
 	   so keyboard users reach it after every field. */
+	.roller summary {
+		display: flex;
+		align-items: center;
+		min-height: 2rem;
+		cursor: pointer;
+		color: var(--muted);
+	}
+	.roller[open] summary {
+		margin-bottom: 0.3rem;
+	}
+	/* On a wide screen the roller is always open, so its heading is not a control. */
+	@media (min-width: 641px) {
+		.roller summary {
+			display: none;
+		}
+	}
 	.roll-form {
 		display: grid;
 		grid-template-columns: 1fr 1fr auto;
@@ -271,7 +298,7 @@
 			'dice dice go'
 			'mode label label'
 			'hide hide hide';
-		gap: 0.4rem;
+		gap: 0.6rem;
 		align-items: end;
 	}
 	.roll-form label {
