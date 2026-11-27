@@ -9,11 +9,13 @@ import {
 	HitOutcome,
 	ResolutionSchema,
 	ResolutionState,
+	RollPurpose,
 	RollResultSchema,
 	TargetOutcomeSchema,
 	TokenSchema,
 	WarningSchema
 } from '@tomeandtile/contracts';
+import { rollAnnouncement } from './format';
 import { outcomeView, resultCardView, warningText } from './result';
 
 const roll = (total: number, label = '', notation = '1d20+5', sides = 20) =>
@@ -204,5 +206,55 @@ describe('warnings', () => {
 	it('come through in the card in order', () => {
 		const v = view(resolution(), [warn('out_of_range'), warn('not_enough_resource')]);
 		expect(v.warnings).toEqual([warningText('out_of_range'), warningText('not_enough_resource')]);
+	});
+});
+
+describe('who rolled what', () => {
+	const savingThrow = () =>
+		create(RollResultSchema, {
+			notation: '1d20+1',
+			label: 'DEX save',
+			total: 9,
+			purpose: RollPurpose.SAVE,
+			dice: [create(DieSchema, { sides: 20, value: 8 })]
+		});
+	const withOutcome = (kind: HitOutcome, roll = savingThrow()) =>
+		view(resolution({ outcomes: [outcome('gob', kind, { roll })] }));
+
+	it('names the target as the roller of a saving throw it failed', () => {
+		const target = withOutcome(HitOutcome.SAVE_FAILED).targets[0];
+		expect(target.rollWho).toBe('Goblin');
+	});
+
+	it('names the target as the roller of a saving throw it passed', () => {
+		const target = withOutcome(HitOutcome.SAVE_SUCCEEDED).targets[0];
+		expect(target.rollWho).toBe('Goblin');
+	});
+
+	it('goes by the roll\'s purpose when the outcome does not say it is a save', () => {
+		const target = withOutcome(HitOutcome.UNSPECIFIED).targets[0];
+		expect(target.rollWho).toBe('Goblin');
+	});
+
+	it('keeps the attacker as the roller of an attack roll', () => {
+		const attack = roll(17, 'Attack');
+		const hit = withOutcome(HitOutcome.HIT, attack).targets[0];
+		const miss = withOutcome(HitOutcome.MISS, attack).targets[0];
+		expect(hit.rollWho).toBe('Brannoch');
+		expect(miss.rollWho).toBe('Brannoch');
+	});
+
+	it('says the target rolled in the screen-reader sentence for a save', () => {
+		const target = withOutcome(HitOutcome.SAVE_FAILED).targets[0];
+		const sentence = rollAnnouncement(target.rollWho, target.roll!);
+		expect(sentence.startsWith('Goblin rolled')).toBe(true);
+		expect(sentence).not.toContain('Brannoch');
+	});
+
+	it('shows an unknown target as Unknown, not as the attacker', () => {
+		const save = view(
+			resolution({ outcomes: [outcome('nobody', HitOutcome.SAVE_FAILED, { roll: savingThrow() })] })
+		);
+		expect(save.targets[0].rollWho).toBe('Unknown');
 	});
 });

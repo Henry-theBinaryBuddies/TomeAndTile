@@ -22,7 +22,7 @@
 						<strong class="outcome {target.outcome.kind}">{target.outcome.text}</strong>
 					</p>
 					{#if target.roll}
-						<RollCard who={view.sourceName} view={target.roll} {undone} />
+						<RollCard who={target.rollWho} view={target.roll} {undone} />
 					{:else if target.rollNote}
 						<p class="note">{target.rollNote}</p>
 					{/if}
