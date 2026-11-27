@@ -114,6 +114,16 @@ impl Game {
         c: &SetConditionsIntent,
     ) -> Result<Group, Rejection> {
         self.gm_only(user_id, "only the GM may set conditions")?;
+        // Lengths first, as in the real server.
+        if c.add.len() + c.remove.len() > 2 * MAX_CONDITIONS {
+            return Err((
+                "too_many_conditions",
+                format!(
+                    "add and remove together may list at most {} ids",
+                    2 * MAX_CONDITIONS
+                ),
+            ));
+        }
         let Some(index) = self.tokens.iter().position(|t| t.token_id == c.token_id) else {
             return Err(("unknown_token", format!("no token {:?}", c.token_id)));
         };
