@@ -120,6 +120,13 @@ export const ChatIntentSchema: GenMessage<ChatIntent> = /*@__PURE__*/
  *   no_creature            the source token has no creature
  *   unknown_ability        ability_id is not on the source creature
  *   no_targets             a TARGET_SHAPE_CREATURES ability with no targets
+ *   too_many_targets       (rejection) more than 64 target ids are listed.
+ *                          Checked first, before any id is looked at. Not the
+ *                          warning of the same name below
+ *   duplicate_target       a target id is listed more often than the ability
+ *                          has attack steps (once, for an ability with at most
+ *                          one attack step). Only a multiattack may repeat an
+ *                          id, at most once per attack step
  *   unknown_target         a target token does not exist, is hidden from the
  *                          sender, or has no creature
  *   not_implemented        a plugin step, or an ability with more than one
@@ -152,6 +159,9 @@ export const ChatIntentSchema: GenMessage<ChatIntent> = /*@__PURE__*/
  *                          TargetOutcome.effects_applied
  *   duration_not_tracked   an effect's duration gets no timer (see
  *                          ConditionTimer in scene.proto)
+ *   too_many_conditions    a target token already had 32 conditions, so an
+ *                          effect could not be added (once per token); the
+ *                          rest of the resolution stands
  *   ability_recharging     the ability's recharge_spent was already true; it
  *                          still resolves
  * Disadvantage at long range is not a warning; it shows in the attack roll's
@@ -317,6 +327,13 @@ export const SetInitiativeIntentSchema: GenMessage<SetInitiativeIntent> = /*@__P
  * Not undoable (not_undoable): chat, dice rolls, set controllers, set level
  * background, the encounter intents, and undo itself (no redo in M3).
  *
+ * Undoing a create removes the token. If that token is now a combatant in a
+ * running encounter the undo is refused with in_encounter (the rule of
+ * RemoveTokenIntent); end the encounter first. Putting a token back (undoing
+ * a remove, or restoring an earlier state) drops condition timers of
+ * encounters that no longer exist and keeps the conditions, as ending an
+ * encounter does.
+ *
  * Dependency rule: every group records the token ids and creature ids whose
  * stored state it changed. A group cannot be undone while a later group that
  * has not been undone changed any of the same tokens or creatures
@@ -328,7 +345,8 @@ export const SetInitiativeIntentSchema: GenMessage<SetInitiativeIntent> = /*@__P
  * (ADR 0004).
  *
  * Rejection codes: not_permitted (not the GM), unknown_event (no such seq in
- * the log), not_first_event, not_undoable, already_undone, undo_blocked.
+ * the log), not_first_event, not_undoable, already_undone, undo_blocked,
+ * in_encounter (checked last).
  *
  * @generated from message tomeandtile.v1.UndoIntent
  */
@@ -546,8 +564,10 @@ export const RemoveTokenIntentSchema: GenMessage<RemoveTokenIntent> = /*@__PURE_
  * present, or removing one that is absent, changes nothing. Always answered
  * with TokenUpserted.
  *
- * Rejection codes: not_permitted, unknown_token, bad_condition_id (not
- * [a-z0-9_]{1,40}), conflicting_conditions (the same id in add and remove),
+ * Rejection codes: not_permitted, too_many_conditions (add and remove list
+ * more than 64 ids together; checked before anything else about the lists),
+ * unknown_token, bad_condition_id (not [a-z0-9_]{1,40}),
+ * conflicting_conditions (the same id in add and remove),
  * too_many_conditions (more than 32 on the token afterwards).
  * Warning codes: condition_immune (an added id is in the creature's
  * condition_immunities; the GM's choice wins and it is added anyway).
