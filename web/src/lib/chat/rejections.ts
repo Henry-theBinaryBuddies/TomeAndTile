@@ -37,6 +37,14 @@ const TEXT: Record<string, string> = {
 	invalid_controller: 'That player cannot control a token.',
 	too_many_tokens: 'This campaign has as many tokens as it can hold. Remove some first.',
 	in_encounter: 'That token is in a fight. End the encounter first.',
+	// Undo and setting hit points.
+	unknown_event: 'The server cannot find that result any more. Reload the page and try again.',
+	not_first_event: 'That result cannot be undone from this card.',
+	not_undoable: 'That cannot be undone.',
+	already_undone: 'That was already undone.',
+	undo_blocked: 'A later change touched the same tokens. Undo that one first.',
+	no_hit_points: 'That token has no hit points to set.',
+	bad_hit_points: 'Those hit points are not allowed. Current must be between 0 and the maximum.',
 	// Encounters.
 	no_combatants: 'Tick at least one token to start the fight.',
 	encounter_running: 'This map already has a fight running.',

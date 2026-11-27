@@ -359,6 +359,18 @@ describe('applied damage, healing and dropping to 0', () => {
 		expect(warningText('condition_immune')).not.toMatch(/server added a note/);
 	});
 
+	it('gives the GM buttons the token id and the total applied damage of the row', () => {
+		const t = one(
+			outcome('gob', HitOutcome.HIT, {
+				damage: [dmg(DamageType.SLASHING, 6, 6), dmg(DamageType.FIRE, 7, 3)]
+			})
+		);
+		expect(t.tokenId).toBe('gob');
+		expect(t.appliedTotal).toBe(9);
+		const none = one(outcome('gob', HitOutcome.MISS));
+		expect(none.appliedTotal).toBeNull();
+	});
+
 	it('keeps untrusted names as plain text', () => {
 		const t = one(outcome('gob2', HitOutcome.HIT));
 		expect(t.name).toBe('<img src=x onerror=alert(1)>');

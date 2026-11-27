@@ -12,6 +12,9 @@
 		textAfterRejection
 	} from '../chat';
 	import ResultCard from './ResultCard.svelte';
+	import GmResultActions from './GmResultActions.svelte';
+	import GmTargetActions from './GmTargetActions.svelte';
+	import { showOverrides } from '../chat';
 	import RollCard from './RollCard.svelte';
 
 	const client = getGameClient();
@@ -137,10 +140,20 @@
 			{:else if entry.kind === 'result'}
 				{@const resolution = $panelState.resolutions[entry.resolutionId]}
 				{#if resolution}
-					<ResultCard
-						view={resultCardView(resolution, $panelState.tokens, $panelState.creatures, entry.warnings)}
-						undone={entry.undone}
-					/>
+					{@const cardView = resultCardView(resolution, $panelState.tokens, $panelState.creatures, entry.warnings)}
+					<ResultCard view={cardView} undone={entry.undone}>
+						{#snippet targetActions(target)}
+							{#if showOverrides($panelState.role, entry.undone)}
+								<GmTargetActions {target} />
+							{/if}
+						{/snippet}
+						<GmResultActions
+							view={cardView}
+							seqs={entry.seqs}
+							clientIntentId={entry.clientIntentId}
+							undone={entry.undone}
+						/>
+					</ResultCard>
 				{/if}
 			{:else}
 				<RollCard

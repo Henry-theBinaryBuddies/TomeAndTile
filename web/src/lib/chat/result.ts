@@ -74,6 +74,10 @@ export interface TargetView {
 	/** Position in the card, used as the list key (the same token can appear more than once). */
 	key: number;
 	name: string;
+	/** The target's token id, for the GM's buttons on this row. */
+	tokenId: string;
+	/** Total damage the server applied to this row, or null when it sent no damage list. */
+	appliedTotal: number | null;
 	/** `1`, `2`, ... for the attack that produced this outcome; null unless it is a multi-attack. */
 	attackNumber: number | null;
 	outcome: OutcomeView;
@@ -154,6 +158,8 @@ function targetView(
 	const name = nameOf(tokens, outcome.tokenId);
 	return {
 		key: index,
+		tokenId: outcome.tokenId,
+		appliedTotal: outcome.damage.length > 0 ? outcome.damage.reduce((sum, d) => sum + d.applied, 0) : null,
 		name,
 		rollWho: isSave(outcome) ? name : sourceName,
 		attackNumber: multi ? outcome.stepIndex + 1 : null,

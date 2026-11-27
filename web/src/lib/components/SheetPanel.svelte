@@ -5,7 +5,7 @@
 	import ConditionChips from './ConditionChips.svelte';
 	import ConditionEditor from './ConditionEditor.svelte';
 	import { getGameClient } from '../net';
-	import { rejectionText } from '../chat';
+	import { rejectionText, rememberUse } from '../chat';
 	import {
 		abilityGroups,
 		actingTokenId,
@@ -133,6 +133,13 @@
 		sendNote = '';
 		sentId = id;
 		sentName = targeting.abilityName;
+		// So the GM's Re-roll on the result can send the same use again.
+		rememberUse(id, {
+			sourceTokenId: actingId,
+			abilityId: targeting.abilityId,
+			targetTokenIds: picksTargets(targeting) ? [...targeting.picks] : [],
+			mode: targeting.mode
+		});
 		stop();
 	}
 

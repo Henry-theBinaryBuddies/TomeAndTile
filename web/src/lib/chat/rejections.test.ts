@@ -36,7 +36,14 @@ describe('rejectionText', () => {
 			'unknown_user',
 			'invalid_controller',
 			'too_many_tokens',
-			'in_encounter'
+			'in_encounter',
+			'unknown_event',
+			'not_first_event',
+			'not_undoable',
+			'already_undone',
+			'undo_blocked',
+			'no_hit_points',
+			'bad_hit_points'
 		];
 		for (const code of codes) {
 			const text = rejectionText(code);
