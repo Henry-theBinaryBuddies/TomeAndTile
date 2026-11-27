@@ -69,9 +69,9 @@
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem 0.4rem;
+		gap: 0.6rem;
 		align-items: center;
-		margin-top: 0.3rem;
+		margin-top: 0.6rem;
 	}
 	.actions button {
 		min-height: 1.8rem;

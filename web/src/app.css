@@ -252,8 +252,9 @@ body {
 	right: 0;
 	bottom: 0;
 	display: flex;
+	gap: 0.6rem; /* targets are at least 8 px apart */
 	height: var(--tabs-h);
-	padding-bottom: env(safe-area-inset-bottom, 0px);
+	padding: 0 0.4rem env(safe-area-inset-bottom, 0px);
 	background: var(--panel-head);
 	border-top: 1px solid var(--border);
 }
@@ -280,11 +281,16 @@ body {
 	left: 0;
 	right: 0;
 	bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+	/* Tall enough for a stat block and the ability list; dvh follows the browser bars on a phone. */
 	height: min(55vh, 28rem);
+	height: min(62dvh, 32rem);
 	display: flex;
 	border-radius: 12px 12px 0 0;
 	overflow: hidden;
 	box-shadow: 0 -8px 24px rgb(0 0 0 / 0.45);
+}
+.phone-sheet.closed {
+	display: none;
 }
 .phone-sheet .panel {
 	flex: 1;
@@ -338,4 +344,47 @@ body {
 	margin-top: 0.9rem;
 	padding-top: 0.9rem;
 	border-top: 1px solid var(--border);
+}
+
+/* ---- touch targets (#113): every control is at least 44 px on a phone or a touch screen ---- */
+@media (max-width: 640px), (pointer: coarse) {
+	:root {
+		--control: 2.95rem; /* 44.25 px at the 15 px root */
+	}
+	/* !important because a component's own small size (a chip, an inline Set button) is scoped CSS. */
+	button,
+	select,
+	summary,
+	input:not([type='checkbox']):not([type='radio']) {
+		min-height: var(--control) !important;
+	}
+	button {
+		min-width: var(--control) !important;
+	}
+	/* A checkbox is small, so its label is the target: the whole row is at least 44 px tall. */
+	label:has(> input[type='checkbox']),
+	label:has(> input[type='radio']) {
+		min-height: var(--control);
+	}
+	input[type='checkbox'],
+	input[type='radio'] {
+		width: 1.4rem;
+		height: 1.4rem;
+	}
+	/* An inline question with a Yes and a Keep: laid out as a row so the buttons are apart. */
+	[role='group'] {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		align-items: center;
+	}
+	/* Neighbouring targets are at least 8 px apart. */
+	.gm,
+	.actions,
+	.controls,
+	.buttons,
+	.chips,
+	.edit {
+		gap: 0.6rem !important;
+	}
 }

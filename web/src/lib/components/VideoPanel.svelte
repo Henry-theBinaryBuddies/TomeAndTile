@@ -147,7 +147,7 @@
 	.bar {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.4rem;
+		gap: 0.6rem;
 	}
 	.bar button {
 		min-height: 44px;

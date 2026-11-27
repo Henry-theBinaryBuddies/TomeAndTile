@@ -158,9 +158,9 @@
 	.gm {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem 0.5rem;
+		gap: 0.6rem;
 		align-items: center;
-		margin-top: 0.4rem;
+		margin-top: 0.6rem;
 	}
 	.gm button {
 		min-height: 1.8rem;

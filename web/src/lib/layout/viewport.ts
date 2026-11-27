@@ -23,3 +23,13 @@ export const viewportSize = readable<Viewport>({ width: 1280, height: 800 }, (se
 
 /** Which panel is open as a sheet on the phone layout. UI state only; it is not part of the saved layout. */
 export const phoneOpen = writable<PanelId | null>(null);
+
+/** True when `id` is the panel open as a sheet. The others stay mounted but hidden (#113). */
+export function isSheetOpen(open: PanelId | null, id: PanelId): boolean {
+	return open === id;
+}
+
+/** The tab to press for `id`: the open one closes, any other opens (and replaces the open one). */
+export function nextOpen(open: PanelId | null, id: PanelId): PanelId | null {
+	return open === id ? null : id;
+}
