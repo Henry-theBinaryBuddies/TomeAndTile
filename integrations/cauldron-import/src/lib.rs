@@ -88,7 +88,9 @@ pub enum ImportError {
     /// `monster.name`, after trimming, is empty, or is longer than the server accepts (120
     /// characters) -- both would otherwise be accepted here and bounced by the server as a
     /// generic `bad_creature` later.
-    InvalidName { reason: &'static str },
+    InvalidName {
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for ImportError {
@@ -567,7 +569,10 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
     );
 
     let mut condition_immunities = Vec::new();
-    if let Some(list) = monster.get("condition_immunities").and_then(Value::as_array) {
+    if let Some(list) = monster
+        .get("condition_immunities")
+        .and_then(Value::as_array)
+    {
         for item in list {
             let Some(id) = item.as_str() else {
                 report.push(ReportEntry {
@@ -710,7 +715,8 @@ fn damage_type_list(monster: &Value, key: &str, report: &mut Vec<ReportEntry>) -
 fn is_condition_id(s: &str) -> bool {
     !s.is_empty()
         && s.chars().count() <= 40
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 fn creature_size(name: &str) -> Option<CreatureSize> {
@@ -1073,7 +1079,10 @@ mod tests {
         monster["condition_immunities"] = serde_json::json!(["prone", 5]);
         let bytes = envelope(monster);
         let import = import_monster(&bytes).unwrap();
-        assert_eq!(import.creature.condition_immunities, vec!["prone".to_string()]);
+        assert_eq!(
+            import.creature.condition_immunities,
+            vec!["prone".to_string()]
+        );
         assert_eq!(import.report.len(), 1);
     }
 
@@ -1083,18 +1092,27 @@ mod tests {
         monster["condition_immunities"] = serde_json::json!(["prone", "Not An Id!!"]);
         let bytes = envelope(monster);
         let import = import_monster(&bytes).unwrap();
-        assert_eq!(import.creature.condition_immunities, vec!["prone".to_string()]);
+        assert_eq!(
+            import.creature.condition_immunities,
+            vec!["prone".to_string()]
+        );
         assert_eq!(import.report.len(), 1);
     }
 
     #[test]
     fn more_than_32_condition_immunities_are_capped() {
         let mut monster = minimal_monster();
-        monster["condition_immunities"] =
-            Value::Array((0..40).map(|i| Value::String(format!("cond_{i}"))).collect());
+        monster["condition_immunities"] = Value::Array(
+            (0..40)
+                .map(|i| Value::String(format!("cond_{i}")))
+                .collect(),
+        );
         let bytes = envelope(monster);
         let import = import_monster(&bytes).unwrap();
-        assert_eq!(import.creature.condition_immunities.len(), MAX_CONDITION_IMMUNITIES);
+        assert_eq!(
+            import.creature.condition_immunities.len(),
+            MAX_CONDITION_IMMUNITIES
+        );
         assert_eq!(import.report.len(), 40 - MAX_CONDITION_IMMUNITIES);
     }
 
