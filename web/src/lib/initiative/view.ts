@@ -2,9 +2,10 @@
 // never orders, rolls or advances anything: it shows the server's order, the
 // server's `turn_index` and the server's round.
 import type { Encounter, Token } from '@tomeandtile/contracts';
+import { healthView, type HealthInfo, type HealthView } from '../health';
 
-/** The state's token map, or anything with names by token id. */
-export type TokenNames = Readonly<Record<string, Pick<Token, 'name'>>>;
+/** The state's token map, or anything with names (and, if known, health) by token id. */
+export type TokenNames = Readonly<Record<string, Pick<Token, 'name'> & HealthInfo>>;
 
 export interface InitiativeRow {
 	/** Position in the server's order. A creature that acts twice appears twice. */
@@ -15,6 +16,8 @@ export interface InitiativeRow {
 	/** The server's initiative number. */
 	initiative: number;
 	current: boolean;
+	/** How hurt the combatant is: numbers only if the server sent them, else the state in words. */
+	health: HealthView;
 }
 
 export interface InitiativeView {
@@ -50,7 +53,8 @@ export function initiativeView(
 		tokenId: c.tokenId,
 		name: nameFor(tokens, c.tokenId),
 		initiative: c.initiative,
-		current: index === encounter.turnIndex
+		current: index === encounter.turnIndex,
+		health: healthView(tokens[c.tokenId])
 	}));
 	return {
 		encounterId: encounter.encounterId,

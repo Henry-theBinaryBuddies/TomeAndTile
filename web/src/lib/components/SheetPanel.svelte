@@ -44,7 +44,13 @@
 	const chosenTokenId = $derived(chosenTokenFor($sheetSelection, currentId));
 	const actingId = $derived(current ? actingTokenId(current, chosenTokenId) : null);
 	const creature = $derived(current ? $panelState.creatures[current.creatureId] : undefined);
-	const block = $derived(creature ? statBlockView(creature) : null);
+	// The viewer's token for this character (the one that acts), if it is known which: hit points
+	// and health are live on the token, not on the creature.
+	const actingToken = $derived.by(() => {
+		const id = current ? actingTokenId(current, chosenTokenId) : null;
+		return id ? $panelState.tokens[id] : undefined;
+	});
+	const block = $derived(creature ? statBlockView(creature, actingToken) : null);
 	const groups = $derived(creature ? abilityGroups(creature) : []);
 	const canAct = $derived(actingId !== null);
 
