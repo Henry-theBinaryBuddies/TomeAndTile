@@ -6,7 +6,7 @@
 // asserts this.
 import { readable, type Readable } from 'svelte/store';
 import type { MediaToken } from '@tomeandtile/contracts';
-import { listLocalDevices, wrapLiveKitRoom, RoomFailure, type DisconnectCause, type RoomLike } from './room';
+import { listLocalDevices, wrapLiveKitRoom, RoomFailure, type RoomLike } from './room';
 import type {
 	DeviceKind,
 	DeviceLists,
@@ -15,7 +15,6 @@ import type {
 	MediaFailure,
 	ParticipantInfo,
 	SelectedDeviceIds,
-	TrackAvailability,
 	TrackKind
 } from './types';
 
@@ -27,7 +26,6 @@ export type {
 	MediaFailure,
 	ParticipantInfo,
 	SelectedDeviceIds,
-	TrackAvailability,
 	TrackKind
 };
 
@@ -70,12 +68,8 @@ export interface MediaClient {
 	listDevices(kind: DeviceKind): Promise<MediaDeviceOption[]>;
 	selectDevice(kind: DeviceKind, deviceId: string): Promise<void>;
 	listParticipants(): ParticipantInfo[];
-	/** Returns whether a track was actually there to attach. */
-	attachTrack(participantId: string, kind: TrackKind, element: HTMLMediaElement): boolean;
+	attachTrack(participantId: string, kind: TrackKind, element: HTMLMediaElement): void;
 	detachTrack(participantId: string, kind: TrackKind, element: HTMLMediaElement): void;
-	/** Resumes playback after the browser blocked it (`state.audioPlaybackBlocked`). Call this
-	 * from a user gesture, such as a click handler on a "tap to enable sound" prompt. */
-	startAudioPlayback(): Promise<void>;
 }
 
 function emptyDeviceLists(): DeviceLists {
@@ -95,8 +89,7 @@ function initialState(): MediaClientState {
 		participants: [],
 		failure: null,
 		devices: emptyDeviceLists(),
-		selectedDeviceId: noSelectedDevices(),
-		audioPlaybackBlocked: false
+		selectedDeviceId: noSelectedDevices()
 	};
 }
 
@@ -119,19 +112,6 @@ function toFailure(error: unknown): MediaFailure {
 	}
 	return { kind: 'no_device', message: error instanceof Error ? error.message : String(error) };
 }
-
-// The server ended this participant's membership in the call on purpose. Automatically
-// rejoining would either immediately repeat the same disconnect (another tab or device fighting
-// this one over the same identity) or just fail again (removed, room closed), so these report a
-// failure and stop instead of going through scheduleReconnect like every other disconnect.
-const TERMINAL_DISCONNECT_FAILURES: Partial<Record<DisconnectCause, MediaFailure>> = {
-	duplicate_identity: {
-		kind: 'joined_elsewhere',
-		message: 'You joined the call from another tab or device.'
-	},
-	removed: { kind: 'removed', message: 'You were removed from the call.' },
-	room_closed: { kind: 'room_closed', message: 'The call has ended.' }
-};
 
 export function createMediaClient(options: MediaClientOptions): MediaClient {
 	const {
@@ -266,9 +246,6 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		const current = room;
 		room = null;
 		if (current) {
-			// Remove our listeners before disconnecting, so a disconnect-triggered event firing
-			// on the way out can never touch state for a room we've already moved on from.
-			current.dispose();
 			try {
 				await current.disconnect();
 			} catch {
@@ -310,28 +287,9 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		}
 
 		room = nextRoom;
-		nextRoom.onDisconnected((cause) => {
+		nextRoom.onDisconnected(() => {
 			if (myGeneration !== generation || room !== nextRoom) return;
 			room = null;
-			// Same reasoning as teardown(): remove this room's listeners now, not just on an
-			// explicit leave(). Otherwise every dropped-connection rejoin leaves one more set
-			// of listeners on an old room behind (harmless under the generation check above,
-			// but a real leak over a long session with several reconnects).
-			nextRoom.dispose();
-
-			const terminalFailure = TERMINAL_DISCONNECT_FAILURES[cause];
-			if (terminalFailure) {
-				setState({
-					status: 'idle',
-					canPublish: false,
-					micEnabled: false,
-					cameraEnabled: false,
-					participants: [],
-					failure: terminalFailure
-				});
-				return; // no scheduleReconnect: the server meant to end this participant's call
-			}
-
 			setState({
 				status: 'idle',
 				micEnabled: false,
@@ -344,22 +302,13 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 			if (myGeneration !== generation || room !== nextRoom) return;
 			setState({ participants: nextRoom.participants() });
 		});
-		nextRoom.onAudioPlaybackStatusChanged((blocked) => {
-			if (myGeneration !== generation || room !== nextRoom) return;
-			setState({ audioPlaybackBlocked: blocked });
-		});
 
 		clearStabilityTimer();
 		stabilityTimer = setTimeout(() => {
 			stabilityTimer = null;
 			if (myGeneration === generation) reconnectAttempt = 0;
 		}, STABLE_CONNECTION_MS);
-		setState({
-			status: 'joined',
-			canPublish: token.canPublish,
-			participants: nextRoom.participants(),
-			audioPlaybackBlocked: nextRoom.isAudioPlaybackBlocked()
-		});
+		setState({ status: 'joined', canPublish: token.canPublish, participants: nextRoom.participants() });
 
 		if (token.canPublish) {
 			try {
@@ -465,22 +414,11 @@ export function createMediaClient(options: MediaClientOptions): MediaClient {
 		},
 
 		attachTrack(participantId, kind, element) {
-			return room?.attach(participantId, kind, element) ?? false;
+			room?.attach(participantId, kind, element);
 		},
 
 		detachTrack(participantId, kind, element) {
 			room?.detach(participantId, kind, element);
-		},
-
-		async startAudioPlayback() {
-			if (!room) return;
-			try {
-				await room.startAudioPlayback();
-			} catch (error) {
-				setState({ failure: toFailure(error) });
-				return;
-			}
-			setState({ audioPlaybackBlocked: room.isAudioPlaybackBlocked() });
 		}
 	};
 }

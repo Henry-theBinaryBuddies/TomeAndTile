@@ -10,39 +10,19 @@ export interface MediaDeviceOption {
 
 export type TrackKind = 'audio' | 'video';
 
-/** Whether a track of one kind exists for a participant at all (`published`), and, if so,
- * whether it has actually arrived (`subscribed`). A tile tells "camera off" (not published)
- * from "waiting for video" (published but not yet subscribed) from these two booleans. For the
- * local participant `subscribed` mirrors `published`: there is no network subscription step for
- * your own track. */
-export interface TrackAvailability {
-	published: boolean;
-	subscribed: boolean;
-}
-
 export interface ParticipantInfo {
 	id: string;
 	name: string;
 	isLocal: boolean;
 	micEnabled: boolean;
 	cameraEnabled: boolean;
-	mic: TrackAvailability;
-	camera: TrackAvailability;
-	isSpeaking: boolean;
 }
 
 export type MediaFailureKind =
 	| 'permission_denied'
 	| 'no_device'
 	| 'token_refused'
-	| 'connection_lost'
-	// The following three never trigger an automatic rejoin (unlike connection_lost): the
-	// server ended this participant's membership in the call on purpose, not by accident, so
-	// retrying would either immediately repeat the same disconnect (joined_elsewhere) or just
-	// fail again (removed, room_closed).
-	| 'joined_elsewhere'
-	| 'removed'
-	| 'room_closed';
+	| 'connection_lost';
 
 export interface MediaFailure {
 	kind: MediaFailureKind;
@@ -76,7 +56,4 @@ export interface MediaClientState {
 	failure: MediaFailure | null;
 	devices: DeviceLists;
 	selectedDeviceId: SelectedDeviceIds;
-	/** True when the browser has blocked remote audio playback (a common autoplay policy).
-	 * `startAudioPlayback()` resumes it from a user gesture (a click handler, for example). */
-	audioPlaybackBlocked: boolean;
 }

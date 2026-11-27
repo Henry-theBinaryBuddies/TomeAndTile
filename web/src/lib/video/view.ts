@@ -10,10 +10,7 @@ const FAILURE_TEXT: Record<MediaFailureKind, string> = {
 	// Also covers a server with video turned off (media_not_configured) and no reply at all.
 	token_refused:
 		'The server did not let you into the call. Video may not be set up on this server, or it did not answer. Try again later.',
-	connection_lost: 'The call connection was lost. Try joining again.',
-	joined_elsewhere: 'You joined the call from another tab or device.',
-	removed: 'You were removed from the call.',
-	room_closed: 'The call has ended.'
+	connection_lost: 'The call connection was lost. Try joining again.'
 };
 
 /** What to tell the person about a failure. The module's own message is never shown. */

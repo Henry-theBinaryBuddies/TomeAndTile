@@ -22,7 +22,59 @@ built-in-code edge cases I thought to write are covered -- it says nothing about
 input I didn't think to test. Henry fed it crafted JSON by hand and found panics in ten minutes
 that no amount of my own test-writing would have caught, since I was testing the *shape* of the
 mapping, not its numeric bounds.
-**Blocked on / next:** None yet -- working through the review now.
+**Blocked on / next:** Done -- all required, should-fix and minor items fixed on #105
+(`require_i32_range`/`bounded_i32`/`bounded_speed`/`is_condition_id` plus ~16 new tests),
+merged forward onto #106 (one `optional_i32` visibility conflict, resolved keeping it
+`pub(crate)` for `abilities.rs`), one more `cargo fmt` round from CI on #105 fixed and merged
+forward too. Both PRs green on all four checks; left a summary comment on #130 for Henry's
+re-review, including a heads-up that `Cargo.lock` still looks stale for `tt-cauldron-import`.
+
+## 2026-11-26 — #106 Cauldron importer: actions to abilities
+
+**Did:** Had Claude fill in `Creature.abilities`/`Creature.resources` on top of #105's stat
+block, in a new `abilities.rs` module. Every entry in `traits`, `actions`, `bonus_actions`,
+`reactions` and `legendary_actions.options` becomes one `Ability`, in file order, with
+`ability_id` a slug of the name, unique within the creature (a second "Claw" gets `claw-2`;
+Voidbloom Seer's legendary "Mind Lash" colliding with its own attack action of the same name
+exercises this directly). `attack`-kind entries become one `AttackStep` with a built dice
+string ("1d4+3"/"1d4-1"/"6d6" with no `+0`) and `Targeting` (`TARGET_SHAPE_CREATURES`,
+`max_targets` 1 only when Cauldron's wording is exactly "one target" -- Voidbloom Seer's Mind
+Lash says "one creature" instead, which is reported and left unset, not guessed). `save`-kind
+entries become one `SaveStep` plus an area `Targeting` (cone/line/cube/sphere, "radius" to
+sphere per MAPPING.md), `recharge.min` to `Ability.recharge`. `multiattack` becomes a
+no-`steps` ability with a plain description built from `sequence` ("Bite once, then Claw
+twice"), always reported as resolved by hand -- still a real contract gap (MAPPING.md gap 5).
+Legendary actions get a `legendary_actions` `Resource` plus one ability per option.
+Spellcasting gets a passive "Spellcasting" ability from `intro`/`footer`, one `Resource` per
+spell-slot level and per-day pool (per-day resource keys use `_`-slugged spell names, distinct
+from `ability_id`'s `-` slugs), and one no-`steps` ability per spell, every one reported as
+"spell effect not in the export" since Cauldron's schema only gives spell names, never their
+mechanics. Checked: Cauldron's schema has no structured field for "this attack also applies a
+condition" at all -- only the free-text `effects_text`, which none of the five samples sets --
+so this importer can never produce an `ApplyEffectStep` from the current schema; said so in the
+PR per the issue's own fallback instruction, since a sample can't be hand-written to prove
+otherwise. Tests: one per sample checking the abilities exactly (matching the issue's list:
+Cinderkite's one attack, Stormhide Drake's Bite/Claw/Stormbreath, Voidbloom Seer's legendary
+resource plus the Mind Lash id collision, Hollowvale Hexer's spell-slot resources, Dune
+Leviathan's multiattack and save ability), plus a structural comparison of Stormhide Drake's
+Bite/Stormbreath against the hand-written shapes in `contracts/fixtures/characters/`. Updated
+MAPPING.md's `effects_text`, `"text"`-kind, multiattack-phrasing and spellcasting-intro rows
+now that the importer settles them.
+**Directed Claude to:** Read issue #106 in full against MAPPING.md's action-kind table and
+spellcasting section, the five samples' actual `traits`/`actions`/`legendary_actions`/
+`spellcasting` data, issue #95 for the SRD condition ids, and the `Ability`/`EffectStep` shapes
+in `contracts/fixtures/characters/`, then implement it end to end with tests.
+**Learned:** Still no Rust toolchain in this session for an actual `cargo` run -- but I did find
+a stale `target/` directory (gitignored, built on this machine at some earlier point outside
+this session) with real `prost`-generated code for `tt-contracts`. Reading the generated
+`tomeandtile.v1.rs` directly let me confirm every enum variant name, oneof wrapper shape and
+scalar type (`Targeting.max_targets`/`Recharge.min_roll` are `u32`, not `i32`; `DamagePart`'s
+`type` field is `r#type`) instead of guessing from the `.proto` source and hoping prost's naming
+convention held. That closed most of the risk from writing Rust blind, though it's still not a
+compile.
+**Blocked on / next:** Needed a real `cargo fmt`/`clippy`/`test` run before trusting this --
+got it via CI once up, plus Henry's manual review of #130; see the 2026-11-27 entry above for
+what that turned up and the fixes merged forward onto this branch.
 
 ## 2026-11-26 — #105 Cauldron importer: envelope, identity, core stat block
 

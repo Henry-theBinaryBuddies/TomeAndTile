@@ -20,9 +20,6 @@ const person = (over: Partial<ParticipantInfo> = {}): ParticipantInfo => ({
 	isLocal: false,
 	micEnabled: true,
 	cameraEnabled: false,
-	mic: { published: true, subscribed: true },
-	camera: { published: false, subscribed: false },
-	isSpeaking: false,
 	...over
 });
 

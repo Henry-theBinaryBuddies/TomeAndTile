@@ -1,11 +1,12 @@
-//! Creature Cauldron importer (issue #105: envelope, identity, core stat block).
+//! Creature Cauldron importer (issue #105: envelope, identity, core stat block; issue #106:
+//! traits, actions and spellcasting).
 //!
 //! [`import_monster`] is a pure function from the bytes of a Creature Cauldron monster export
 //! to a [`Creature`] plus a report of what did not come across. No network, no file system, no
-//! clock, no global state, no randomness: `exported_at` is never read. Traits, actions and
-//! spellcasting ([`Creature::abilities`], [`Creature::resources`]) are issue #106's job and are
-//! left empty here. See `MAPPING.md` for the full field-by-field design this follows, and
-//! docs/adr/0010-integrations.md.
+//! clock, no global state, no randomness: `exported_at` is never read. See `MAPPING.md` for the
+//! full field-by-field design this follows, and docs/adr/0010-integrations.md.
+
+mod abilities;
 
 use std::fmt;
 
@@ -245,7 +246,7 @@ fn require_str<'a>(value: &'a Value, key: &str) -> Result<&'a str, ImportError> 
     }
 }
 
-fn optional_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn optional_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     match value.get(key) {
         Some(Value::String(s)) => Some(s.as_str()),
         _ => None,
@@ -340,18 +341,18 @@ fn bounded_speed(raw: f32, field: &str, report: &mut Vec<ReportEntry>) -> f32 {
     raw
 }
 
-fn optional_i32(value: &Value, key: &str) -> Option<i32> {
+pub(crate) fn optional_i32(value: &Value, key: &str) -> Option<i32> {
     value
         .get(key)
         .and_then(Value::as_i64)
         .and_then(|n| i32::try_from(n).ok())
 }
 
-fn optional_f32(value: &Value, key: &str) -> Option<f32> {
+pub(crate) fn optional_f32(value: &Value, key: &str) -> Option<f32> {
     value.get(key).and_then(Value::as_f64).map(|n| n as f32)
 }
 
-fn optional_bool(value: &Value, key: &str) -> bool {
+pub(crate) fn optional_bool(value: &Value, key: &str) -> bool {
     value.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
@@ -366,7 +367,7 @@ fn describe(value: &Value) -> String {
 }
 
 #[allow(clippy::type_complexity)]
-const SIX_ABILITIES: [(&str, fn(&AbilityScores) -> i32, AbilityScore); 6] = [
+pub(crate) const SIX_ABILITIES: [(&str, fn(&AbilityScores) -> i32, AbilityScore); 6] = [
     ("str", |s| s.strength, AbilityScore::Strength),
     ("dex", |s| s.dexterity, AbilityScore::Dexterity),
     ("con", |s| s.constitution, AbilityScore::Constitution),
@@ -398,7 +399,7 @@ const SKILL_IDS: [(&str, &str); 18] = [
     ("Survival", "survival"),
 ];
 
-fn damage_type(name: &str) -> Option<DamageType> {
+pub(crate) fn damage_type(name: &str) -> Option<DamageType> {
     Some(match name.to_ascii_lowercase().as_str() {
         "acid" => DamageType::Acid,
         "bludgeoning" => DamageType::Bludgeoning,
@@ -619,6 +620,8 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
 
     let summary = summary(monster);
 
+    let (abilities, resources) = abilities::build(monster, &mut report);
+
     let creature = Creature {
         creature_id: String::new(),
         kind: CreatureKind::Monster as i32,
@@ -637,8 +640,8 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
         resistances: resistances.into_iter().map(|d| d as i32).collect(),
         immunities: immunities.into_iter().map(|d| d as i32).collect(),
         vulnerabilities: vulnerabilities.into_iter().map(|d| d as i32).collect(),
-        resources: Vec::new(),
-        abilities: Vec::new(),
+        resources,
+        abilities,
         conditions: Vec::new(),
         summary,
         portrait: None,

@@ -7,10 +7,7 @@ function fakeMedia() {
 	return {
 		calls,
 		media: {
-			attachTrack: (id: string, kind: string) => {
-				calls.push(`attach ${id} ${kind}`);
-				return true;
-			},
+			attachTrack: (id: string, kind: string) => void calls.push(`attach ${id} ${kind}`),
 			detachTrack: (id: string, kind: string) => void calls.push(`detach ${id} ${kind}`)
 		} as TrackParams['media']
 	};
@@ -56,11 +53,7 @@ describe('track action', () => {
 		const found = new Set<string>();
 		const calls: string[] = [];
 		const media = {
-			attachTrack: (id: string, kind: string) => {
-				const wasFound = found.has(id);
-				calls.push(`${id} ${kind} ${wasFound ? 'found' : 'nothing'}`);
-				return wasFound;
-			},
+			attachTrack: (id: string, kind: string) => void calls.push(`${id} ${kind} ${found.has(id) ? 'found' : 'nothing'}`),
 			detachTrack: () => {}
 		} as TrackParams['media'];
 		const first = { id: 'p1', cameraEnabled: false };
@@ -84,9 +77,6 @@ describe('what a tile re-attaches on', () => {
 		isLocal: false,
 		micEnabled: true,
 		cameraEnabled: false,
-		mic: { published: true, subscribed: true },
-		camera: { published: false, subscribed: false },
-		isSpeaking: false,
 		...over
 	});
 	const call = { micEnabled: true, cameraEnabled: false };
