@@ -4,6 +4,7 @@
 import {
 	HitOutcome,
 	ResolutionState,
+	RollPurpose,
 	type Creature,
 	type Resolution,
 	type TargetOutcome,
@@ -62,6 +63,11 @@ export interface TargetView {
 	outcome: OutcomeView;
 	/** The attack roll or saving throw, or null if there is none to show. */
 	roll: RollCardView | null;
+	/**
+	 * Who rolled `roll`. The attacker rolls an attack; the target rolls its own saving throw.
+	 * Damage rolls are always the source's, so they are not covered by this.
+	 */
+	rollWho: string;
 	/** Said instead of a roll: "Roll: unknown" when it is missing, or nothing when none was needed. */
 	rollNote: string;
 	damageRolls: RollCardView[];
@@ -103,17 +109,29 @@ function attackStepCount(
 	return ability.steps.filter((s) => s.step.case === 'attack').length;
 }
 
+/** A saving throw is rolled by the target, so its roll is not the source's. */
+function isSave(outcome: TargetOutcome): boolean {
+	return (
+		outcome.outcome === HitOutcome.SAVE_FAILED ||
+		outcome.outcome === HitOutcome.SAVE_SUCCEEDED ||
+		outcome.roll?.purpose === RollPurpose.SAVE
+	);
+}
+
 function targetView(
 	outcome: TargetOutcome,
 	index: number,
 	tokens: Tokens,
-	multi: boolean
+	multi: boolean,
+	sourceName: string
 ): TargetView {
 	const view = outcomeView(outcome.outcome);
 	const noRollNeeded = outcome.outcome === HitOutcome.AUTOMATIC;
+	const name = nameOf(tokens, outcome.tokenId);
 	return {
 		key: index,
-		name: nameOf(tokens, outcome.tokenId),
+		name,
+		rollWho: isSave(outcome) ? name : sourceName,
 		attackNumber: multi ? outcome.stepIndex + 1 : null,
 		outcome: view,
 		roll: outcome.roll ? rollCardView(outcome.roll) : null,
@@ -133,7 +151,7 @@ export function resultCardView(
 	const steps = attackStepCount(resolution, tokens, creatures);
 	const distinctSteps = new Set(resolution.outcomes.map((o) => o.stepIndex)).size;
 	const multi = (steps !== null && steps > 1) || distinctSteps > 1;
-	const targets = resolution.outcomes.map((o, i) => targetView(o, i, tokens, multi));
+	const targets = resolution.outcomes.map((o, i) => targetView(o, i, tokens, multi, sourceName));
 	const results = targets
 		.map((t) => `${t.attackNumber ? `attack ${t.attackNumber} ` : ''}${t.name}: ${t.outcome.text}`)
 		.join('; ');
