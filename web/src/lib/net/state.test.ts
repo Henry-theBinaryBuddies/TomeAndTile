@@ -3,6 +3,7 @@ import { create } from '@bufbuild/protobuf';
 import {
 	CreatureSchema,
 	EventSchema,
+	GridSchema,
 	HitOutcome,
 	ResolutionSchema,
 	ResolutionState,
@@ -145,8 +146,18 @@ describe('map target (where a map image goes)', () => {
 			campaignId: 'camp-1',
 			sceneId: 'scene-1',
 			levelId: 'level-a',
-			backgroundAssetId: 'asset-1'
+			backgroundAssetId: 'asset-1',
+			cellSize: 0,
+			gridOffset: { x: 0, y: 0 }
 		});
+	});
+
+	it('carries the grid cell size and offset, for placing a token on a cell', () => {
+		const scene = sceneOf('scene-1', 'camp-1');
+		scene.grid = create(GridSchema, { cellSize: 70, offset: create(Vec2Schema, { x: 10, y: 20 }) });
+		const s = withScene(scene);
+		expect(s.mapTarget?.cellSize).toBe(70);
+		expect(s.mapTarget?.gridOffset).toEqual({ x: 10, y: 20 });
 	});
 
 	it('has an empty background id when the level has none, and is null for a scene with no level', () => {

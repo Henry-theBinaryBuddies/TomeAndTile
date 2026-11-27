@@ -53,6 +53,10 @@ export interface MapTarget {
 	levelId: string;
 	/** The asset id of that level's background now, or '' if it has none. */
 	backgroundAssetId: string;
+	/** Size of one grid cell in scene units, or 0 if the server did not say. */
+	cellSize: number;
+	/** Where the grid starts, in scene units. */
+	gridOffset: { x: number; y: number };
 }
 
 /** The first level of a scene. Single-level maps, the only kind in M1, have exactly one. */
@@ -63,7 +67,9 @@ export function mapTargetOf(scene: Scene | undefined): MapTarget | null {
 		campaignId: scene.campaignId,
 		sceneId: scene.sceneId,
 		levelId: level.levelId,
-		backgroundAssetId: level.background?.assetId ?? ''
+		backgroundAssetId: level.background?.assetId ?? '',
+		cellSize: scene.grid?.cellSize ?? 0,
+		gridOffset: { x: scene.grid?.offset?.x ?? 0, y: scene.grid?.offset?.y ?? 0 }
 	};
 }
 

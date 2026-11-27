@@ -16,7 +16,9 @@ const target = (backgroundAssetId = ''): MapTarget => ({
 	campaignId: 'camp',
 	sceneId: 'scene',
 	levelId: 'level',
-	backgroundAssetId
+	backgroundAssetId,
+	cellSize: 0,
+	gridOffset: { x: 0, y: 0 }
 });
 
 const options = (): StartOptions => ({
