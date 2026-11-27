@@ -1,6 +1,9 @@
 // Attaches one participant's track to an element and detaches it again. A Svelte action:
-// `use:track={{ media, participantId, kind }}`. The element is attached on mount, moved when
-// the participant or the track kind changes, and detached when the element goes away.
+// `use:track={{ media, participantId, kind, version }}`. The element is attached on mount,
+// moved when the participant, the track kind or `version` changes, and detached when the
+// element goes away. `attachTrack` says whether a track was there; callers pass a version that
+// changes whenever the tile should try again (a new participant object from the module, or, for
+// your own video, a change in what the tile shows).
 import type { MediaClient, MediaClientState, ParticipantInfo, TrackKind } from '../../../media/index';
 import { shownParticipant } from './view';
 

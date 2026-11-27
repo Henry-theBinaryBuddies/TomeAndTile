@@ -80,22 +80,50 @@ export function cameraButtonLabel(cameraEnabled: boolean): string {
 	return cameraEnabled ? 'Turn camera off' : 'Turn camera on';
 }
 
+export type CameraStatus = 'on' | 'off' | 'waiting';
+
 export interface TileView {
 	id: string;
 	name: string;
 	micText: string;
 	cameraText: string;
+	/** `waiting` is a camera that is on but whose video has not arrived yet. */
+	camera: CameraStatus;
+	/** The person is talking right now. Shown in words as well as styling. */
+	speaking: boolean;
 	/** Read out for screen readers as one sentence. */
 	summary: string;
 }
 
-/** What a participant's tile shows. A missing name is "Unknown", never a guess. */
+/**
+ * What a participant's tile shows. A missing name is "Unknown", never a guess. "Waiting for"
+ * applies to other people only: it means they have turned the track on but it has not reached
+ * this browser yet, which is different from it being off. Your own tracks need no network step.
+ */
 export function tileView(p: ParticipantInfo): TileView {
 	const base = p.name.trim() === '' ? 'Unknown' : p.name.trim();
 	const name = p.isLocal ? `${base} (you)` : base;
-	const micText = p.micEnabled ? 'Microphone on' : 'Microphone off';
-	const cameraText = p.cameraEnabled ? 'Camera on' : 'Camera off';
-	return { id: p.id, name, micText, cameraText, summary: `${name}. ${micText}. ${cameraText}.` };
+	const camera: CameraStatus = !p.cameraEnabled
+		? 'off'
+		: !p.isLocal && !p.camera.subscribed
+			? 'waiting'
+			: 'on';
+	const micText = !p.micEnabled
+		? 'Microphone off'
+		: !p.isLocal && !p.mic.subscribed
+			? 'Waiting for audio'
+			: 'Microphone on';
+	const cameraText = camera === 'off' ? 'Camera off' : camera === 'waiting' ? 'Waiting for video' : 'Camera on';
+	const speaking = p.isSpeaking;
+	return {
+		id: p.id,
+		name,
+		micText,
+		cameraText,
+		camera,
+		speaking,
+		summary: `${name}. ${micText}. ${cameraText}.${speaking ? ' Speaking.' : ''}`
+	};
 }
 
 /**
@@ -115,8 +143,9 @@ export function audioParticipants(participants: readonly ParticipantInfo[]): Par
 	return participants.filter((p) => !p.isLocal);
 }
 
-/** The text for a device that failed to switch (the module may throw). */
-export const DEVICE_SWITCH_FAILED = 'That device could not be used. Choose another one.';
+/** Shown while the browser blocks sound from the call (autoplay policy). */
+export const AUDIO_BLOCKED_TEXT = 'Your browser is blocking sound from the call.';
+export const AUDIO_BLOCKED_BUTTON = 'Tap to enable sound';
 
 export const DEFAULT_DEVICE_LABEL = 'Browser default';
 

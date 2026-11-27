@@ -1,14 +1,11 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
-	import type { DeviceKind, MediaDeviceOption } from '../../../media/index';
+	import type { DeviceKind } from '../../../media/index';
 	import {
 		DEFAULT_DEVICE_LABEL,
-		DEVICE_SWITCH_FAILED,
 		cameraButtonLabel,
 		controlsView,
 		deviceLabel,
 		failureText,
-		getDeviceChoices,
 		getMediaClient,
 		joinDisabled,
 		joinLabel,
@@ -20,7 +17,6 @@
 	// The call belongs to the page, not to this panel, so collapsing the panel does not leave it.
 	const media = getMediaClient();
 	const { state: callState } = media;
-	const devices = getDeviceChoices();
 
 	const controls = $derived(controlsView($callState));
 	const inCall = $derived($callState.status === 'joined');
@@ -57,53 +53,17 @@
 	}
 
 	// ---- device pickers ----
-	let mics = $state<MediaDeviceOption[]>([]);
-	let cameras = $state<MediaDeviceOption[]>([]);
-	// The module does not report the chosen device yet, so this is what the person last picked.
-	// It is kept outside the panel (video/devices.ts), so collapsing the panel does not forget it.
-	const selectedMic = $derived($devices.audioinput);
-	const selectedCamera = $derived($devices.videoinput);
-	let deviceError = $state('');
+	// The media module keeps the device lists current and remembers the choice, even before
+	// joining and across leave and join, so the panel only reads them. A switch that fails is
+	// reported through `failure`, shown above.
+	const mics = $derived($callState.devices.audioinput);
+	const cameras = $derived($callState.devices.videoinput);
+	const selectedMic = $derived($callState.selectedDeviceId.audioinput ?? '');
+	const selectedCamera = $derived($callState.selectedDeviceId.videoinput ?? '');
 
-	async function refreshDevices(kind: DeviceKind) {
-		try {
-			const list = await media.listDevices(kind);
-			if (kind === 'audioinput') mics = list;
-			else cameras = list;
-		} catch {
-			if (kind === 'audioinput') mics = [];
-			else cameras = [];
-		}
-	}
-
-	// Labels are only filled in after permission is given, so look again once we are in the call.
-	$effect(() => {
-		if ($callState.status === 'joined' && $callState.canPublish) {
-			untrack(() => {
-				void refreshDevices('audioinput');
-				void refreshDevices('videoinput');
-			});
-		} else {
-			untrack(() => {
-				mics = [];
-				cameras = [];
-				deviceError = '';
-			});
-		}
-	});
-
-	async function onPick(kind: DeviceKind, event: Event) {
-		const select = event.currentTarget as HTMLSelectElement;
-		const deviceId = select.value;
-		if (!deviceId) return;
-		deviceError = '';
-		try {
-			await media.selectDevice(kind, deviceId);
-			devices.remember(kind, deviceId);
-		} catch {
-			deviceError = DEVICE_SWITCH_FAILED;
-			select.value = kind === 'audioinput' ? selectedMic : selectedCamera;
-		}
+	function onPick(kind: DeviceKind, event: Event) {
+		const deviceId = (event.currentTarget as HTMLSelectElement).value;
+		if (deviceId) void media.selectDevice(kind, deviceId);
 	}
 </script>
 
@@ -163,7 +123,6 @@
 					{/each}
 				</select>
 			</label>
-			{#if deviceError}<p class="error" role="alert">{deviceError}</p>{/if}
 		</div>
 	{/if}
 
