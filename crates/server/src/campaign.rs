@@ -158,6 +158,10 @@ pub struct Campaign {
     /// answer (`view.rs`). Undo (#101) must delete the entry when it puts a
     /// token back.
     pub removed_token_hidden: HashMap<String, bool>,
+    /// For each encounter ended by `EndEncounterIntent`: whether players
+    /// could see it when it ended. Same purpose as `removed_token_hidden`,
+    /// for `EncounterEnded` (#133).
+    pub removed_encounter_visible: HashMap<String, bool>,
 }
 
 /// What [`Campaign::import_creature`] did.
@@ -208,6 +212,7 @@ impl Campaign {
             log: Vec::new(),
             groups: Vec::new(),
             removed_token_hidden: HashMap::new(),
+            removed_encounter_visible: HashMap::new(),
         }
     }
 
@@ -1293,6 +1298,7 @@ impl Campaign {
 
         // Roll everything, then check entropy before any state change.
         let d20 = Expr::parse("1d20").expect("1d20 parses");
+        let any_hidden = tokens.iter().any(|t| t.hidden);
         let mut pending: Vec<(String, i32, RollResult)> = Vec::with_capacity(tokens.len());
         for t in &tokens {
             let creature = self
@@ -1301,7 +1307,9 @@ impl Campaign {
                 .find(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id);
             let bonus = creature.map_or(0, |c| c.initiative_bonus);
             let rolled = dice::roll(&d20, RollMode::Normal, rng);
-            let visibility = if t.hidden {
+            // One hidden combatant makes the whole encounter invisible to
+            // players, so no initiative roll reaches them (#133).
+            let visibility = if any_hidden {
                 RollVisibility::GmOnly
             } else {
                 RollVisibility::Public
@@ -1460,7 +1468,10 @@ impl Campaign {
         let mut changed = false;
         if let Some(sheet) = recharged.as_mut() {
             let d6 = Expr::parse("1d6").expect("1d6 parses");
-            let visibility = if hidden || sheet.owner_user_id.is_empty() {
+            let visibility = if hidden
+                || sheet.owner_user_id.is_empty()
+                || !self.encounter_visible_to_players(&enc)
+            {
                 RollVisibility::GmOnly
             } else {
                 RollVisibility::Public
@@ -1614,6 +1625,10 @@ impl Campaign {
 
         // Validated: mutate.
         let enc = self.encounters.remove(ei);
+        self.removed_encounter_visible.insert(
+            enc.encounter_id.clone(),
+            self.encounter_visible_to_players(&enc),
+        );
         let mut kinds = vec![event::Kind::EncounterEnded(EncounterEnded {
             encounter_id: enc.encounter_id.clone(),
         })];
