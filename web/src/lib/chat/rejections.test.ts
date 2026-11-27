@@ -23,7 +23,13 @@ describe('rejectionText', () => {
 			'bad_condition_id',
 			'conflicting_conditions',
 			'too_many_conditions',
-			'unknown_token'
+			'unknown_token',
+			'unknown_scene',
+			'no_combatants',
+			'encounter_running',
+			'unknown_encounter',
+			'unknown_combatant',
+			'rng_unavailable'
 		];
 		for (const code of codes) {
 			const text = rejectionText(code);

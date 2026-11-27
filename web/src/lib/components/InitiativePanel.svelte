@@ -1,16 +1,84 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { getGameClient } from '../net';
+	import { getGameClient, type IntentKind } from '../net';
+	import { rejectionText } from '../chat';
 	import { canEditConditions, conditionChanges, conditionList, shortList } from '../conditions';
 	import ConditionEditor from './ConditionEditor.svelte';
 	import HealthBadge from './HealthBadge.svelte';
-	import { currentEncounter, initiativeView, turnAnnouncement } from '../initiative';
+	import StartEncounter from './StartEncounter.svelte';
+	import {
+		buildEndEncounterKind,
+		buildEndTurnKind,
+		buildSetInitiativeKind,
+		canControlEncounter,
+		canEndTurn,
+		canMove,
+		currentEncounter,
+		initiativeView,
+		moveChanges,
+		parseInitiative,
+		turnAnnouncement,
+		type MoveDirection
+	} from '../initiative';
 
-	const { state: panelState } = getGameClient();
+	const client = getGameClient();
+	const { state: panelState, lastRejection } = client;
 
 	const encounter = $derived(currentEncounter($panelState.encounters, $panelState.activeSceneId));
 	const view = $derived(encounter ? initiativeView(encounter, $panelState.tokens) : null);
 	const isGm = $derived(canEditConditions($panelState.role));
+	const gmEncounter = $derived(canControlEncounter($panelState.role));
+	const currentToken = $derived(
+		encounter ? $panelState.tokens[encounter.combatants[encounter.turnIndex]?.tokenId ?? ''] : undefined
+	);
+	const showEndTurn = $derived(
+		encounter !== null &&
+			encounter.combatants[encounter.turnIndex] !== undefined &&
+			canEndTurn($panelState.role, $panelState.userId, currentToken)
+	);
+
+	// What was last sent from this bar, so a rejection of it can be shown here.
+	let sentIds = $state<string[]>([]);
+	let note = $state('');
+	const rejection = $derived(
+		$lastRejection && sentIds.includes($lastRejection.clientIntentId)
+			? rejectionText($lastRejection.code)
+			: ''
+	);
+	function send(kind: IntentKind) {
+		note = '';
+		const id = client.send(kind);
+		if (id) sentIds = [...sentIds, id];
+		else note = 'Not connected. Nothing was sent.';
+	}
+
+	let confirmingEnd = $state(false);
+	let editingOrder = $state(false);
+	// Draft initiative text per row, shown only while the order is being edited.
+	let drafts = $state<Record<number, string>>({});
+	function draftFor(index: number, initiative: number): string {
+		return drafts[index] ?? String(initiative);
+	}
+	function setInitiative(index: number, tokenId: string, order: number) {
+		if (!encounter) return;
+		const parsed = parseInitiative(drafts[index] ?? '');
+		if (!parsed.ok) {
+			note = parsed.reason;
+			return;
+		}
+		send(buildSetInitiativeKind(encounter.encounterId, tokenId, parsed.value, order));
+		delete drafts[index];
+	}
+	function move(index: number, dir: MoveDirection) {
+		if (!encounter) return;
+		for (const c of moveChanges(encounter.combatants, index, dir))
+			send(buildSetInitiativeKind(encounter.encounterId, c.tokenId, c.initiative, c.order));
+	}
+	function onMoveKey(e: KeyboardEvent, index: number) {
+		if (e.isComposing || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+		e.preventDefault();
+		move(index, e.key === 'ArrowUp' ? 'up' : 'down');
+	}
 
 	// Which row's full condition list is open, and which row's editor.
 	let expanded = $state<number | null>(null);
@@ -47,7 +115,54 @@
 				<li class:current={row.current} aria-current={row.current ? 'true' : undefined}>
 					{#if row.current}<span class="marker" aria-hidden="true">▶</span>{/if}
 					<span class="name">{row.name}</span>
-					<span class="score" title="Initiative">{row.initiative}</span>
+					{#if editingOrder && gmEncounter}
+						<form
+							class="edit"
+							onsubmit={(e) => {
+								e.preventDefault();
+								setInitiative(row.index, row.tokenId, encounter?.combatants[row.index]?.order ?? 0);
+							}}
+						>
+							<label class="sr-only" for="init-{row.index}">Initiative for {row.name}</label>
+							<input
+								id="init-{row.index}"
+								class="num"
+								inputmode="numeric"
+								autocomplete="off"
+								value={draftFor(row.index, row.initiative)}
+								oninput={(e) => (drafts[row.index] = e.currentTarget.value)}
+								onkeydown={(e) => {
+									if (e.key === 'Escape' && !e.isComposing) {
+										e.preventDefault();
+										e.stopPropagation();
+										delete drafts[row.index];
+										e.currentTarget.value = String(row.initiative);
+									}
+								}}
+							/>
+							<button type="submit" class="more">Set</button>
+							{#if encounter}
+								<button
+									type="button"
+									class="more"
+									disabled={!canMove(encounter.combatants, row.index, 'up')}
+									aria-label={`Move ${row.name} up among equal initiatives`}
+									onkeydown={(e) => onMoveKey(e, row.index)}
+									onclick={() => move(row.index, 'up')}>▲</button
+								>
+								<button
+									type="button"
+									class="more"
+									disabled={!canMove(encounter.combatants, row.index, 'down')}
+									aria-label={`Move ${row.name} down among equal initiatives`}
+									onkeydown={(e) => onMoveKey(e, row.index)}
+									onclick={() => move(row.index, 'down')}>▼</button
+								>
+							{/if}
+						</form>
+					{:else}
+						<span class="score" title="Initiative">{row.initiative}</span>
+					{/if}
 					<HealthBadge view={row.health} />
 					{#if row.current}<span class="sr-only">(current turn)</span>{/if}
 					{#if list.items.length > 0}
@@ -83,10 +198,43 @@
 			{/each}
 		</ol>
 		<p class="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
+		{#if encounter && (showEndTurn || gmEncounter)}
+			<div class="controls">
+				{#if showEndTurn}
+					<button type="button" onclick={() => send(buildEndTurnKind(encounter.encounterId))}>
+						End turn
+					</button>
+				{/if}
+				{#if gmEncounter}
+					<button type="button" aria-pressed={editingOrder} onclick={() => (editingOrder = !editingOrder)}>
+						{editingOrder ? 'Done editing order' : 'Edit order'}
+					</button>
+					{#if confirmingEnd}
+						<span role="group" aria-label="Confirm ending the encounter">
+							End the encounter?
+							<button
+								type="button"
+								onclick={() => {
+									send(buildEndEncounterKind(encounter.encounterId));
+									confirmingEnd = false;
+								}}>Yes, end it</button
+							>
+							<button type="button" onclick={() => (confirmingEnd = false)}>Keep going</button>
+						</span>
+					{:else}
+						<button type="button" onclick={() => (confirmingEnd = true)}>End encounter</button>
+					{/if}
+				{/if}
+			</div>
+		{/if}
+		<p class="note" role="status" aria-live="polite">{note}</p>
+		{#if rejection}<p class="error" role="alert">{rejection}</p>{/if}
 		{#if editing}
 			<ConditionEditor tokenId={editing.tokenId} onclose={closeEditor} />
 		{/if}
 	</div>
+{:else if gmEncounter}
+	<StartEncounter />
 {:else}
 	<p class="empty">No combat in progress.</p>
 {/if}
@@ -150,6 +298,30 @@
 		color: var(--muted);
 		font-size: 0.85rem;
 		font-weight: 400;
+	}
+	.controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		align-items: center;
+		flex-basis: 100%;
+	}
+	.edit {
+		display: flex;
+		gap: 0.25rem;
+		align-items: center;
+	}
+	.num {
+		width: 3.5rem;
+		min-height: 1.8rem;
+	}
+	.note {
+		margin: 0;
+		color: var(--muted);
+	}
+	.error {
+		margin: 0;
+		color: #ff9e9e;
 	}
 	.empty {
 		margin: 0;
