@@ -49,7 +49,7 @@ A GM, or a player who controls the (visible) source token, sends `use_ability` w
 - Encounter: the encounter in state whose `scene_id` is the source token's scene, with its `round`, is passed to the engine (it decides condition timers). While the scene has no running encounter, timed conditions get a `duration_not_tracked` warning (start one with `start_encounter`, below).
 - Ids and attribution: the server fills `Resolution.resolution_id` and every `RollResult.roll_id` from its id source, sets `roller_user_id` to the sender and `visibility` to `PUBLIC`. A damage roll that the engine copies into every outcome of one save or flat step gets ONE `roll_id`, the same in every copy. Every other roll (attack rolls, saving throws, each target's attack damage) has its own.
 - Scene grid: taken from the scene of the source token. Without a grid, range is not checked.
-- Warnings never stop the action. The engine's warnings are in `Resolution.warnings` and also in `Event.warnings` of the `ResolutionUpdated` event (only that event). Codes: `out_of_range`, `too_many_targets`, `not_enough_resource`, `extra_targets_ignored`, `area_not_checked`, `no_hit_points`, `condition_immune`, `duration_not_tracked`, `ability_recharging` (see `common.proto`). A viewer who may not see the source creature's sheet (a player, for a monster) gets the resolution without `not_enough_resource`, because that warning names the creature's resource and how many uses are left.
+- Warnings never stop the action. The engine's warnings are in `Resolution.warnings` and also in `Event.warnings` of the `ResolutionUpdated` event (only that event). Codes: `out_of_range`, `too_many_targets`, `not_enough_resource`, `extra_targets_ignored`, `area_not_checked`, `no_hit_points`, `condition_immune`, `duration_not_tracked`, `too_many_conditions` (a target token already had 32 conditions, so an effect was not added; once per token), `ability_recharging` (see `common.proto`). A viewer who may not see the source creature's sheet (a player, for a monster) gets the resolution without `not_enough_resource`, because that warning names the creature's resource and how many uses are left.
 - Area shapes (sphere, cone, line, cube) resolve: the listed tokens are the targets, no template is placed, and `area_not_checked` is given once.
 - Refusals go to the sender only and append nothing. Order of checks: permission, `unknown_token`, `no_creature`, `unknown_ability`, `unknown_target`, then the engine (`no_targets`, `not_implemented`), then `rng_unavailable`. `not_implemented` is now only for plugin steps, mixed multi-attack abilities (several attack steps with a save or flat step) and ability data the engine cannot use (including dice that do not parse). Codes are in the table below.
 - A player naming a source token that is missing, hidden or not theirs always gets `not_permitted`, so a player can never learn what abilities a GM creature has.
@@ -94,7 +94,7 @@ Warning: `condition_immune` on `set_conditions` (an id in `add` is in the creatu
 
 On load (`Campaign::from_snapshot`) `health_state` is recomputed for every token with an `hp_max` (a missing `hp_current` counts as full); a stored value is never trusted.
 
-Limits: 500 tokens per campaign, token name 120 characters, 32 conditions per token, `hp_temp` up to 999, coordinates within `MAX_COORDINATE`.
+Limits: 500 tokens per campaign, token name 120 characters, 32 conditions per token (`tt_rules::conditions::MAX_CONDITIONS`, shared by `set_conditions`, import and the engine's `apply_condition`), `set_conditions` lists at most 64 ids in `add` plus `remove`, 64 target ids per `use_ability` (`MAX_TARGETS`), `hp_temp` up to 999, coordinates within `MAX_COORDINATE`.
 
 ### Change records and undo (#101)
 
@@ -102,7 +102,7 @@ Limits: 500 tokens per campaign, token name 120 characters, 32 conditions per to
 
 For an undoable group (`Move` or `Edit`) the group also keeps `before_tokens` and `before_creatures`: the whole stored token or creature, as it was before the intent, for each changed id that existed then (a removed token is kept whole). A token the group created has no entry. Nothing is trimmed; the log and these states live in memory only, so undo does not survive a restart.
 
-`UndoIntent` (GM only) names a group by its first event (for an ability use the `ResolutionUpdated`, not its `TokenUpserted`). What can be undone: an ability use, set hit points, set conditions, a move, a token create and a token remove. Not undoable: chat, dice rolls, set controllers, set level background, the encounter intents and an undo itself (no redo). Checks, in this order, each refusal going to the sender only and appending nothing: `not_permitted` (not the GM), `unknown_event` (no group holds that `seq`, including events before the seed), `not_first_event`, `not_undoable`, `already_undone`, `undo_blocked`.
+`UndoIntent` (GM only) names a group by its first event (for an ability use the `ResolutionUpdated`, not its `TokenUpserted`). What can be undone: an ability use, set hit points, set conditions, a move, a token create and a token remove. Not undoable: chat, dice rolls, set controllers, set level background, the encounter intents and an undo itself (no redo). Checks, in this order, each refusal going to the sender only and appending nothing: `not_permitted` (not the GM), `unknown_event` (no group holds that `seq`, including events before the seed), `not_first_event`, `not_undoable`, `already_undone`, `undo_blocked`, `in_encounter` (the group created a token that is now a combatant of an encounter in state; end the encounter first, as for `remove_token`). When undo puts a token back (a removed token, or an earlier state), condition timers whose `encounter_id` is not a current encounter are dropped and the conditions stay, as when `end_encounter` runs.
 
 Dependency rule: a group cannot be undone while a later group that has not been undone changed any of the same tokens or creatures. `undo_blocked` names that later group's first `seq`; undo it first. Undo groups never block: each one restored exactly the state of the group it reversed, so with that group marked undone the pair changes nothing for earlier groups (this is what lets "attack twice, undo the second, then the first" work). An undo group is still recorded with the tokens and creatures it changed, and is `Undo` kind, so it cannot be undone.
 
@@ -164,7 +164,7 @@ A GM sends a creature file over HTTP; the server validates it, stores the sheet 
 
 Limits: body at most 1 MiB (`MAX_IMPORT_BYTES`, by `Content-Length` and while reading), four imports at once (own gate, separate from uploads), 500 creatures per campaign.
 
-Checks before anything changes (400 `bad_creature` with a short message): name not empty and at most 120 characters; at most 200 abilities and 50 resources; every damage and healing dice string parses with `tt_rules::dice::Expr::parse`; `hp_max` at least 0 and `hp_current` within `0..=hp_max`; `provenance.source` not empty (for example `adventurers-anvil`). Bad JSON is also `bad_creature`.
+Checks before anything changes (400 `bad_creature` with a short message naming the field; the list is `validate_import` in `campaign.rs`, limits are named constants there): name not empty and at most 120 characters; at most 200 abilities, 50 resources, 32 `conditions` and 32 `condition_immunities`; `hp_max` at least 0, `hp_current` within `0..=hp_max`, `hp_temp` within `0..=999`; `armor_class` 0 to 50; `proficiency_bonus` 0 to 10; `passive_perception` 0 to 100; when `scores` is present each score 1 to 30; the five speeds and each targeting distance finite and within `0..=100000` feet; `provenance.source` not empty (for example `adventurers-anvil`); `conditions`, `condition_immunities` and every apply-effect `effect_id` are condition ids (`[a-z0-9_]{1,40}`); resource keys non-empty and unique with `0 <= current <= max`; `ability_id`s non-empty and unique; `recharge.min_roll` 2 to 6; at most 16 steps per ability and 16 damage parts per step; every damage and healing dice string parses with `tt_rules::dice::Expr::parse`, and an attack step's dice also double for a critical hit (`Expr::doubled_dice`, so `100d100` is refused); `portrait`, if set, is a server asset: empty, or a `url` that starts with `http://`, `https://` or `/` and ends with `/assets/<64 lowercase hex>.<png|jpg|webp>` with `asset_id` empty or equal to that hex (ADR 0014; the origin is not compared, `javascript:` and `data:` never pass). Bad JSON is also `bad_creature`.
 
 **Ids and owner:** any incoming `creature_id` is ignored; the server mints one (or keeps the replaced sheet's id). A new creature has `owner_user_id` cleared; ownership is given later with `SetControllersIntent` on a token, so it is visible to the GM only until a player controls a token of it. A re-import keeps the replaced sheet's existing `owner_user_id`.
 
@@ -199,14 +199,16 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 | `bad_hit_points` | `set_hit_points`: `hp_current` below 0 or above `hp_max`, or `hp_temp` below 0 or above 999 |
 | `bad_condition_id` | `set_conditions`: an id in `add` or `remove` is not `[a-z0-9_]{1,40}` |
 | `conflicting_conditions` | `set_conditions`: the same id in `add` and `remove` |
-| `too_many_conditions` | `set_conditions`: more than 32 conditions on the token afterwards |
+| `too_many_conditions` | `set_conditions`: `add` plus `remove` list more than 64 ids (checked before anything else about the lists), or more than 32 conditions on the token afterwards. Also a warning of `use_ability` (see above) |
 | `unknown_creature` | `create_token` names a creature that does not exist |
 | `name_too_long` | `create_token`: name over 120 characters |
 | `too_many_tokens` | `create_token`: the campaign already has 500 tokens |
-| `in_encounter` | `remove_token`: the token is a combatant of an encounter in state |
+| `in_encounter` | `remove_token`: the token is a combatant of an encounter in state. `undo`: the group created a token that is now such a combatant |
 | `no_creature` | `use_ability`: the source token has no creature |
 | `unknown_ability` | `use_ability`: the ability id is not on the source creature |
 | `no_targets` | `use_ability`: a creature-targeting ability with no targets |
+| `too_many_targets` | `use_ability`: more than 64 target ids (a rejection; the warning of the same name is for more targets than `max_targets`) |
+| `duplicate_target` | `use_ability`: a target id listed more times than the ability has attack steps (once for any ability with at most one attack step) |
 | `unknown_target` | `use_ability`: a target token that does not exist, is hidden from a player sender, or has no creature |
 | `unknown_event` | `undo`: no event with that `seq` in the log |
 | `not_first_event` | `undo`: the event belongs to a group but is not its first |
