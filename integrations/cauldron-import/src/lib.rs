@@ -13,7 +13,7 @@ use std::fmt;
 use serde_json::Value;
 use tt_contracts::v1::{
     AbilityScore, AbilityScores, Creature, CreatureKind, CreatureSize, DamageType, Provenance,
-    SkillBonus,
+    RulesEdition, SkillBonus,
 };
 
 /// A file above this size is refused before anything is parsed. The largest sample in
@@ -25,6 +25,9 @@ pub const MAX_NESTING_DEPTH: usize = 32;
 pub const MAX_LIST_LEN: usize = 256;
 /// Longest a single JSON string value may be before the file is refused.
 pub const MAX_STRING_LEN: usize = 4096;
+/// Most condition ids a single creature may have; any beyond this are reported and dropped,
+/// not imported.
+pub const MAX_CONDITION_IMMUNITIES: usize = 32;
 
 /// One field the importer could not bring across, for the caller to show or log. Never changes
 /// what was imported; see `monster.saves` in `MAPPING.md` for the one case (a save-bonus
@@ -73,6 +76,19 @@ pub enum ImportError {
     WrongFormatVersion(String),
     MissingField(String),
     UnknownSize(String),
+    /// A required number is present and the right type, but outside the range the field can
+    /// actually hold (an ability score, a proficiency bonus, hit points below zero). Checked
+    /// before any arithmetic is done with it, so a hostile or malformed value can never panic.
+    OutOfRange {
+        field: String,
+        min: i32,
+        max: i32,
+        found: i32,
+    },
+    /// `monster.name`, after trimming, is empty, or is longer than the server accepts (120
+    /// characters) -- both would otherwise be accepted here and bounced by the server as a
+    /// generic `bad_creature` later.
+    InvalidName { reason: &'static str },
 }
 
 impl fmt::Display for ImportError {
@@ -109,6 +125,13 @@ impl fmt::Display for ImportError {
             ),
             ImportError::MissingField(field) => write!(f, "{field} is required but missing"),
             ImportError::UnknownSize(found) => write!(f, "{found} is not a known creature size"),
+            ImportError::OutOfRange {
+                field,
+                min,
+                max,
+                found,
+            } => write!(f, "{field} is {found}, outside the allowed range {min} to {max}"),
+            ImportError::InvalidName { reason } => write!(f, "name is {reason}"),
         }
     }
 }
@@ -194,6 +217,14 @@ fn check_limits(value: &Value, path: &str, depth: usize) -> Result<(), ImportErr
                 });
             }
             for (k, v) in map {
+                // A key's own length is capped the same as a string value's: an object key is
+                // just as much attacker-controlled text as a value is (a skill name, for one).
+                if k.chars().count() > MAX_STRING_LEN {
+                    return Err(ImportError::StringTooLong {
+                        field: format!("{path}.{k}"),
+                        max_len: MAX_STRING_LEN,
+                    });
+                }
                 check_limits(v, &format!("{path}.{k}"), depth + 1)?;
             }
         }
@@ -237,6 +268,75 @@ fn require_i32(value: &Value, path: &str, key: &str) -> Result<i32, ImportError>
         }),
         None => Err(ImportError::MissingField(field)),
     }
+}
+
+/// Like [`require_i32`], but also rejects a value outside `min..=max` before the caller ever
+/// does arithmetic with it. Used for ability scores and the proficiency bonus, so a crafted
+/// file with an extreme integer (`i32::MIN`, `i32::MAX`) is refused here rather than overflowing
+/// a later subtraction or addition.
+fn require_i32_range(
+    value: &Value,
+    path: &str,
+    key: &str,
+    min: i32,
+    max: i32,
+) -> Result<i32, ImportError> {
+    let found = require_i32(value, path, key)?;
+    if found < min || found > max {
+        return Err(ImportError::OutOfRange {
+            field: format!("{path}.{key}"),
+            min,
+            max,
+            found,
+        });
+    }
+    Ok(found)
+}
+
+/// `monster.{field}` as an object. Distinguishes "missing" from "present but the wrong type" --
+/// `"armor_class": 15` (a bare number, not `{"value": 15}`) is the latter, not a missing
+/// `armor_class.value`.
+fn require_field_object<'a>(monster: &'a Value, field: &str) -> Result<&'a Value, ImportError> {
+    let value = monster
+        .get(field)
+        .ok_or_else(|| ImportError::MissingField(field.to_string()))?;
+    if !value.is_object() {
+        return Err(ImportError::WrongType {
+            field: field.to_string(),
+            expected: "object",
+        });
+    }
+    Ok(value)
+}
+
+/// Clamps an accepted-but-out-of-range number (armor class, a movement speed) into bounds the
+/// rules engine can use, reporting what was done rather than silently guessing or hard-failing
+/// the whole import over it.
+fn bounded_i32(n: i32, field: &str, min: i32, max: i32, report: &mut Vec<ReportEntry>) -> i32 {
+    let clamped = n.clamp(min, max);
+    if clamped != n {
+        report.push(ReportEntry {
+            field: field.to_string(),
+            reason: format!("{n} is outside {min} to {max}; clamped to {clamped}"),
+        });
+    }
+    clamped
+}
+
+/// Same as [`bounded_i32`] for a movement speed: also rejects non-finite values (`1e300`, NaN),
+/// which `clamp` cannot.
+fn bounded_speed(raw: f32, field: &str, report: &mut Vec<ReportEntry>) -> f32 {
+    const MAX_SPEED_FEET: f32 = 10_000.0;
+    if !raw.is_finite() || !(0.0..=MAX_SPEED_FEET).contains(&raw) {
+        report.push(ReportEntry {
+            field: field.to_string(),
+            reason: format!(
+                "{raw} is not a valid speed (must be finite, 0 to {MAX_SPEED_FEET}); using 0"
+            ),
+        });
+        return 0.0;
+    }
+    raw
 }
 
 pub(crate) fn optional_i32(value: &Value, key: &str) -> Option<i32> {
@@ -343,6 +443,16 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
 
     let id = require_str(monster, "id")?;
     let name = require_str(monster, "name")?;
+    if name.trim().is_empty() {
+        return Err(ImportError::InvalidName {
+            reason: "blank after trimming",
+        });
+    }
+    if name.chars().count() > 120 {
+        return Err(ImportError::InvalidName {
+            reason: "longer than 120 characters",
+        });
+    }
 
     let attribution = optional_str(monster, "attribution").unwrap_or("");
     let origin_notes = origin_notes(monster);
@@ -351,60 +461,76 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
     let size =
         creature_size(size_str).ok_or_else(|| ImportError::UnknownSize(size_str.to_string()))?;
 
-    let armor_class_obj = monster
-        .get("armor_class")
-        .ok_or_else(|| ImportError::MissingField("armor_class".into()))?;
+    let armor_class_obj = require_field_object(monster, "armor_class")?;
     let armor_class = require_i32(armor_class_obj, "armor_class", "value")?;
+    let armor_class = bounded_i32(armor_class, "armor_class.value", 0, 50, &mut report);
 
-    let hit_points_obj = monster
-        .get("hit_points")
-        .ok_or_else(|| ImportError::MissingField("hit_points".into()))?;
+    let hit_points_obj = require_field_object(monster, "hit_points")?;
     let hp_max = require_i32(hit_points_obj, "hit_points", "average")?;
+    if hp_max < 0 {
+        return Err(ImportError::OutOfRange {
+            field: "hit_points.average".to_string(),
+            min: 0,
+            max: i32::MAX,
+            found: hp_max,
+        });
+    }
 
     let speeds = monster.get("speeds");
-    let speed_feet = speeds.and_then(|s| optional_f32(s, "walk")).unwrap_or(0.0);
-    let fly_speed_feet = speeds.and_then(|s| optional_f32(s, "fly")).unwrap_or(0.0);
-    let swim_speed_feet = speeds.and_then(|s| optional_f32(s, "swim")).unwrap_or(0.0);
-    let climb_speed_feet = speeds.and_then(|s| optional_f32(s, "climb")).unwrap_or(0.0);
-    let burrow_speed_feet = speeds
-        .and_then(|s| optional_f32(s, "burrow"))
-        .unwrap_or(0.0);
+    let raw_speed = |key: &str| speeds.and_then(|s| optional_f32(s, key)).unwrap_or(0.0);
+    let speed_feet = bounded_speed(raw_speed("walk"), "speeds.walk", &mut report);
+    let fly_speed_feet = bounded_speed(raw_speed("fly"), "speeds.fly", &mut report);
+    let swim_speed_feet = bounded_speed(raw_speed("swim"), "speeds.swim", &mut report);
+    let climb_speed_feet = bounded_speed(raw_speed("climb"), "speeds.climb", &mut report);
+    let burrow_speed_feet = bounded_speed(raw_speed("burrow"), "speeds.burrow", &mut report);
     let can_hover = speeds.map(|s| optional_bool(s, "hover")).unwrap_or(false);
 
-    let abilities_obj = monster
-        .get("abilities")
-        .ok_or_else(|| ImportError::MissingField("abilities".into()))?;
+    let abilities_obj = require_field_object(monster, "abilities")?;
     let scores = AbilityScores {
-        strength: require_i32(abilities_obj, "abilities", "str")?,
-        dexterity: require_i32(abilities_obj, "abilities", "dex")?,
-        constitution: require_i32(abilities_obj, "abilities", "con")?,
-        intelligence: require_i32(abilities_obj, "abilities", "int")?,
-        wisdom: require_i32(abilities_obj, "abilities", "wis")?,
-        charisma: require_i32(abilities_obj, "abilities", "cha")?,
+        strength: require_i32_range(abilities_obj, "abilities", "str", 1, 30)?,
+        dexterity: require_i32_range(abilities_obj, "abilities", "dex", 1, 30)?,
+        constitution: require_i32_range(abilities_obj, "abilities", "con", 1, 30)?,
+        intelligence: require_i32_range(abilities_obj, "abilities", "int", 1, 30)?,
+        wisdom: require_i32_range(abilities_obj, "abilities", "wis", 1, 30)?,
+        charisma: require_i32_range(abilities_obj, "abilities", "cha", 1, 30)?,
     };
 
-    let challenge_obj = monster
-        .get("challenge")
-        .ok_or_else(|| ImportError::MissingField("challenge".into()))?;
-    let proficiency_bonus = require_i32(challenge_obj, "challenge", "proficiency_bonus")?;
+    let challenge_obj = require_field_object(monster, "challenge")?;
+    let proficiency_bonus =
+        require_i32_range(challenge_obj, "challenge", "proficiency_bonus", 0, 10)?;
 
-    let saves_obj = monster.get("saves");
     let mut save_proficiencies = Vec::new();
-    if let Some(saves_obj) = saves_obj {
-        for (key, modifier_fn, ability_score) in SIX_ABILITIES {
-            let Some(printed) = optional_i32(saves_obj, key) else {
-                continue;
-            };
-            save_proficiencies.push(ability_score);
-            let expected = ability_modifier(modifier_fn(&scores)) + proficiency_bonus;
-            if expected != printed {
-                report.push(ReportEntry {
-                    field: format!("saves.{key}"),
-                    reason: format!(
-                        "printed save bonus {printed} does not match ability modifier + proficiency bonus ({expected})"
-                    ),
-                });
+    match monster.get("saves") {
+        None => {}
+        Some(Value::Object(saves_obj)) => {
+            for (key, modifier_fn, ability_score) in SIX_ABILITIES {
+                let Some(raw) = saves_obj.get(key) else {
+                    continue;
+                };
+                let Some(printed) = raw.as_i64().and_then(|n| i32::try_from(n).ok()) else {
+                    report.push(ReportEntry {
+                        field: format!("saves.{key}"),
+                        reason: "save bonus is not an integer".to_string(),
+                    });
+                    continue;
+                };
+                save_proficiencies.push(ability_score);
+                let expected = ability_modifier(modifier_fn(&scores)) + proficiency_bonus;
+                if expected != printed {
+                    report.push(ReportEntry {
+                        field: format!("saves.{key}"),
+                        reason: format!(
+                            "printed save bonus {printed} does not match ability modifier + proficiency bonus ({expected})"
+                        ),
+                    });
+                }
             }
+        }
+        Some(_) => {
+            report.push(ReportEntry {
+                field: "saves".to_string(),
+                reason: "saves is not an object".to_string(),
+            });
         }
     }
 
@@ -440,16 +566,37 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
         damage_type_list(monster, "immunities", &mut report),
     );
 
-    let condition_immunities: Vec<String> = monster
-        .get("condition_immunities")
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut condition_immunities = Vec::new();
+    if let Some(list) = monster.get("condition_immunities").and_then(Value::as_array) {
+        for item in list {
+            let Some(id) = item.as_str() else {
+                report.push(ReportEntry {
+                    field: "condition_immunities[]".to_string(),
+                    reason: "not a string".to_string(),
+                });
+                continue;
+            };
+            if !is_condition_id(id) {
+                report.push(ReportEntry {
+                    field: "condition_immunities[]".to_string(),
+                    reason: format!(
+                        "\"{id}\" is not a valid condition id (lower case, digits, underscore, 1 to 40 characters)"
+                    ),
+                });
+                continue;
+            }
+            if condition_immunities.len() >= MAX_CONDITION_IMMUNITIES {
+                report.push(ReportEntry {
+                    field: "condition_immunities[]".to_string(),
+                    reason: format!(
+                        "more than {MAX_CONDITION_IMMUNITIES} condition immunities; dropped"
+                    ),
+                });
+                continue;
+            }
+            condition_immunities.push(id.to_string());
+        }
+    }
 
     let senses = monster.get("senses");
     let passive_perception = senses
@@ -474,7 +621,7 @@ fn import_stat_block(monster: &Value) -> Result<Import, ImportError> {
         creature_id: String::new(),
         kind: CreatureKind::Monster as i32,
         name: name.to_string(),
-        edition: 1, // RulesEdition::RULES_EDITION_2014 -- all Cauldron monsters use the 2014 rules.
+        edition: RulesEdition::RulesEdition2014 as i32, // all Cauldron monsters use the 2014 rules.
         size: size as i32,
         scores: Some(scores),
         proficiency_bonus,
@@ -559,6 +706,13 @@ fn damage_type_list(monster: &Value, key: &str, report: &mut Vec<ReportEntry>) -
         .collect()
 }
 
+/// A condition or label id, per the SRD-condition-id rule agreed in #95: `[a-z0-9_]{1,40}`.
+fn is_condition_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().count() <= 40
+        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
 fn creature_size(name: &str) -> Option<CreatureSize> {
     Some(match name {
         "tiny" => CreatureSize::Tiny,
@@ -572,8 +726,11 @@ fn creature_size(name: &str) -> Option<CreatureSize> {
 }
 
 /// "Large dragon, CR 4 (1,100 XP)": `monster.type`, the creature's size, and challenge rating
-/// plus XP, folded into one display-only line (`monster.subtypes`, `.alignment` and
-/// `armor_class.note` are safely dropped, per MAPPING.md).
+/// plus XP, folded into one display-only line. `monster.subtypes`, `.alignment` and
+/// `armor_class.note` are deliberately left out, not an oversight: the issue's own example
+/// ("Large dragon, CR 4 (1,100 XP)") has neither a subtype, an alignment, nor an AC note in it,
+/// so this matches the acceptance test literally. MAPPING.md lists all three as "safely dropped"
+/// for the same reason (flavor text the rules engine never reads).
 fn summary(monster: &Value) -> String {
     let size = optional_str(monster, "size").unwrap_or("");
     let size_titlecase = size
@@ -736,10 +893,12 @@ mod tests {
                 .collect(),
         );
         let bytes = envelope(monster);
-        assert!(matches!(
-            import_monster(&bytes),
-            Err(ImportError::ListTooLong { .. })
-        ));
+        match import_monster(&bytes) {
+            Err(ImportError::ListTooLong { field, .. }) => {
+                assert_eq!(field, "$.monster.condition_immunities");
+            }
+            other => panic!("expected ListTooLong, got {other:?}"),
+        }
     }
 
     #[test]
@@ -747,10 +906,210 @@ mod tests {
         let mut monster = minimal_monster();
         monster["name"] = Value::String("x".repeat(MAX_STRING_LEN + 1));
         let bytes = envelope(monster);
+        match import_monster(&bytes) {
+            Err(ImportError::StringTooLong { field, .. }) => {
+                assert_eq!(field, "$.monster.name");
+            }
+            other => panic!("expected StringTooLong, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_object_key_over_its_cap_is_rejected() {
+        let mut monster = minimal_monster();
+        let mut skills = serde_json::Map::new();
+        skills.insert("x".repeat(MAX_STRING_LEN + 1), serde_json::json!(3));
+        monster["skills"] = Value::Object(skills);
+        let bytes = envelope(monster);
         assert!(matches!(
             import_monster(&bytes),
             Err(ImportError::StringTooLong { .. })
         ));
+    }
+
+    #[test]
+    fn negative_hp_is_rejected() {
+        let mut monster = minimal_monster();
+        monster["hit_points"] = serde_json::json!({ "average": -5 });
+        let bytes = envelope(monster);
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::OutOfRange {
+                field: "hit_points.average".to_string(),
+                min: 0,
+                max: i32::MAX,
+                found: -5
+            })
+        );
+    }
+
+    #[test]
+    fn an_extreme_ability_score_is_rejected_never_panics() {
+        let mut monster = minimal_monster();
+        monster["abilities"]["con"] = serde_json::json!(i32::MIN);
+        monster["saves"] = serde_json::json!({ "con": 5 });
+        let bytes = envelope(monster);
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::OutOfRange {
+                field: "abilities.con".to_string(),
+                min: 1,
+                max: 30,
+                found: i32::MIN
+            })
+        );
+    }
+
+    #[test]
+    fn an_extreme_proficiency_bonus_is_rejected_never_panics() {
+        let mut monster = minimal_monster();
+        monster["abilities"]["con"] = serde_json::json!(i32::MAX);
+        monster["challenge"]["proficiency_bonus"] = serde_json::json!(i32::MAX);
+        let bytes = envelope(monster);
+        // con (out of 1..=30) is checked first, so that error surfaces before the
+        // proficiency_bonus one would -- either way, nothing panics.
+        assert!(matches!(
+            import_monster(&bytes),
+            Err(ImportError::OutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn a_blank_name_is_rejected() {
+        let mut monster = minimal_monster();
+        monster["name"] = Value::String("   ".to_string());
+        let bytes = envelope(monster);
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::InvalidName {
+                reason: "blank after trimming"
+            })
+        );
+    }
+
+    #[test]
+    fn a_name_over_120_characters_is_rejected() {
+        let mut monster = minimal_monster();
+        monster["name"] = Value::String("x".repeat(121));
+        let bytes = envelope(monster);
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::InvalidName {
+                reason: "longer than 120 characters"
+            })
+        );
+    }
+
+    #[test]
+    fn a_bare_number_armor_class_is_a_wrong_type_not_a_missing_field() {
+        let mut monster = minimal_monster();
+        monster["armor_class"] = serde_json::json!(15);
+        let bytes = envelope(monster);
+        assert_eq!(
+            import_monster(&bytes),
+            Err(ImportError::WrongType {
+                field: "armor_class".to_string(),
+                expected: "object"
+            })
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_armor_class_is_clamped_and_reported() {
+        let mut monster = minimal_monster();
+        monster["armor_class"] = serde_json::json!({ "value": -99999 });
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(import.creature.armor_class, 0);
+        assert_eq!(import.report[0].field, "armor_class.value");
+    }
+
+    #[test]
+    fn a_non_finite_speed_is_reported_and_zeroed() {
+        let mut monster = minimal_monster();
+        monster["speeds"] = serde_json::json!({ "walk": 30, "fly": 1e300 });
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(import.creature.fly_speed_feet, 0.0);
+        assert!(import.report.iter().any(|r| r.field == "speeds.fly"));
+    }
+
+    #[test]
+    fn a_negative_speed_is_reported_and_zeroed() {
+        let mut monster = minimal_monster();
+        monster["speeds"] = serde_json::json!({ "walk": 30, "fly": -40 });
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(import.creature.fly_speed_feet, 0.0);
+        assert!(import.report.iter().any(|r| r.field == "speeds.fly"));
+    }
+
+    #[test]
+    fn a_non_integer_save_bonus_is_reported_not_silently_dropped() {
+        let mut monster = minimal_monster();
+        monster["saves"] = serde_json::json!({ "con": "+2", "dex": 2.0 });
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert!(import.creature.save_proficiencies.is_empty());
+        assert_eq!(import.report.len(), 2);
+        assert!(import.report.iter().any(|r| r.field == "saves.con"));
+        assert!(import.report.iter().any(|r| r.field == "saves.dex"));
+    }
+
+    #[test]
+    fn saves_that_is_not_an_object_is_reported() {
+        let mut monster = minimal_monster();
+        monster["saves"] = serde_json::json!(["con"]);
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert!(import.creature.save_proficiencies.is_empty());
+        assert_eq!(import.report.len(), 1);
+        assert_eq!(import.report[0].field, "saves");
+    }
+
+    #[test]
+    fn a_non_string_condition_immunity_is_reported_and_dropped() {
+        let mut monster = minimal_monster();
+        monster["condition_immunities"] = serde_json::json!(["prone", 5]);
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(import.creature.condition_immunities, vec!["prone".to_string()]);
+        assert_eq!(import.report.len(), 1);
+    }
+
+    #[test]
+    fn a_junk_condition_immunity_id_is_reported_and_dropped() {
+        let mut monster = minimal_monster();
+        monster["condition_immunities"] = serde_json::json!(["prone", "Not An Id!!"]);
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(import.creature.condition_immunities, vec!["prone".to_string()]);
+        assert_eq!(import.report.len(), 1);
+    }
+
+    #[test]
+    fn more_than_32_condition_immunities_are_capped() {
+        let mut monster = minimal_monster();
+        monster["condition_immunities"] =
+            Value::Array((0..40).map(|i| Value::String(format!("cond_{i}"))).collect());
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(import.creature.condition_immunities.len(), MAX_CONDITION_IMMUNITIES);
+        assert_eq!(import.report.len(), 40 - MAX_CONDITION_IMMUNITIES);
+    }
+
+    #[test]
+    fn origin_notes_folds_parent_id_generator_and_changes() {
+        let mut monster = minimal_monster();
+        monster["parent_id"] = Value::String("goblin-base".to_string());
+        monster["generator"] = Value::String("reskin-tool".to_string());
+        monster["changes"] = serde_json::json!(["bigger", "meaner"]);
+        let bytes = envelope(monster);
+        let import = import_monster(&bytes).unwrap();
+        assert_eq!(
+            import.creature.provenance.unwrap().origin_notes,
+            "reskin of goblin-base via reskin-tool; changes: bigger, meaner"
+        );
     }
 
     #[test]
