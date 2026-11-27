@@ -125,16 +125,28 @@ pub fn timer_for(
     })
 }
 
+/// Most conditions one token may carry. The server reuses this value for its
+/// own checks (`SetConditions`, import), so the two limits cannot drift.
+pub const MAX_CONDITIONS: usize = 32;
+
 /// Add condition `id` to `token` (once) and store `timer`, replacing any
 /// timer for the same id. With no `timer` an existing timer is kept.
-pub fn apply_condition(token: &mut Token, id: &str, timer: Option<ConditionTimer>) {
+///
+/// A token that already has [`MAX_CONDITIONS`] conditions gets no new one:
+/// nothing changes (no timer either) and the result is `false`. Otherwise
+/// the result is `true`, also when the token already had `id`.
+pub fn apply_condition(token: &mut Token, id: &str, timer: Option<ConditionTimer>) -> bool {
     if !token.conditions.iter().any(|c| c == id) {
+        if token.conditions.len() >= MAX_CONDITIONS {
+            return false;
+        }
         token.conditions.push(id.to_string());
     }
     if let Some(t) = timer {
         token.condition_timers.retain(|x| x.effect_id != id);
         token.condition_timers.push(t);
     }
+    true
 }
 
 /// Remove the timers that end at this turn change, with their conditions,
@@ -782,8 +794,23 @@ mod tests {
         // With no new timer, the old one stays.
         let mut apply = tok("tgt", 1.0, &["bless"]);
         apply.condition_timers = vec![timer("bless", "old", 2, false)];
-        apply_condition(&mut apply, "bless", None);
+        assert!(apply_condition(&mut apply, "bless", None));
         assert_eq!(apply.condition_timers.len(), 1);
+    }
+
+    #[test]
+    fn apply_condition_refuses_a_new_id_at_the_cap_but_keeps_known_ones() {
+        let ids: Vec<String> = (0..MAX_CONDITIONS).map(|n| format!("c{n}")).collect();
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let mut full = tok("tgt", 1.0, &refs);
+        let t = timer("extra", "src", 3, false);
+        assert!(!apply_condition(&mut full, "extra", Some(t)));
+        assert_eq!(full.conditions.len(), MAX_CONDITIONS);
+        assert!(full.condition_timers.is_empty());
+        // An id the token already has is still fine (its timer is replaced).
+        let t = timer("c0", "src", 3, false);
+        assert!(apply_condition(&mut full, "c0", Some(t)));
+        assert_eq!(full.condition_timers.len(), 1);
     }
 
     #[test]

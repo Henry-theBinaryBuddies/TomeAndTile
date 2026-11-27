@@ -1284,3 +1284,71 @@ async fn undo_of_set_conditions_create_remove_and_move() {
         other => panic!("expected token_moved, got {other:?}"),
     }
 }
+
+// ----------------------------------------------------- audit fixes (#132)
+
+#[tokio::test]
+async fn use_ability_refuses_too_many_and_repeated_targets() {
+    let addr = start(faces(&[10, 4])).await;
+    let (mut player, _) = join(addr, "player").await;
+    use_ability(
+        &mut player,
+        "t1",
+        "token-brannoch",
+        "longsword",
+        &["token-goblin", "token-goblin"],
+    )
+    .await;
+    assert_rejected(&mut player, "duplicate_target").await;
+    let many = vec!["token-goblin"; 65];
+    use_ability(&mut player, "t2", "token-brannoch", "longsword", &many).await;
+    assert_rejected(&mut player, "too_many_targets").await;
+    // Scorching Ray has three attack steps: an id may appear three times.
+    use_ability(
+        &mut player,
+        "t3",
+        "token-ilvaren",
+        "scorching-ray",
+        &["token-goblin"; 4],
+    )
+    .await;
+    assert_rejected(&mut player, "duplicate_target").await;
+    // Nothing was used: the first event is still seq 1.
+    assert_settled(&mut player, 0).await;
+}
+
+#[tokio::test]
+async fn set_conditions_checks_list_lengths_first() {
+    let addr = start(faces(&[])).await;
+    let (mut gm, _) = join(addr, "gm").await;
+    let many: Vec<String> = (0..100).map(|i| format!("c{i}")).collect();
+    let many: Vec<&str> = many.iter().map(String::as_str).collect();
+    set_conditions(&mut gm, "l1", "token-nobody", &many, &[]).await;
+    assert_rejected(&mut gm, "too_many_conditions").await;
+}
+
+#[tokio::test]
+async fn undoing_a_create_of_a_combatant_is_in_encounter() {
+    let addr = start(faces(&[])).await;
+    let (mut gm, _) = join(addr, "gm").await;
+    send_intent(
+        &mut gm,
+        "k1",
+        intent::Kind::CreateToken(CreateTokenIntent {
+            scene_id: "scene-mock".into(),
+            creature_id: "creature-goblin".into(),
+            position: Some(Vec2 { x: 500.0, y: 300.0 }),
+            ..Default::default()
+        }),
+    )
+    .await;
+    let made = event(&mut gm).await;
+    let id = upserted(&made).token_id.clone();
+    start_encounter(&mut gm, "s1", "scene-mock", &[id.as_str()]).await;
+    let _initiative_roll = event(&mut gm).await;
+    let _encounter = event(&mut gm).await;
+    undo(&mut gm, "u1", made.seq).await;
+    assert_rejected(&mut gm, "in_encounter").await;
+    let (_ws, s) = join(addr, "gm").await;
+    assert!(s.tokens.iter().any(|t| t.token_id == id));
+}

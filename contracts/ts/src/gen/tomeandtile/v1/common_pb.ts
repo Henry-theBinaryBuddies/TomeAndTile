@@ -113,6 +113,8 @@ export type Warning = Message<"tomeandtile.v1.Warning"> & {
    *                          added condition id is in the creature's
    *                          condition_immunities and was added anyway
    *                          (SetConditionsIntent)
+   *   too_many_conditions    a target token already had 32 conditions, so an
+   *                          effect could not be added (once per token)
    *   duration_not_tracked   an effect's duration gets no timer (see
    *                          ConditionTimer in scene.proto); the condition is
    *                          still applied

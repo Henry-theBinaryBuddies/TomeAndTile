@@ -10,6 +10,9 @@ use tt_contracts::v1::{
 };
 
 use crate::dice::{self, Notation};
+
+/// Most target ids in one `UseAbilityIntent` (the real server's `MAX_TARGETS`).
+const MAX_TARGETS: usize = 64;
 use crate::tokens::{apply_damage, apply_healing, has_hp, refresh_health};
 use crate::{warning, Before, Game, Group, Outcome, Rejection, UndoRecord};
 
@@ -546,6 +549,31 @@ impl Game {
                 "unknown_ability",
                 format!("the creature has no ability {:?}", u.ability_id),
             ))?;
+        // As in the real server: the count first, then repeats (allowed once
+        // per attack step, so only a multiattack may repeat an id).
+        if u.target_token_ids.len() > MAX_TARGETS {
+            return Err((
+                "too_many_targets",
+                format!("an ability may list at most {MAX_TARGETS} targets"),
+            ));
+        }
+        let attack_steps = ability
+            .steps
+            .iter()
+            .filter(|s| matches!(s.step, Some(effect_step::Step::Attack(_))))
+            .count()
+            .max(1);
+        let mut copies: HashMap<&str, usize> = HashMap::new();
+        for id in &u.target_token_ids {
+            let n = copies.entry(id.as_str()).or_insert(0);
+            *n += 1;
+            if *n > attack_steps {
+                return Err((
+                    "duplicate_target",
+                    format!("token {id:?} is listed more than {attack_steps} time(s)"),
+                ));
+            }
+        }
         let shape = ability
             .targeting
             .as_ref()

@@ -71,6 +71,26 @@ impl Game {
                 "the mock undoes only the most recent group that has not been undone".to_string(),
             ));
         }
+        // Undoing a create removes the token; a combatant must stay.
+        if let Some(created) = self.undo_stack.last().and_then(|g| {
+            g.record
+                .before
+                .iter()
+                .filter(|b| b.token.is_none())
+                .find(|b| {
+                    self.encounters
+                        .iter()
+                        .any(|e| e.combatants.iter().any(|c| c.token_id == b.token_id))
+                })
+        }) {
+            return Err((
+                "in_encounter",
+                format!(
+                    "token {:?} is in a running encounter; end the encounter first",
+                    created.token_id
+                ),
+            ));
+        }
         let Some(group) = self.undo_stack.pop() else {
             return Err(not_permitted("nothing to undo"));
         };
