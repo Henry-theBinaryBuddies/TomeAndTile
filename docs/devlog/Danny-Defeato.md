@@ -2,6 +2,13 @@
 
 Newest entry first. Format in [README.md](README.md).
 
+## 2026-11-27 — #125 save rolls and #137 docked panels
+
+**Did:** Two small fixes, each its own PR. #125: a saving throw on a result card names the target as the roller, on the card and in the screen-reader sentence; damage rolls keep the attacker. #137: docked panels have a minimum size and the dock scrolls when they do not fit (side panels at least 10rem, chat 5rem more; top and bottom panels at least 15rem wide). 402 tests pass with #125; check, build and the dependency check pass. #137 was checked in a browser at 1280 × 720 with all five panels on each edge; #125 was checked by unit tests and the type check only.
+**Directed Claude to:** Check which of last week's PRs had merged before building (all had, so nothing of mine blocked anyone), use the outcome and the roll's purpose for #125 as the issue says, and keep #137 to the minimum height and the scrolling dock, leaving drag-to-resize out.
+**Learned:** `flex: 1 1 0` with `min-height: 0` has no floor, so a crowded dock squeezes every panel the same; a `min-height` plus `overflow-y: auto` fixes it. The save-roll bug was one value: the card passed the attacker's name to every roll, and the same value fed the screen-reader sentence. aalemany00's CI commit had already covered #93, so nothing was needed for it.
+**Blocked on / next:** Nothing blocks either. Next is #108 (health on the sheet, initiative bar and result cards), then #110 and #109, with #111 and #112 in parallel and #113 last.
+
 ## 2026-11-27 — #85 and #87 Video panel uses the new media fields
 
 **Did:** Moved the Video panel onto the fields aalemany00 added to `web/media` ([#85](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/85) for #65, [#87](https://github.com/Henry-theBinaryBuddies/TomeAndTile/issues/87) for #66). The pickers now read `devices` and `selectedDeviceId` from the call state, so the small store I added for #77 is gone, and a choice made in one place is the same everywhere. A tile tells a camera that is off from one whose video has not arrived ("Waiting for video"), says "Waiting for audio" for someone else's microphone that has not arrived, and marks who is speaking in words as well as with an outline. While the browser blocks sound, a "Tap to enable sound" button calls `startAudioPlayback()`. It sits in the always-mounted audio element, so it still shows when the Video panel is collapsed. 4 new tile tests and the 4 store tests removed (396 pass in all); check, test and build pass. The audio prompt and the pickers were not exercised in a browser, only through the unit tests and a type check.
