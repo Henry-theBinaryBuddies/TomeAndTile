@@ -13,6 +13,10 @@
 	import ChatPanel from './ChatPanel.svelte';
 	import InitiativePanel from './InitiativePanel.svelte';
 	import MapImageControl from './MapImageControl.svelte';
+	import CreatureImport from './CreatureImport.svelte';
+	import PlaceCreature from './PlaceCreature.svelte';
+	import RemoveToken from './RemoveToken.svelte';
+	import { canUseGmTools } from '../gmtools';
 	import VideoPanel from './VideoPanel.svelte';
 	import SheetPanel from './SheetPanel.svelte';
 
@@ -22,6 +26,7 @@
 
 	const { state: gameState } = getGameClient();
 	const isGm = $derived($gameState.role === Role.GM);
+	const gmTools = $derived(canUseGmTools($gameState.role));
 
 	const HINTS: Record<Exclude<PanelId, 'chat' | 'initiative' | 'video' | 'sheet'>, string> = {
 		tools: 'GM tools will appear here.'
@@ -124,6 +129,13 @@
 				<InitiativePanel />
 			{:else if id === 'tools' && isGm}
 				<MapImageControl />
+				{#if gmTools}
+					<div class="gm-tools">
+						<CreatureImport />
+						<PlaceCreature />
+						<RemoveToken />
+					</div>
+				{/if}
 			{:else if id === 'video'}
 				<VideoPanel />
 			{:else if id === 'sheet'}

@@ -19,7 +19,24 @@ describe('rejectionText', () => {
 			'dice_too_many_terms',
 			'dice_bad_keep',
 			'dice_number_too_large',
-			'dice_too_long'
+			'dice_too_long',
+			'bad_condition_id',
+			'conflicting_conditions',
+			'too_many_conditions',
+			'unknown_token',
+			'unknown_scene',
+			'no_combatants',
+			'encounter_running',
+			'unknown_encounter',
+			'unknown_combatant',
+			'rng_unavailable',
+			'unknown_creature',
+			'bad_coordinate',
+			'name_too_long',
+			'unknown_user',
+			'invalid_controller',
+			'too_many_tokens',
+			'in_encounter'
 		];
 		for (const code of codes) {
 			const text = rejectionText(code);

@@ -29,10 +29,11 @@
 					{#each target.damageRolls as damage, i (i)}
 						<RollCard who={view.sourceName} view={damage} {undone} />
 					{/each}
-					{#if target.damage.length > 0 || target.healing || target.droppedToZero}
+					{#if target.damage.length > 0 || target.healing || target.effects.length > 0 || target.droppedToZero}
 						<p class="applied">
 							{#if target.damage.length > 0}<span>Damage: {target.damage.join(', ')}</span>{/if}
 							{#if target.healing}<span>{target.healing}</span>{/if}
+							{#if target.effects.length > 0}<span>Now: {target.effects.join(', ')}</span>{/if}
 							{#if target.droppedToZero}<strong class="zero">Dropped to 0</strong>{/if}
 						</p>
 					{/if}

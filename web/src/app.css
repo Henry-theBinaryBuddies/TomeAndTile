@@ -346,3 +346,13 @@ body {
 .tool-error {
 	color: #ff9e9e;
 }
+
+/* The GM tools (import, place, remove) stack under the map image control. */
+.gm-tools {
+	display: flex;
+	flex-direction: column;
+	gap: 0.9rem;
+	margin-top: 0.9rem;
+	padding-top: 0.9rem;
+	border-top: 1px solid var(--border);
+}

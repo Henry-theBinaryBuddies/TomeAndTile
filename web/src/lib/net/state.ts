@@ -53,6 +53,10 @@ export interface MapTarget {
 	levelId: string;
 	/** The asset id of that level's background now, or '' if it has none. */
 	backgroundAssetId: string;
+	/** Size of one grid cell in scene units, or 0 if the server did not say. */
+	cellSize: number;
+	/** Where the grid starts, in scene units. */
+	gridOffset: { x: number; y: number };
 }
 
 /** The first level of a scene. Single-level maps, the only kind in M1, have exactly one. */
@@ -63,7 +67,9 @@ export function mapTargetOf(scene: Scene | undefined): MapTarget | null {
 		campaignId: scene.campaignId,
 		sceneId: scene.sceneId,
 		levelId: level.levelId,
-		backgroundAssetId: level.background?.assetId ?? ''
+		backgroundAssetId: level.background?.assetId ?? '',
+		cellSize: scene.grid?.cellSize ?? 0,
+		gridOffset: { x: scene.grid?.offset?.x ?? 0, y: scene.grid?.offset?.y ?? 0 }
 	};
 }
 
@@ -87,6 +93,12 @@ export interface PanelState {
 	creatures: Record<string, Creature>;
 	/** The latest state of each ability resolution, by resolution id. */
 	resolutions: Record<string, Resolution>;
+	/**
+	 * Warnings the server put on the last token update, with the intent that caused it (for
+	 * example `condition_immune` on a SetConditionsIntent). Null if there were none. They never
+	 * block anything.
+	 */
+	tokenWarnings: { clientIntentId: string; warnings: Warning[] } | null;
 }
 
 export function emptyState(): PanelState {
@@ -102,7 +114,8 @@ export function emptyState(): PanelState {
 		encounters: [],
 		tokens: {},
 		creatures: {},
-		resolutions: {}
+		resolutions: {},
+		tokenWarnings: null
 	};
 }
 
@@ -120,7 +133,8 @@ export function applySnapshot(snapshot: Snapshot): PanelState {
 		encounters: [...snapshot.encounters],
 		tokens: Object.fromEntries(snapshot.tokens.map((t) => [t.tokenId, t])),
 		creatures: Object.fromEntries(snapshot.creatures.map((c) => [c.creatureId, c])),
-		resolutions: {}
+		resolutions: {},
+		tokenWarnings: null
 	};
 }
 
@@ -206,7 +220,14 @@ export function applyEvent(state: PanelState, event: Event): PanelState {
 		case 'tokenUpserted': {
 			const token = kind.value.token;
 			if (!token) return base;
-			return { ...base, tokens: { ...state.tokens, [token.tokenId]: token } };
+			return {
+				...base,
+				tokens: { ...state.tokens, [token.tokenId]: token },
+				tokenWarnings:
+					event.warnings.length > 0
+						? { clientIntentId: event.clientIntentId, warnings: [...event.warnings] }
+						: state.tokenWarnings
+			};
 		}
 		case 'tokenMoved': {
 			const { tokenId, path, levelId } = kind.value;

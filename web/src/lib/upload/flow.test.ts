@@ -5,7 +5,7 @@ import { setMapImage, setMapImageFailureText } from './flow';
 import { buildSetBackgroundKind } from './intent';
 import type { MapTarget } from '../net';
 
-const target: MapTarget = { campaignId: 'camp-1', sceneId: 'scene-1', levelId: 'level-1', backgroundAssetId: '' };
+const target: MapTarget = { campaignId: 'camp-1', sceneId: 'scene-1', levelId: 'level-1', backgroundAssetId: '', cellSize: 0, gridOffset: { x: 0, y: 0 } };
 const file = () => new File([new Uint8Array([1, 2, 3])], 'map.webp', { type: 'image/webp' });
 const okFetch = () =>
 	vi.fn(async () => new Response(toBinary(AssetRefSchema, create(AssetRefSchema, { assetId: 'asset-7', mediaType: 'image/webp' })), { status: 200 })) as unknown as typeof fetch;
