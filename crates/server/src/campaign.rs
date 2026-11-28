@@ -13,8 +13,8 @@ use tt_contracts::v1::{
     MoveTokenIntent, RemoveTokenIntent, ResolutionState, ResolutionUpdated, Role, RollDiceIntent,
     RollMode, RollPurpose, RollResult, RollVisibility, Scene, SceneUpserted, SetConditionsIntent,
     SetControllersIntent, SetHitPointsIntent, SetInitiativeIntent, SetLevelBackgroundIntent,
-    Snapshot, StartEncounterIntent, Token, TokenMoved, TokenRemoved, TokenUpserted, UndoIntent,
-    UseAbilityIntent, Vec2, Warning,
+    Snapshot, StartEncounterIntent, Token, TokenMoved, TokenRemoved, TokenResource, TokenUpserted,
+    UndoIntent, UseAbilityIntent, Vec2, Warning,
 };
 use tt_rules::ability::{attack_step_count, resolve_ability, ResolveError};
 use tt_rules::conditions::expire_timers;
@@ -169,6 +169,9 @@ pub struct Campaign {
 pub struct ImportOutcome {
     /// The appended event, to broadcast.
     pub event: Event,
+    /// One `TokenUpserted` after `event` for each token linked to the sheet
+    /// whose live state the re-import changed (see [`fill_live_state`]).
+    pub token_events: Vec<Event>,
     /// The sheet as stored, with its server id.
     pub creature: Creature,
     /// True if it replaced an earlier import.
@@ -197,6 +200,15 @@ impl Campaign {
         for t in &mut tokens {
             if let Some(max) = t.hp_max {
                 t.health_state = health_state(t.hp_current.unwrap_or(max), max) as i32;
+            }
+            // Fill (or reconcile) the live resource and recharge state of
+            // every token that has a sheet, so a seed needs no such fields.
+            if let Some(c) = snapshot
+                .creatures
+                .iter()
+                .find(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id)
+            {
+                fill_live_state(t, c);
             }
         }
         Self {
@@ -235,13 +247,18 @@ impl Campaign {
     ///   so an import never undoes ownership the GM set.
     /// * A re-import matches on a non-empty `provenance.source` AND a
     ///   non-empty `provenance.external_id`. Tokens linked to the sheet keep
-    ///   their own hit points.
+    ///   their own hit points, and their live resources and spent recharge
+    ///   abilities are reconciled with the new sheet ([`fill_live_state`]):
+    ///   a kept pool keeps its current value clamped to the new maximum, a
+    ///   new key starts at the sheet's value, a removed key or ability is
+    ///   dropped.
     ///
     /// Appends one `CreatureUpserted` (empty `client_intent_id`, the active
-    /// scene, `warnings` on it) to the log. The group recorded for it is
+    /// scene, `warnings` on it) to the log, then one `TokenUpserted` for each
+    /// linked token whose state changed. The group recorded for them is
     /// `NotUndoable`: an import cannot be undone, but it lists the creature
-    /// so an earlier undoable change to the same sheet can no longer be
-    /// undone past it.
+    /// and those tokens so an earlier undoable change to the same sheet or
+    /// token can no longer be undone past it.
     pub fn import_creature(
         &mut self,
         actor_user_id: &str,
@@ -297,12 +314,40 @@ impl Campaign {
             })),
         };
         self.log.push(event.clone());
+        let first_seq = event.seq;
+        let mut token_events = Vec::new();
+        let mut changed_token_ids = Vec::new();
+        for i in 0..self.tokens.len() {
+            if self.tokens[i].creature_id != creature.creature_id {
+                continue;
+            }
+            let mut token = self.tokens[i].clone();
+            if !fill_live_state(&mut token, &creature) {
+                continue;
+            }
+            self.tokens[i] = token.clone();
+            self.seq += 1;
+            let ev = Event {
+                seq: self.seq,
+                at_ms: now_ms,
+                scene_id: token.scene_id.clone(),
+                actor_user_id: actor_user_id.to_string(),
+                client_intent_id: String::new(),
+                warnings: Vec::new(),
+                kind: Some(event::Kind::TokenUpserted(TokenUpserted {
+                    token: Some(token.clone()),
+                })),
+            };
+            self.log.push(ev.clone());
+            token_events.push(ev);
+            changed_token_ids.push(token.token_id);
+        }
         self.groups.push(AppliedGroup {
-            first_seq: self.seq,
+            first_seq,
             last_seq: self.seq,
             actor_user_id: actor_user_id.to_string(),
             client_intent_id: String::new(),
-            changed_token_ids: Vec::new(),
+            changed_token_ids,
             changed_creature_ids: vec![creature.creature_id.clone()],
             kind: GroupKind::NotUndoable,
             before_tokens: Vec::new(),
@@ -311,6 +356,7 @@ impl Campaign {
         });
         Ok(ImportOutcome {
             event,
+            token_events,
             creature,
             replaced,
         })
@@ -475,7 +521,13 @@ impl Campaign {
                 "the source token has no creature",
             ));
         };
-        let source = self.creatures[creature_idx].clone();
+        // The rules engine sees the creature with this token's live state:
+        // its pools and its spent recharge abilities (ADR 0016).
+        let source = {
+            let mut c = self.creatures[creature_idx].clone();
+            apply_live_state(&mut c, &source_token);
+            c
+        };
         let Some(ability) = source
             .abilities
             .iter()
@@ -626,11 +678,23 @@ impl Campaign {
                 }
             }
         }
+        // Spends and the recharge mark go to the SOURCE TOKEN; the creature
+        // is the template and is not changed.
         if resolved.source != source {
-            self.creatures[creature_idx] = resolved.source.clone();
-            kinds.push(event::Kind::CreatureUpserted(CreatureUpserted {
-                creature: Some(resolved.source),
-            }));
+            if let Some(stored) = self
+                .tokens
+                .iter_mut()
+                .find(|t| t.token_id == source_token.token_id)
+            {
+                let mut updated = stored.clone();
+                read_live_state(&mut updated, &resolved.source);
+                if *stored != updated {
+                    *stored = updated.clone();
+                    kinds.push(event::Kind::TokenUpserted(TokenUpserted {
+                        token: Some(updated),
+                    }));
+                }
+            }
         }
         Ok((source_token.scene_id, kinds, warnings))
     }
@@ -912,6 +976,9 @@ impl Campaign {
             token.hp_max = Some(c.hp_max);
             token.hp_temp = Some(c.hp_temp);
             token.health_state = health_state(c.hp_current, c.hp_max) as i32;
+        }
+        if let Some(c) = creature.as_ref() {
+            fill_live_state(&mut token, c);
         }
         self.tokens.push(token.clone());
         let mut kinds = vec![event::Kind::TokenUpserted(TokenUpserted {
@@ -1386,8 +1453,8 @@ impl Campaign {
     /// `not_permitted` (a player naming a missing or invisible encounter, or
     /// not controlling the current token), then `rng_unavailable`. Events:
     /// `EncounterUpdated`, a `TokenUpserted` per token whose timers ended,
-    /// then the recharge `DiceRolled`s and one `CreatureUpserted` of the
-    /// creature whose turn starts.
+    /// then the recharge `DiceRolled`s and one `TokenUpserted` of the token
+    /// whose turn starts, if one of its spent abilities recharged.
     fn end_turn(
         &mut self,
         actor: &str,
@@ -1454,19 +1521,18 @@ impl Campaign {
             (starter.as_str(), round),
         );
 
-        // Recharge: a d6 for each spent recharge ability of the creature
-        // whose turn starts.
+        // Recharge: a d6 for each spent recharge ability of the token whose
+        // turn starts (its own list, not the creature's).
         let start_token = self.tokens.iter().find(|t| t.token_id == starter);
-        let sheet_idx = start_token.and_then(|t| {
+        let sheet = start_token.and_then(|t| {
             self.creatures
                 .iter()
-                .position(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id)
+                .find(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id)
         });
         let hidden = start_token.is_some_and(|t| t.hidden);
         let mut rolls: Vec<RollResult> = Vec::new();
-        let mut recharged = sheet_idx.map(|i| self.creatures[i].clone());
-        let mut changed = false;
-        if let Some(sheet) = recharged.as_mut() {
+        let mut recharged = start_token.map(|t| t.recharge_spent_ability_ids.clone());
+        if let (Some(spent), Some(sheet), Some(token)) = (recharged.as_mut(), sheet, start_token) {
             let d6 = Expr::parse("1d6").expect("1d6 parses");
             let visibility = if hidden
                 || sheet.owner_user_id.is_empty()
@@ -1476,20 +1542,16 @@ impl Campaign {
             } else {
                 RollVisibility::Public
             };
-            let creature_id = sheet.creature_id.clone();
-            for ability in &mut sheet.abilities {
-                let Some(min_roll) = ability
-                    .recharge
-                    .as_ref()
-                    .filter(|_| ability.recharge_spent)
-                    .map(|r| r.min_roll)
-                else {
+            for id in token.recharge_spent_ability_ids.clone() {
+                let Some(ability) = sheet.abilities.iter().find(|a| a.ability_id == id) else {
+                    continue;
+                };
+                let Some(min_roll) = ability.recharge.as_ref().map(|r| r.min_roll) else {
                     continue;
                 };
                 let rolled = dice::roll(&d6, RollMode::Normal, rng);
                 if rolled.total >= i32::try_from(min_roll).unwrap_or(i32::MAX) {
-                    ability.recharge_spent = false;
-                    changed = true;
+                    spent.retain(|x| x != &id);
                 }
                 let name = if ability.name.is_empty() {
                     &ability.ability_id
@@ -1508,7 +1570,7 @@ impl Campaign {
                     fumble: false,
                     visibility: visibility as i32,
                     roller_user_id: actor.to_string(),
-                    roller_creature_id: creature_id.clone(),
+                    roller_creature_id: sheet.creature_id.clone(),
                     label: format!("{name} recharge"),
                 });
             }
@@ -1541,11 +1603,17 @@ impl Campaign {
             roll.roll_id = ids.next_id(now_ms);
             kinds.push(event::Kind::DiceRolled(DiceRolled { roll: Some(roll) }));
         }
-        if let (true, Some(idx), Some(sheet)) = (changed, sheet_idx, recharged) {
-            self.creatures[idx] = sheet.clone();
-            kinds.push(event::Kind::CreatureUpserted(CreatureUpserted {
-                creature: Some(sheet),
-            }));
+        // Only the recharge list is written: the stored token may just have
+        // had its timers expired above.
+        if let Some(spent) = recharged {
+            if let Some(stored) = self.tokens.iter_mut().find(|t| t.token_id == starter) {
+                if stored.recharge_spent_ability_ids != spent {
+                    stored.recharge_spent_ability_ids = spent;
+                    kinds.push(event::Kind::TokenUpserted(TokenUpserted {
+                        token: Some(stored.clone()),
+                    }));
+                }
+            }
         }
         Ok((enc.scene_id, kinds))
     }
@@ -1816,6 +1884,82 @@ impl Campaign {
         }
         Ok((scene_id, kinds))
     }
+}
+
+/// Bring a token's live resource pools and spent recharge abilities in line
+/// with its creature (the template, ADR 0016). Returns whether the token
+/// changed.
+///
+/// * Each creature resource key keeps the token's `current` if the token has
+///   that key, clamped to `0..=max`; a key the token lacks starts at the
+///   creature's `current` (clamped the same way). `label` and `max` follow
+///   the creature, and the order is the creature's. Keys the creature no
+///   longer has are dropped.
+/// * Only ids of abilities that still have a `recharge` rule stay in
+///   `recharge_spent_ability_ids` (once each, in the token's order).
+pub(crate) fn fill_live_state(token: &mut Token, creature: &Creature) -> bool {
+    let resources: Vec<TokenResource> = creature
+        .resources
+        .iter()
+        .map(|r| {
+            let max = r.max.max(0);
+            let current = token
+                .resources
+                .iter()
+                .find(|t| t.key == r.key)
+                .map_or(r.current, |t| t.current)
+                .clamp(0, max);
+            TokenResource {
+                key: r.key.clone(),
+                label: r.label.clone(),
+                current,
+                max,
+            }
+        })
+        .collect();
+    let mut spent: Vec<String> = Vec::new();
+    for id in &token.recharge_spent_ability_ids {
+        let recharges = creature
+            .abilities
+            .iter()
+            .any(|a| &a.ability_id == id && a.recharge.is_some());
+        if recharges && !spent.contains(id) {
+            spent.push(id.clone());
+        }
+    }
+    let changed = resources != token.resources || spent != token.recharge_spent_ability_ids;
+    token.resources = resources;
+    token.recharge_spent_ability_ids = spent;
+    changed
+}
+
+/// Overwrite `creature`'s resources and `recharge_spent` flags with the live
+/// state of `token`: what the rules engine must see for that token.
+fn apply_live_state(creature: &mut Creature, token: &Token) {
+    for r in &mut creature.resources {
+        if let Some(t) = token.resources.iter().find(|t| t.key == r.key) {
+            r.current = t.current;
+        }
+    }
+    for a in &mut creature.abilities {
+        a.recharge_spent = token.recharge_spent_ability_ids.contains(&a.ability_id);
+    }
+}
+
+/// The reverse of [`apply_live_state`]: copy the engine's updated pools and
+/// spent flags back into `token`.
+fn read_live_state(token: &mut Token, creature: &Creature) {
+    for t in &mut token.resources {
+        if let Some(r) = creature.resources.iter().find(|r| r.key == t.key) {
+            t.current = r.current;
+        }
+    }
+    token.recharge_spent_ability_ids = creature
+        .abilities
+        .iter()
+        .filter(|a| a.recharge.is_some() && a.recharge_spent)
+        .map(|a| a.ability_id.clone())
+        .collect();
 }
 
 /// Check an imported creature before anything is stored. Every failure is

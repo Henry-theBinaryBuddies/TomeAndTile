@@ -159,6 +159,9 @@ async fn import_creature(
             // Sent while the lock is held so every client sees seq order.
             // No receivers is not an error.
             let _ = state.tx.send(Arc::new(o.event));
+            for ev in o.token_events {
+                let _ = state.tx.send(Arc::new(ev));
+            }
             ImportResult {
                 creature: Some(o.creature),
                 replaced: o.replaced,
