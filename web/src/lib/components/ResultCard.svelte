@@ -1,8 +1,21 @@
 <script lang="ts">
-	import type { ResultCardView } from '../chat';
+	import type { Snippet } from 'svelte';
+	import type { ResultCardView, TargetView } from '../chat';
 	import RollCard from './RollCard.svelte';
 
-	let { view, undone }: { view: ResultCardView; undone: boolean } = $props();
+	// `targetActions` is drawn under each target row and `children` at the foot of the card: the
+	// GM's buttons go there, so the card itself stays a plain display of what the server sent.
+	let {
+		view,
+		undone,
+		targetActions,
+		children
+	}: {
+		view: ResultCardView;
+		undone: boolean;
+		targetActions?: Snippet<[TargetView]>;
+		children?: Snippet;
+	} = $props();
 </script>
 
 <article class="result" class:undone aria-label={view.announcement}>
@@ -29,17 +42,20 @@
 					{#each target.damageRolls as damage, i (i)}
 						<RollCard who={view.sourceName} view={damage} {undone} />
 					{/each}
-					{#if target.damage.length > 0 || target.healing || target.droppedToZero}
+					{#if target.damage.length > 0 || target.healing || target.effects.length > 0 || target.droppedToZero}
 						<p class="applied">
 							{#if target.damage.length > 0}<span>Damage: {target.damage.join(', ')}</span>{/if}
 							{#if target.healing}<span>{target.healing}</span>{/if}
+							{#if target.effects.length > 0}<span>Now: {target.effects.join(', ')}</span>{/if}
 							{#if target.droppedToZero}<strong class="zero">Dropped to 0</strong>{/if}
 						</p>
 					{/if}
+					{@render targetActions?.(target)}
 				</li>
 			{/each}
 		</ol>
 	{/if}
+	{@render children?.()}
 	{#each view.warnings as warning, i (i)}
 		<p class="warning">{warning}</p>
 	{/each}

@@ -5,3 +5,23 @@ export { rejectionText } from './rejections';
 export { displayName } from './names';
 export { resultCardView, outcomeView, warningText } from './result';
 export type { ResultCardView, TargetView, OutcomeView, OutcomeKind } from './result';
+export {
+	REROLL_UNKNOWN,
+	buildSetHitPointsKind,
+	buildUndoKind,
+	buildUseAgainKind,
+	halvePrefill,
+	hpPrefill,
+	parseHp,
+	rememberUse,
+	rememberedUse,
+	rerollBlockedReason,
+	rerollNext,
+	showOverrides,
+	undoQuestion,
+	undoSeq,
+	type HalvePrefill,
+	type HpInput,
+	type RerollNext,
+	type UseRecord
+} from './overrides';

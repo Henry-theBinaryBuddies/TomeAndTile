@@ -13,6 +13,7 @@ import {
 	type Token,
 	type Warning
 } from '@tomeandtile/contracts';
+import { conditionName } from '../conditions';
 import { rollCardView, type RollCardView } from './format';
 
 type Tokens = Readonly<Record<string, Pick<Token, 'name' | 'creatureId'>>>;
@@ -21,6 +22,7 @@ type Creatures = Readonly<Record<string, Pick<Creature, 'abilities'>>>;
 const WARNING_TEXT: Record<string, string> = {
 	out_of_range: 'A target was out of range. The attack was still rolled.',
 	too_many_targets: 'More targets than this ability allows. All of them were still used.',
+	condition_immune: 'That creature is immune to that condition. It was added anyway.',
 	not_enough_resource: 'Not enough of what this ability uses. It was still used.',
 	extra_targets_ignored: 'Some of the targets were ignored because there were not enough attacks.'
 };
@@ -72,6 +74,10 @@ export interface TargetView {
 	/** Position in the card, used as the list key (the same token can appear more than once). */
 	key: number;
 	name: string;
+	/** The target's token id, for the GM's buttons on this row. */
+	tokenId: string;
+	/** Total damage the server applied to this row, or null when it sent no damage list. */
+	appliedTotal: number | null;
 	/** `1`, `2`, ... for the attack that produced this outcome; null unless it is a multi-attack. */
 	attackNumber: number | null;
 	outcome: OutcomeView;
@@ -89,6 +95,8 @@ export interface TargetView {
 	damage: string[];
 	/** "Healed 8" when healing is above 0, else null. */
 	healing: string | null;
+	/** Conditions and effects applied, by display name. An id the table does not know shows as sent. */
+	effects: string[];
 	/** True when the server flagged that this dropped the target to 0. Nothing about death saves. */
 	droppedToZero: boolean;
 }
@@ -150,6 +158,8 @@ function targetView(
 	const name = nameOf(tokens, outcome.tokenId);
 	return {
 		key: index,
+		tokenId: outcome.tokenId,
+		appliedTotal: outcome.damage.length > 0 ? outcome.damage.reduce((sum, d) => sum + d.applied, 0) : null,
 		name,
 		rollWho: isSave(outcome) ? name : sourceName,
 		attackNumber: multi ? outcome.stepIndex + 1 : null,
@@ -159,6 +169,7 @@ function targetView(
 		damageRolls: outcome.damageRolls.map(rollCardView),
 		damage: outcome.damage.map(damageText),
 		healing: outcome.healing > 0 ? `Healed ${outcome.healing}` : null,
+		effects: outcome.effectsApplied.map((id) => conditionName(id).name),
 		droppedToZero: outcome.droppedToZero
 	};
 }
@@ -177,7 +188,7 @@ export function resultCardView(
 	const targets = resolution.outcomes.map((o, i) => targetView(o, i, tokens, multi, sourceName));
 	const results = targets
 		.map((t) => {
-			const parts = [t.outcome.text, ...t.damage, t.healing?.toLowerCase(), t.droppedToZero ? 'dropped to 0' : undefined];
+			const parts = [t.outcome.text, ...t.damage, t.healing?.toLowerCase(), ...t.effects, t.droppedToZero ? 'dropped to 0' : undefined];
 			return `${t.attackNumber ? `attack ${t.attackNumber} ` : ''}${t.name}: ${parts.filter(Boolean).join(', ')}`;
 		})
 		.join('; ');

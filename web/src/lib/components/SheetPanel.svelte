@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { RollMode } from '@tomeandtile/contracts';
+	import { canEditConditions, conditionList, immunityList } from '../conditions';
+	import ConditionChips from './ConditionChips.svelte';
+	import ConditionEditor from './ConditionEditor.svelte';
 	import { getGameClient } from '../net';
-	import { rejectionText } from '../chat';
+	import { rejectionText, rememberUse } from '../chat';
 	import {
 		abilityGroups,
 		actingTokenId,
@@ -51,6 +54,21 @@
 		return id ? $panelState.tokens[id] : undefined;
 	});
 	const block = $derived(creature ? statBlockView(creature, actingToken) : null);
+	const conditions = $derived(conditionList(actingToken, creature));
+	const immunities = $derived(immunityList(creature));
+	const isGm = $derived(canEditConditions($panelState.role));
+	let editing = $state(false);
+	let editButton = $state<HTMLButtonElement>();
+	async function closeEditor() {
+		editing = false;
+		await tick();
+		editButton?.focus();
+	}
+	// Another character or token: the editor was for the one before.
+	$effect(() => {
+		actingId;
+		untrack(() => (editing = false));
+	});
 	const groups = $derived(creature ? abilityGroups(creature) : []);
 	const canAct = $derived(actingId !== null);
 
@@ -115,6 +133,13 @@
 		sendNote = '';
 		sentId = id;
 		sentName = targeting.abilityName;
+		// So the GM's Re-roll on the result can send the same use again.
+		rememberUse(id, {
+			sourceTokenId: actingId,
+			abilityId: targeting.abilityId,
+			targetTokenIds: picksTargets(targeting) ? [...targeting.picks] : [],
+			mode: targeting.mode
+		});
 		stop();
 	}
 
@@ -277,6 +302,25 @@
 		{:else}
 			<p class="note">Ability scores: unknown.</p>
 		{/if}
+		<section class="conditions" aria-label="Conditions">
+			<p class="line"><strong>Conditions:</strong></p>
+			<ConditionChips list={conditions} />
+			{#if immunities.length > 0}
+				<p class="line">
+					<strong>Condition immunities:</strong>
+					{immunities.map((i) => i.name).join(', ')}
+				</p>
+			{/if}
+			{#if isGm && actingId}
+				{#if editing}
+					<ConditionEditor tokenId={actingId} onclose={closeEditor} />
+				{:else}
+					<button type="button" bind:this={editButton} onclick={() => (editing = true)}>
+						Edit conditions
+					</button>
+				{/if}
+			{/if}
+		</section>
 		{#each block.lists as list (list.label)}
 			<p class="line"><strong>{list.label}:</strong> {list.value}</p>
 		{/each}
