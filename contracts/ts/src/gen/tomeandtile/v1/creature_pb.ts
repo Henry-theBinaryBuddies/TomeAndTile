@@ -521,8 +521,9 @@ export type Ability = Message<"tomeandtile.v1.Ability"> & {
   recharge?: Recharge | undefined;
 
   /**
-   * True after a recharge ability is used, until it recharges. Set by the
-   * server; importers leave it false.
+   * Template/initial value; importers leave it false. The live state is per
+   * token (Token.recharge_spent_ability_ids): using the ability marks it
+   * spent on the source token only, and this flag is not changed in play.
    *
    * @generated from field: bool recharge_spent = 11;
    */
@@ -641,6 +642,10 @@ export type Creature = Message<"tomeandtile.v1.Creature"> & {
   vulnerabilities: DamageType[];
 
   /**
+   * The template: `max` defines each pool and `current` is the initial value
+   * a token starts with. Live pools are per token (Token.resources); this
+   * list is not changed in play, only by a re-import of the sheet.
+   *
    * @generated from field: repeated tomeandtile.v1.Resource resources = 18;
    */
   resources: Resource[];

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tomeandtile/v1/scene.proto.
  */
 export const file_tomeandtile_v1_scene: GenFile = /*@__PURE__*/
-  fileDesc("Chp0b21lYW5kdGlsZS92MS9zY2VuZS5wcm90bxIOdG9tZWFuZHRpbGUudjEiswEKBEdyaWQSJgoEa2luZBgBIAEoDjIYLnRvbWVhbmR0aWxlLnYxLkdyaWRLaW5kEhEKCWNlbGxfc2l6ZRgCIAEoAhIkCgZvZmZzZXQYAyABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEhUKDWZlZXRfcGVyX2NlbGwYBCABKAISMwoNZGlhZ29uYWxfcnVsZRgFIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkRpYWdvbmFsUnVsZSJcCghBc3NldFJlZhIQCghhc3NldF9pZBgBIAEoCRISCgptZWRpYV90eXBlGAIgASgJEgsKA3VybBgDIAEoCRINCgV3aWR0aBgEIAEoDRIOCgZoZWlnaHQYBSABKA0ibQoFTGV2ZWwSEAoIbGV2ZWxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIWCg5lbGV2YXRpb25fZmVldBgDIAEoAhIsCgpiYWNrZ3JvdW5kGAQgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYioQEKBFdhbGwSDwoHd2FsbF9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIfCgFhGAMgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIfCgFiGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhImCgRraW5kGAUgASgOMhgudG9tZWFuZHRpbGUudjEuV2FsbEtpbmQSDAoEb3BlbhgGIAEoCCKsAQoFU2NlbmUSEAoIc2NlbmVfaWQYASABKAkSEwoLY2FtcGFpZ25faWQYAiABKAkSDAoEbmFtZRgDIAEoCRIiCgRncmlkGAQgASgLMhQudG9tZWFuZHRpbGUudjEuR3JpZBIlCgZsZXZlbHMYBSADKAsyFS50b21lYW5kdGlsZS52MS5MZXZlbBIjCgV3YWxscxgGIAMoCzIULnRvbWVhbmR0aWxlLnYxLldhbGwiOQoEQXVyYRINCgVsYWJlbBgBIAEoCRITCgtyYWRpdXNfZmVldBgCIAEoAhINCgVjb2xvchgDIAEoCSJ+Cg5Db25kaXRpb25UaW1lchIRCgllZmZlY3RfaWQYASABKAkSFAoMZW5jb3VudGVyX2lkGAIgASgJEhcKD3NvdXJjZV90b2tlbl9pZBgDIAEoCRISCgplbmRzX3JvdW5kGAQgASgNEhYKDmF0X2VuZF9vZl90dXJuGAUgASgIIsoECgVUb2tlbhIQCgh0b2tlbl9pZBgBIAEoCRIQCghzY2VuZV9pZBgCIAEoCRIQCghsZXZlbF9pZBgDIAEoCRITCgtjcmVhdHVyZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEicKBWltYWdlGAYgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYSJgoIcG9zaXRpb24YByABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEioKBHNpemUYCCABKA4yHC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVNpemUSFgoOZmFjaW5nX2RlZ3JlZXMYCSABKAISFgoOZWxldmF0aW9uX2ZlZXQYCiABKAISIwoFYXVyYXMYCyADKAsyFC50b21lYW5kdGlsZS52MS5BdXJhEjEKDGhlYWx0aF9zdGF0ZRgMIAEoDjIbLnRvbWVhbmR0aWxlLnYxLkhlYWx0aFN0YXRlEhcKCmhwX2N1cnJlbnQYDSABKAVIAIgBARITCgZocF9tYXgYDiABKAVIAYgBARIUCgdocF90ZW1wGA8gASgFSAKIAQESEgoKY29uZGl0aW9ucxgQIAMoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGBEgAygJEg4KBmhpZGRlbhgSIAEoCBI4ChBjb25kaXRpb25fdGltZXJzGBMgAygLMh4udG9tZWFuZHRpbGUudjEuQ29uZGl0aW9uVGltZXJCDQoLX2hwX2N1cnJlbnRCCQoHX2hwX21heEIKCghfaHBfdGVtcCqCAQoIR3JpZEtpbmQSGQoVR1JJRF9LSU5EX1VOU1BFQ0lGSUVEEAASFAoQR1JJRF9LSU5EX1NRVUFSRRABEhYKEkdSSURfS0lORF9IRVhfUk9XUxACEhkKFUdSSURfS0lORF9IRVhfQ09MVU1OUxADEhIKDkdSSURfS0lORF9OT05FEAQqfgoMRGlhZ29uYWxSdWxlEh0KGURJQUdPTkFMX1JVTEVfVU5TUEVDSUZJRUQQABIWChJESUFHT05BTF9SVUxFX0ZJVkUQARIaChZESUFHT05BTF9SVUxFX0ZJVkVfVEVOEAISGwoXRElBR09OQUxfUlVMRV9FVUNMSURFQU4QAyp6CghXYWxsS2luZBIZChVXQUxMX0tJTkRfVU5TUEVDSUZJRUQQABISCg5XQUxMX0tJTkRfV0FMTBABEhIKDldBTExfS0lORF9ET09SEAISFAoQV0FMTF9LSU5EX1dJTkRPVxADEhUKEVdBTExfS0lORF9URVJSQUlOEAQqxwEKDENyZWF0dXJlU2l6ZRIdChlDUkVBVFVSRV9TSVpFX1VOU1BFQ0lGSUVEEAASFgoSQ1JFQVRVUkVfU0laRV9USU5ZEAESFwoTQ1JFQVRVUkVfU0laRV9TTUFMTBACEhgKFENSRUFUVVJFX1NJWkVfTUVESVVNEAMSFwoTQ1JFQVRVUkVfU0laRV9MQVJHRRAEEhYKEkNSRUFUVVJFX1NJWkVfSFVHRRAFEhwKGENSRUFUVVJFX1NJWkVfR0FSR0FOVFVBThAGKpQBCgtIZWFsdGhTdGF0ZRIcChhIRUFMVEhfU1RBVEVfVU5TUEVDSUZJRUQQABIYChRIRUFMVEhfU1RBVEVfSEVBTFRIWRABEhkKFUhFQUxUSF9TVEFURV9CTE9PRElFRBACEhsKF0hFQUxUSF9TVEFURV9ORUFSX0RFQVRIEAMSFQoRSEVBTFRIX1NUQVRFX0RPV04QBGIGcHJvdG8z", [file_tomeandtile_v1_common]);
+  fileDesc("Chp0b21lYW5kdGlsZS92MS9zY2VuZS5wcm90bxIOdG9tZWFuZHRpbGUudjEiswEKBEdyaWQSJgoEa2luZBgBIAEoDjIYLnRvbWVhbmR0aWxlLnYxLkdyaWRLaW5kEhEKCWNlbGxfc2l6ZRgCIAEoAhIkCgZvZmZzZXQYAyABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEhUKDWZlZXRfcGVyX2NlbGwYBCABKAISMwoNZGlhZ29uYWxfcnVsZRgFIAEoDjIcLnRvbWVhbmR0aWxlLnYxLkRpYWdvbmFsUnVsZSJcCghBc3NldFJlZhIQCghhc3NldF9pZBgBIAEoCRISCgptZWRpYV90eXBlGAIgASgJEgsKA3VybBgDIAEoCRINCgV3aWR0aBgEIAEoDRIOCgZoZWlnaHQYBSABKA0ibQoFTGV2ZWwSEAoIbGV2ZWxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIWCg5lbGV2YXRpb25fZmVldBgDIAEoAhIsCgpiYWNrZ3JvdW5kGAQgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYioQEKBFdhbGwSDwoHd2FsbF9pZBgBIAEoCRIQCghsZXZlbF9pZBgCIAEoCRIfCgFhGAMgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhIfCgFiGAQgASgLMhQudG9tZWFuZHRpbGUudjEuVmVjMhImCgRraW5kGAUgASgOMhgudG9tZWFuZHRpbGUudjEuV2FsbEtpbmQSDAoEb3BlbhgGIAEoCCKsAQoFU2NlbmUSEAoIc2NlbmVfaWQYASABKAkSEwoLY2FtcGFpZ25faWQYAiABKAkSDAoEbmFtZRgDIAEoCRIiCgRncmlkGAQgASgLMhQudG9tZWFuZHRpbGUudjEuR3JpZBIlCgZsZXZlbHMYBSADKAsyFS50b21lYW5kdGlsZS52MS5MZXZlbBIjCgV3YWxscxgGIAMoCzIULnRvbWVhbmR0aWxlLnYxLldhbGwiOQoEQXVyYRINCgVsYWJlbBgBIAEoCRITCgtyYWRpdXNfZmVldBgCIAEoAhINCgVjb2xvchgDIAEoCSJ+Cg5Db25kaXRpb25UaW1lchIRCgllZmZlY3RfaWQYASABKAkSFAoMZW5jb3VudGVyX2lkGAIgASgJEhcKD3NvdXJjZV90b2tlbl9pZBgDIAEoCRISCgplbmRzX3JvdW5kGAQgASgNEhYKDmF0X2VuZF9vZl90dXJuGAUgASgIIqAFCgVUb2tlbhIQCgh0b2tlbl9pZBgBIAEoCRIQCghzY2VuZV9pZBgCIAEoCRIQCghsZXZlbF9pZBgDIAEoCRITCgtjcmVhdHVyZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEicKBWltYWdlGAYgASgLMhgudG9tZWFuZHRpbGUudjEuQXNzZXRSZWYSJgoIcG9zaXRpb24YByABKAsyFC50b21lYW5kdGlsZS52MS5WZWMyEioKBHNpemUYCCABKA4yHC50b21lYW5kdGlsZS52MS5DcmVhdHVyZVNpemUSFgoOZmFjaW5nX2RlZ3JlZXMYCSABKAISFgoOZWxldmF0aW9uX2ZlZXQYCiABKAISIwoFYXVyYXMYCyADKAsyFC50b21lYW5kdGlsZS52MS5BdXJhEjEKDGhlYWx0aF9zdGF0ZRgMIAEoDjIbLnRvbWVhbmR0aWxlLnYxLkhlYWx0aFN0YXRlEhcKCmhwX2N1cnJlbnQYDSABKAVIAIgBARITCgZocF9tYXgYDiABKAVIAYgBARIUCgdocF90ZW1wGA8gASgFSAKIAQESEgoKY29uZGl0aW9ucxgQIAMoCRIbChNjb250cm9sbGVyX3VzZXJfaWRzGBEgAygJEg4KBmhpZGRlbhgSIAEoCBI4ChBjb25kaXRpb25fdGltZXJzGBMgAygLMh4udG9tZWFuZHRpbGUudjEuQ29uZGl0aW9uVGltZXISMAoJcmVzb3VyY2VzGBQgAygLMh0udG9tZWFuZHRpbGUudjEuVG9rZW5SZXNvdXJjZRIiChpyZWNoYXJnZV9zcGVudF9hYmlsaXR5X2lkcxgVIAMoCUINCgtfaHBfY3VycmVudEIJCgdfaHBfbWF4QgoKCF9ocF90ZW1wIkkKDVRva2VuUmVzb3VyY2USCwoDa2V5GAEgASgJEg0KBWxhYmVsGAIgASgJEg8KB2N1cnJlbnQYAyABKAUSCwoDbWF4GAQgASgFKoIBCghHcmlkS2luZBIZChVHUklEX0tJTkRfVU5TUEVDSUZJRUQQABIUChBHUklEX0tJTkRfU1FVQVJFEAESFgoSR1JJRF9LSU5EX0hFWF9ST1dTEAISGQoVR1JJRF9LSU5EX0hFWF9DT0xVTU5TEAMSEgoOR1JJRF9LSU5EX05PTkUQBCp+CgxEaWFnb25hbFJ1bGUSHQoZRElBR09OQUxfUlVMRV9VTlNQRUNJRklFRBAAEhYKEkRJQUdPTkFMX1JVTEVfRklWRRABEhoKFkRJQUdPTkFMX1JVTEVfRklWRV9URU4QAhIbChdESUFHT05BTF9SVUxFX0VVQ0xJREVBThADKnoKCFdhbGxLaW5kEhkKFVdBTExfS0lORF9VTlNQRUNJRklFRBAAEhIKDldBTExfS0lORF9XQUxMEAESEgoOV0FMTF9LSU5EX0RPT1IQAhIUChBXQUxMX0tJTkRfV0lORE9XEAMSFQoRV0FMTF9LSU5EX1RFUlJBSU4QBCrHAQoMQ3JlYXR1cmVTaXplEh0KGUNSRUFUVVJFX1NJWkVfVU5TUEVDSUZJRUQQABIWChJDUkVBVFVSRV9TSVpFX1RJTlkQARIXChNDUkVBVFVSRV9TSVpFX1NNQUxMEAISGAoUQ1JFQVRVUkVfU0laRV9NRURJVU0QAxIXChNDUkVBVFVSRV9TSVpFX0xBUkdFEAQSFgoSQ1JFQVRVUkVfU0laRV9IVUdFEAUSHAoYQ1JFQVRVUkVfU0laRV9HQVJHQU5UVUFOEAYqlAEKC0hlYWx0aFN0YXRlEhwKGEhFQUxUSF9TVEFURV9VTlNQRUNJRklFRBAAEhgKFEhFQUxUSF9TVEFURV9IRUFMVEhZEAESGQoVSEVBTFRIX1NUQVRFX0JMT09ESUVEEAISGwoXSEVBTFRIX1NUQVRFX05FQVJfREVBVEgQAxIVChFIRUFMVEhfU1RBVEVfRE9XThAEYgZwcm90bzM", [file_tomeandtile_v1_common]);
 
 /**
  * @generated from message tomeandtile.v1.Grid
@@ -453,6 +453,29 @@ export type Token = Message<"tomeandtile.v1.Token"> & {
    * @generated from field: repeated tomeandtile.v1.ConditionTimer condition_timers = 19;
    */
   conditionTimers: ConditionTimer[];
+
+  /**
+   * This token's live resource pools (spell slots, rage, ...), one per
+   * Creature.resources key, in the creature's order. The Creature is the
+   * template: its resources[].max, and each Ability's `recharge`, define the
+   * pools. Creature.resources[].current and Ability.recharge_spent are the
+   * template (initial) values and are not changed in play. Several tokens can
+   * share one creature, so each token spends and recharges on its own. Filled
+   * by the server (CreateTokenIntent, seeds, re-import of the sheet); same
+   * viewers as hp_current (GM and controllers), empty for others.
+   *
+   * @generated from field: repeated tomeandtile.v1.TokenResource resources = 20;
+   */
+  resources: TokenResource[];
+
+  /**
+   * Ids of this token's creature's recharge abilities that are spent and
+   * waiting to recharge (rolled at the start of this token's own turn). Filled
+   * and visible like `resources`; empty for other viewers.
+   *
+   * @generated from field: repeated string recharge_spent_ability_ids = 21;
+   */
+  rechargeSpentAbilityIds: string[];
 };
 
 /**
@@ -461,6 +484,47 @@ export type Token = Message<"tomeandtile.v1.Token"> & {
  */
 export const TokenSchema: GenMessage<Token> = /*@__PURE__*/
   messageDesc(file_tomeandtile_v1_scene, 7);
+
+/**
+ * One live pool of a token. Mirrors Creature's Resource (creature.proto cannot
+ * be imported here: it imports this file).
+ *
+ * @generated from message tomeandtile.v1.TokenResource
+ */
+export type TokenResource = Message<"tomeandtile.v1.TokenResource"> & {
+  /**
+   * Same key as the creature's Resource.
+   *
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * Live value, 0..=max.
+   *
+   * @generated from field: int32 current = 3;
+   */
+  current: number;
+
+  /**
+   * From the creature at the time the server last filled the token.
+   *
+   * @generated from field: int32 max = 4;
+   */
+  max: number;
+};
+
+/**
+ * Describes the message tomeandtile.v1.TokenResource.
+ * Use `create(TokenResourceSchema)` to create a new message.
+ */
+export const TokenResourceSchema: GenMessage<TokenResource> = /*@__PURE__*/
+  messageDesc(file_tomeandtile_v1_scene, 8);
 
 /**
  * @generated from enum tomeandtile.v1.GridKind
