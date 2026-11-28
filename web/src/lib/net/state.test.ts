@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { create } from '@bufbuild/protobuf';
 import {
 	CreatureSchema,
+	EventSchema,
 	HitOutcome,
 	ResolutionSchema,
 	ResolutionState,
 	Role,
+	ServerMessageSchema,
 	TargetOutcomeSchema,
 	TokenSchema,
 	Vec2Schema,
@@ -368,5 +370,34 @@ describe('resolutions', () => {
 		s = foldMessage(s, snapshotMessage(30n));
 		expect(s.resolutions).toEqual({});
 		expect(s.log).toEqual([]);
+	});
+});
+
+describe('warnings on a token update', () => {
+	const withWarning = (seq: bigint, intentId: string, warnings: string[]) =>
+		create(ServerMessageSchema, {
+			kind: {
+				case: 'event',
+				value: create(EventSchema, {
+					seq,
+					atMs: 1000n + seq,
+					clientIntentId: intentId,
+					warnings: warnings.map((code) => create(WarningSchema, { code })),
+					kind: tokenUpsertedKind('t1', 'Brannoch the Bold')
+				})
+			}
+		});
+
+	it('keeps the server warnings with the intent that caused them', () => {
+		const s = foldMessage(joined(), withWarning(6n, 'i-1', ['condition_immune']));
+		expect(s.tokenWarnings?.clientIntentId).toBe('i-1');
+		expect(s.tokenWarnings?.warnings.map((w) => w.code)).toEqual(['condition_immune']);
+	});
+
+	it('has none to begin with, and a plain update leaves the last ones alone', () => {
+		expect(joined().tokenWarnings).toBeNull();
+		let s = foldMessage(joined(), withWarning(6n, 'i-1', ['condition_immune']));
+		s = fold(s, 7n, tokenUpsertedKind('t1', 'Brannoch the Bold'));
+		expect(s.tokenWarnings?.clientIntentId).toBe('i-1');
 	});
 });

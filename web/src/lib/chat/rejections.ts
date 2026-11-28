@@ -29,6 +29,15 @@ const TEXT: Record<string, string> = {
 	unknown_ability: 'That character does not have that ability. Reload the page and try again.',
 	no_targets: 'Pick at least one target first.',
 	unknown_target: 'One of those targets is gone or cannot be targeted. Pick again.',
+	// Encounters.
+	no_combatants: 'Tick at least one token to start the fight.',
+	encounter_running: 'This map already has a fight running.',
+	unknown_encounter: 'That fight is not running any more. Reload the page and try again.',
+	unknown_combatant: 'That token is not in the fight.',
+	// Setting conditions (SetConditionsIntent).
+	bad_condition_id: 'That condition name is not valid.',
+	conflicting_conditions: 'The same condition cannot be added and removed at once.',
+	too_many_conditions: 'A token cannot have that many conditions.',
 	rng_unavailable: 'The server could not roll the dice just now. Try again.'
 };
 

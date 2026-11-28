@@ -345,6 +345,20 @@ describe('applied damage, healing and dropping to 0', () => {
 		);
 	});
 
+	it('shows applied conditions by name and an unknown id as sent', () => {
+		const t = one(outcome('gob', HitOutcome.SAVE_FAILED, { effectsApplied: ['poisoned', 'bless'] }));
+		expect(t.effects).toEqual(['Poisoned', 'bless']);
+		expect(one(outcome('gob', HitOutcome.HIT)).effects).toEqual([]);
+	});
+
+	it('says the condition in the announcement and has words for the immune warning', () => {
+		const v = view(
+			resolution({ outcomes: [outcome('gob', HitOutcome.SAVE_FAILED, { effectsApplied: ['poisoned'] })] })
+		);
+		expect(v.announcement).toContain('Goblin: Failed the save, Poisoned');
+		expect(warningText('condition_immune')).not.toMatch(/server added a note/);
+	});
+
 	it('keeps untrusted names as plain text', () => {
 		const t = one(outcome('gob2', HitOutcome.HIT));
 		expect(t.name).toBe('<img src=x onerror=alert(1)>');

@@ -87,6 +87,12 @@ export interface PanelState {
 	creatures: Record<string, Creature>;
 	/** The latest state of each ability resolution, by resolution id. */
 	resolutions: Record<string, Resolution>;
+	/**
+	 * Warnings the server put on the last token update, with the intent that caused it (for
+	 * example `condition_immune` on a SetConditionsIntent). Null if there were none. They never
+	 * block anything.
+	 */
+	tokenWarnings: { clientIntentId: string; warnings: Warning[] } | null;
 }
 
 export function emptyState(): PanelState {
@@ -102,7 +108,8 @@ export function emptyState(): PanelState {
 		encounters: [],
 		tokens: {},
 		creatures: {},
-		resolutions: {}
+		resolutions: {},
+		tokenWarnings: null
 	};
 }
 
@@ -120,7 +127,8 @@ export function applySnapshot(snapshot: Snapshot): PanelState {
 		encounters: [...snapshot.encounters],
 		tokens: Object.fromEntries(snapshot.tokens.map((t) => [t.tokenId, t])),
 		creatures: Object.fromEntries(snapshot.creatures.map((c) => [c.creatureId, c])),
-		resolutions: {}
+		resolutions: {},
+		tokenWarnings: null
 	};
 }
 
@@ -206,7 +214,14 @@ export function applyEvent(state: PanelState, event: Event): PanelState {
 		case 'tokenUpserted': {
 			const token = kind.value.token;
 			if (!token) return base;
-			return { ...base, tokens: { ...state.tokens, [token.tokenId]: token } };
+			return {
+				...base,
+				tokens: { ...state.tokens, [token.tokenId]: token },
+				tokenWarnings:
+					event.warnings.length > 0
+						? { clientIntentId: event.clientIntentId, warnings: [...event.warnings] }
+						: state.tokenWarnings
+			};
 		}
 		case 'tokenMoved': {
 			const { tokenId, path, levelId } = kind.value;
