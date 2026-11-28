@@ -5541,7 +5541,7 @@ mod per_token_state {
         assert_eq!(token.recharge_spent_ability_ids, ["flurry"]);
         assert_eq!(tok(&c, &untouched), &untouched_before);
         let g = c.groups.last().unwrap();
-        assert_eq!(g.changed_token_ids, [t.clone()]);
+        assert_eq!(g.changed_token_ids, std::slice::from_ref(&t));
         assert_eq!((g.first_seq, g.last_seq), (out.event.seq, ev.seq));
         // Importing the same sheet again changes no token.
         let same = sheet(&c, &id).clone();

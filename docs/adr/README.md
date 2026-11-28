@@ -23,3 +23,4 @@ One file per group of related decisions. Each records what was chosen, why, and 
 | [0013](0013-scope-and-schedule.md) | Class scope and schedule | Accepted |
 | [0014](0014-asset-upload.md) | Where asset upload runs | Accepted |
 | [0015](0015-cauldron-import.md) | Where the Creature Cauldron import runs | Accepted |
+| [0016](0016-per-token-state.md) | Per-token resources and recharge | Accepted |

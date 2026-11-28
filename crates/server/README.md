@@ -42,8 +42,9 @@ A GM, or a player who controls the (visible) source token, sends `use_ability` w
 
 1. one `ResolutionUpdated` in state `DONE`;
 2. one `TokenUpserted` for each target token whose HP, temporary HP, conditions or timers changed, in the order the engine returns them (the order outcomes first touched them; a source that hits or heals itself appears once);
-3. a `CreatureUpserted` for the source creature, only if a resource was spent or `recharge_spent` changed.
+3. a `TokenUpserted` for the SOURCE token, only if a resource was spent or a recharge ability was marked spent (see "Live state" below). The creature is never upserted by an ability use.
 
+- **Resources and recharge live on the token too** (#134, [ADR 0016](../../docs/adr/0016-per-token-state.md)). See "Live state: template and token" below.
 - **Hit points live on the token** (`Token.hp_*`), never on the creature: three goblins share one stat block. `Creature.hp_*` is the stat block's value and no intent changes it. The token's `health_state` is recomputed with every change and goes to everyone who may see the token; the numbers only to the GM and the token's controllers.
 - Death saves stay manual. Reaching 0 sets `HEALTH_STATE_DOWN` (and `dropped_to_zero` on the outcome) and nothing else: no death save, no instant death.
 - Encounter: the encounter in state whose `scene_id` is the source token's scene, with its `round`, is passed to the engine (it decides condition timers). While the scene has no running encounter, timed conditions get a `duration_not_tracked` warning (start one with `start_encounter`, below).
@@ -62,13 +63,13 @@ Four intents run combat. Each validates first and changes state last (a refusal 
 | Intent | Who | Events | Notes |
 |---|---|---|---|
 | `start_encounter` | GM | one `DiceRolled` per combatant, then `EncounterUpdated` | duplicate token ids are listed once, in first-listed order. Per token one d20 plus the creature's `initiative_bonus` (0 with no creature), purpose `INITIATIVE`, label `<token name> initiative`, `roller_creature_id` set, `GM_ONLY` for a hidden token and `PUBLIC` otherwise. The encounter has a minted `encounter_id`, the scene id, round 1 and `turn_index` 0. Combatants are sorted by initiative (higher first), then `initiative_bonus` (higher first), then list order; `order` is the position after sorting. Nothing runs for the first turn (no recharge rolls) |
-| `end_turn` | GM, or a player who controls the current combatant's visible token | `EncounterUpdated`, a `TokenUpserted` per token whose timers ended, then recharge `DiceRolled`s and one `CreatureUpserted` | `turn_index` moves on; past the last combatant it goes to 0 and `round` goes up by one |
+| `end_turn` | GM, or a player who controls the current combatant's visible token | `EncounterUpdated`, a `TokenUpserted` per token whose timers ended, then recharge `DiceRolled`s and one `TokenUpserted` of the token whose turn starts (only if something recharged) | `turn_index` moves on; past the last combatant it goes to 0 and `round` goes up by one |
 | `set_initiative` | GM | `EncounterUpdated` | sets the combatant's `initiative` and `order`, then re-sorts: higher initiative first, then lower `order`, equal keys keep their places. The turn stays with the combatant whose turn it was |
 | `end_encounter` | GM | `EncounterEnded`, a `TokenUpserted` per token that had timers of the encounter | removes the encounter and its condition timers; the conditions stay. Later Snapshots have no encounter |
 
 Timers on `end_turn`: one call of `tt_rules::conditions::expire_timers` with the token whose turn ended (and the round it ended in) and the token whose turn starts (and its round). End-of-turn timers of the first and start-of-turn timers of the second end, together with their conditions; timers of other encounters and of no encounter are never touched. `use_ability` passes the scene's running encounter and its round, so round-based effects get timers: Choking Ash on round 1 ends when the wisp's turn starts in round 2.
 
-Recharge: when a combatant's turn starts, the server rolls a d6 for each ability of its creature with `recharge_spent` true and a `recharge` rule. A roll of at least `min_roll` sets `recharge_spent` false. Each roll is a `DiceRolled` (label `<ability name> recharge`, purpose `FREEFORM`, `roller_creature_id` set), `GM_ONLY` when the creature has no owner or the token is hidden and `PUBLIC` otherwise; one `CreatureUpserted` follows when anything recharged.
+Recharge: when a combatant's turn starts, the server rolls a d6 for each id in THAT TOKEN's `recharge_spent_ability_ids` (an id that is no longer a recharge ability of its creature is skipped). A roll of at least `min_roll` removes the id from the token's list. Each roll is a `DiceRolled` (label `<ability name> recharge`, purpose `FREEFORM`, `roller_creature_id` set), `GM_ONLY` when the creature has no owner or the token is hidden and `PUBLIC` otherwise; one `TokenUpserted` of that token follows when anything recharged. Other tokens of the same creature are untouched, and so is the creature.
 
 Order of refusals:
 
@@ -79,6 +80,18 @@ Order of refusals:
 
 Visibility: `EncounterUpdated` keeps the `encounter_visible` rule (a non-GM sees it only if every combatant is a known, non-hidden token), `EncounterEnded` is filtered the same way (see the filtering section: the campaign remembers whether players could see the encounter when it ended), and initiative and recharge rolls follow the `DiceRolled` filter. When any combatant is hidden, every initiative roll of the encounter is `GM_ONLY`, and so are the recharge rolls of its turns (#133). Action economy flags stay false; combatants cannot be added or removed in a running encounter.
 
+## Live state: template and token
+
+The `Creature` is the template; the `Token` is the live creature at the table ([ADR 0016](../../docs/adr/0016-per-token-state.md)). Three goblins placed from one sheet each have their own pools and their own recharge.
+
+- `Creature.resources[].max` and each `Ability.recharge` define the pools; `Creature.resources[].current` is only the initial value a token starts with, and `Ability.recharge_spent` is only a template flag. Neither changes in play. Only a re-import of the sheet changes the creature.
+- `Token.resources` (key, label, `current`, `max`, in the creature's order) and `Token.recharge_spent_ability_ids` are the live state. The server fills them (`fill_live_state` in `campaign.rs`) on `create_token`, when a campaign is loaded from a seed or snapshot (every token with a creature), and on a re-import (every token linked to the sheet).
+- Reconcile rule (`fill_live_state`): for each creature resource key a token keeps its `current`, clamped to `0..=max`, or starts at the creature's `current` if it lacks the key; keys the creature lost are dropped; the order is the creature's. Spent ids stay only while the ability still has a `recharge` rule.
+- `use_ability`: the rules engine is given a clone of the creature with the SOURCE TOKEN's pools and spent flags written in, and what it returns for the source is written back to that token (`TokenUpserted`). The stored creature is not touched. Warnings `not_enough_resource` and `ability_recharging` therefore describe the source token.
+- `end_turn` rolls recharge for the token whose turn starts, from its own list.
+- Undo works on tokens: the group records the source token's earlier value, and the dependency rule compares token ids, so two tokens of one creature do not block each other.
+- Visibility follows hit points: the GM and controllers get the two fields, everyone else gets them empty.
+
 ## Hit points, conditions and tokens
 
 All four intents validate first and change state last: a refusal leaves state, `seq`, the log and the change records untouched. Each is answered with the events below (consecutive `seq`, the intent's `client_intent_id`).
@@ -87,7 +100,7 @@ All four intents validate first and change state last: a refusal leaves state, `
 |---|---|---|---|
 | `set_hit_points` | the GM, or a controller of a visible token | one `TokenUpserted` | sets `hp_current` and `hp_temp` (both always sent; `hp_temp` 0 clears it), recomputes `health_state`. `hp_max` cannot be changed. The token is the only thing that changes: `Creature.hp_*` stays |
 | `set_conditions` | GM | one `TokenUpserted` | `add` and `remove` condition ids. Adding a present id or removing an absent one changes nothing but still answers. Removing a condition removes its timer. Added ids have no timer |
-| `create_token` | GM | `TokenUpserted`, then `CreatureUpserted` when `controller_user_ids` is not empty and there is a creature | the server mints `token_id`; HP is copied from the creature (a creature with `hp_max` 0 and a prop get none) and `health_state` computed; conditions start empty; empty `name` is the creature's name or "Token"; unspecified size is the creature's or Medium; empty `level_id` is the scene's first level. `position` is required (unset is `bad_coordinate`) |
+| `create_token` | GM | `TokenUpserted`, then `CreatureUpserted` when `controller_user_ids` is not empty and there is a creature | the server mints `token_id`; HP is copied from the creature (a creature with `hp_max` 0 and a prop get none) and `health_state` computed; `resources` are filled from the creature's pools (`current` from the sheet) and `recharge_spent_ability_ids` starts empty; conditions start empty; empty `name` is the creature's name or "Token"; unspecified size is the creature's or Medium; empty `level_id` is the scene's first level. `position` is required (unset is `bad_coordinate`) |
 | `remove_token` | GM | one `TokenRemoved` | the creature stays. Refused with `in_encounter` while the token is a combatant of an encounter in state |
 
 Warning: `condition_immune` on `set_conditions` (an id in `add` is in the creature's `condition_immunities`; it is added anyway). It is given for each distinct such id in `add`, whether or not the token already had it. It rides on the one event.
@@ -168,7 +181,7 @@ Checks before anything changes (400 `bad_creature` with a short message naming t
 
 **Ids and owner:** any incoming `creature_id` is ignored; the server mints one (or keeps the replaced sheet's id). A new creature has `owner_user_id` cleared; ownership is given later with `SetControllersIntent` on a token, so it is visible to the GM only until a player controls a token of it. A re-import keeps the replaced sheet's existing `owner_user_id`.
 
-**Re-import:** a sheet with the same non-empty `provenance.source` AND non-empty `provenance.external_id` as a stored creature replaces it in place and keeps its `creature_id` (`replaced` true). Tokens already linked keep their own hit points. Anything else is a new creature.
+**Re-import:** a sheet with the same non-empty `provenance.source` AND non-empty `provenance.external_id` as a stored creature replaces it in place and keeps its `creature_id` (`replaced` true). Tokens already linked keep their own hit points and are reconciled (live state, below): the import appends the `CreatureUpserted`, then one `TokenUpserted` for each linked token whose live state changed, in the same (not undoable) group. Anything else is a new creature.
 
 The event has `actor_user_id` = the GM, an empty `client_intent_id`, the active scene id, and the notes in `warnings`. It is broadcast like any other event and filtered per viewer, so players receive nothing for a creature nobody owns. An import is recorded as a not-undoable group (it cannot be undone, and an earlier undoable change to the same sheet cannot be undone past it).
 
@@ -238,7 +251,7 @@ NOT SECURITY: with `TT_DEV_AUTH=1` anyone who can reach the server can claim to 
 See ADR 0006 and `view.rs`. Where the contract is silent the more restrictive behaviour was chosen:
 
 - Hidden tokens go to the GM only (snapshot and events), and players cannot move them. Controlling a hidden token reveals neither it nor its creature sheet.
-- `hp_current`, `hp_max`, `hp_temp` go to the GM and listed controllers only, in snapshots and in every `TokenUpserted` (after damage, set HP and create too). `health_state`, `conditions` and `condition_timers` go to everyone who may see the token. The contract has no reveal mechanism, so none is implemented. Spectators never get hp, even if listed as controller. Hidden tokens go to the GM only.
+- `hp_current`, `hp_max`, `hp_temp`, and the live `resources` and `recharge_spent_ability_ids` (#134), go to the GM and listed controllers only, in snapshots and in every `TokenUpserted` (after damage, set HP and create too). `health_state`, `conditions` and `condition_timers` go to everyone who may see the token. The contract has no reveal mechanism, so none is implemented. Spectators never get hp, even if listed as controller. Hidden tokens go to the GM only.
 - Full creature sheets go to the GM, to the owner, and to controllers of a visible linked token. Not to spectators.
 - `set_controllers` also emits a `CreatureUpserted` for the token's creature, so a newly added controller receives the sheet. The filter decides who actually gets it. A controller who is removed keeps what they were already sent.
 - Unspecified roll visibility is treated as not public (GM only) when filtering.

@@ -3,7 +3,7 @@
 
 use tt_contracts::v1::{
     event, Creature, CreatureSize, CreatureUpserted, HealthState, Role, SetConditionsIntent,
-    SetHitPointsIntent, Token, TokenRemoved, TokenUpserted,
+    SetHitPointsIntent, Token, TokenRemoved, TokenResource, TokenUpserted,
 };
 
 use crate::{Before, Game, Group, Rejection, UndoRecord};
@@ -16,6 +16,24 @@ const MAX_TOKENS: usize = 500;
 const MAX_NAME_CHARS: usize = 120;
 /// Largest temporary hit point value.
 const MAX_TEMP_HP: i32 = 999;
+
+/// Give `token` its live resource pools from `creature` (the template). Only
+/// the initial fill: the mock never re-imports a sheet, so there is nothing to
+/// reconcile. Pools start at the sheet's `current` clamped to `0..=max`; the
+/// spent recharge list starts empty.
+pub(crate) fn fill_live_state(token: &mut Token, creature: &Creature) {
+    token.resources = creature
+        .resources
+        .iter()
+        .map(|r| TokenResource {
+            key: r.key.clone(),
+            label: r.label.clone(),
+            current: r.current.clamp(0, r.max.max(0)),
+            max: r.max.max(0),
+        })
+        .collect();
+    token.recharge_spent_ability_ids.clear();
+}
 
 /// Does this token have hit points to change?
 pub(crate) fn has_hp(token: &Token) -> bool {
@@ -276,6 +294,7 @@ impl Game {
                 token.hp_temp = Some(cr.hp_temp);
                 refresh_health(&mut token);
             }
+            fill_live_state(&mut token, cr);
         }
         let creature_event = creature
             .filter(|_| !c.controller_user_ids.is_empty())

@@ -475,7 +475,12 @@ async fn an_area_ability_rolls_damage_once_and_warns_once() {
         (second.token_id.as_str(), second.hp_current),
         ("token-ember-wisp", Some(7))
     );
-    assert_settled(&mut gm, 3).await;
+    // Then the caster's own token, which spent a first-level slot (3 of 4
+    // left): the slots are per token.
+    let caster = upserted(&event(&mut gm).await).clone();
+    assert_eq!(caster.token_id, "token-ilvaren");
+    assert_eq!(caster.resources[0].current, 3);
+    assert_settled(&mut gm, 4).await;
 }
 
 // ----------------------------------------------------- flat steps and effects

@@ -95,8 +95,20 @@ struct Game {
 
 impl Game {
     fn new(template: Snapshot, rng: Box<dyn Rng + Send>) -> Self {
+        // Seed tokens get their live resources from their creature, as the
+        // real server does at load.
+        let mut tokens = template.tokens.clone();
+        for t in &mut tokens {
+            let sheet = template
+                .creatures
+                .iter()
+                .find(|c| !t.creature_id.is_empty() && c.creature_id == t.creature_id);
+            if let Some(c) = sheet {
+                tokens::fill_live_state(t, c);
+            }
+        }
         Self {
-            tokens: template.tokens.clone(),
+            tokens,
             template,
             encounters: Vec::new(),
             seq: 0,
@@ -457,6 +469,9 @@ fn redact_token(token: &Token, viewer: Viewer) -> Token {
         t.hp_current = None;
         t.hp_max = None;
         t.hp_temp = None;
+        // Live resources and spent recharge abilities follow hp (#134).
+        t.resources.clear();
+        t.recharge_spent_ability_ids.clear();
     }
     t
 }
@@ -1046,9 +1061,10 @@ mod tests {
         goblin.hp_current = None;
         goblin.hp_max = None;
 
-        // Healing: shown on the card, not applied, so nothing is upserted.
+        // Healing: shown on the card, not applied. Only the caster's token
+        // is upserted (it spent a slot).
         let group = use_ability(&mut game, "token-maribel", "cure-wounds", "token-goblin");
-        assert_eq!(group.events.len(), 1);
+        assert_eq!(group.events.len(), 2);
         let (event::Kind::ResolutionUpdated(r), warnings) = &group.events[0] else {
             panic!("expected resolution_updated");
         };
@@ -1076,6 +1092,60 @@ mod tests {
         assert_eq!((goblin.hp_current, goblin.hp_max), (None, None));
         assert_eq!(goblin.health_state, HealthState::Healthy as i32);
         assert_eq!(goblin.conditions, ["blinded"]);
+    }
+
+    #[test]
+    fn resources_are_per_token_and_the_creature_is_the_template() {
+        let mut game = game();
+        let slots = |g: &Game, id: &str| {
+            let t = g.tokens.iter().find(|t| t.token_id == id).unwrap();
+            t.resources
+                .iter()
+                .find(|r| r.key == "spell_slot_1")
+                .unwrap()
+                .current
+        };
+        // Seed tokens are filled at load; a new token of the same sheet too.
+        let full = slots(&game, "token-maribel");
+        assert_eq!(full, 4);
+        let create = tt_contracts::v1::CreateTokenIntent {
+            scene_id: game.template.scenes[0].scene_id.clone(),
+            creature_id: "creature-maribel".into(),
+            position: Some(tt_contracts::v1::Vec2 { x: 35.0, y: 35.0 }),
+            ..Default::default()
+        };
+        game.create_token(GM_USER, &create).expect("created");
+        let twin = game.tokens.last().unwrap().token_id.clone();
+        assert_eq!(slots(&game, &twin), full);
+        let sheet_before = game.template.creatures.clone();
+
+        let group = use_ability(&mut game, "token-maribel", "cure-wounds", "token-brannoch");
+        assert!(group
+            .events
+            .iter()
+            .all(|(k, _)| !matches!(k, event::Kind::CreatureUpserted(_))));
+        assert_eq!(slots(&game, "token-maribel"), full - 1);
+        assert_eq!(slots(&game, &twin), full, "the twin keeps its slots");
+        assert_eq!(game.template.creatures, sheet_before);
+
+        // Only the GM and controllers receive the pools.
+        let seen = |viewer: Viewer| {
+            let t = game.tokens.iter().find(|t| t.token_id == "token-maribel");
+            redact_token(t.unwrap(), viewer).resources.len()
+        };
+        let gm = Viewer {
+            user_id: GM_USER,
+            role: Role::Gm,
+        };
+        let player = Viewer {
+            user_id: "mock-player",
+            role: Role::Player,
+        };
+        let other = Viewer {
+            user_id: "someone-else",
+            role: Role::Player,
+        };
+        assert_eq!((seen(gm), seen(player), seen(other)), (2, 2, 0));
     }
 
     fn steps<'a>(game: &'a mut Game, creature: &str, ability: &str) -> &'a mut Vec<EffectStep> {
