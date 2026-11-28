@@ -34,8 +34,8 @@ impl Viewer {
 
 impl Campaign {
     /// A copy of `token` with the fields `viewer` may not see left unset.
-    /// There is no reveal mechanism in the contract yet, so hp is for the GM
-    /// and controllers only. Condition timers keep `ends_round` and
+    /// There is no reveal mechanism in the contract yet, so hp, resources
+    /// and spent recharge abilities are for the GM and controllers only. Condition timers keep `ends_round` and
     /// `at_end_of_turn`; for a non-GM viewer `source_token_id` is blanked
     /// when that token is hidden or gone, and `encounter_id` when the
     /// encounter is not visible to them or gone (#133), so neither can
@@ -46,6 +46,9 @@ impl Campaign {
             t.hp_current = None;
             t.hp_max = None;
             t.hp_temp = None;
+            // Live resources and spent recharge abilities follow hp (#134).
+            t.resources.clear();
+            t.recharge_spent_ability_ids.clear();
         }
         if !viewer.is_gm() {
             for timer in &mut t.condition_timers {

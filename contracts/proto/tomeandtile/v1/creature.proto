@@ -200,8 +200,9 @@ message Ability {
   Provenance provenance = 9;
   // Unset for abilities that do not recharge on a die roll.
   Recharge recharge = 10;
-  // True after a recharge ability is used, until it recharges. Set by the
-  // server; importers leave it false.
+  // Template/initial value; importers leave it false. The live state is per
+  // token (Token.recharge_spent_ability_ids): using the ability marks it
+  // spent on the source token only, and this flag is not changed in play.
   bool recharge_spent = 11;
 }
 
@@ -233,6 +234,9 @@ message Creature {
   repeated DamageType resistances = 15;
   repeated DamageType immunities = 16;
   repeated DamageType vulnerabilities = 17;
+  // The template: `max` defines each pool and `current` is the initial value
+  // a token starts with. Live pools are per token (Token.resources); this
+  // list is not changed in play, only by a re-import of the sheet.
   repeated Resource resources = 18;
   repeated Ability abilities = 19;
   // Active condition and effect ids.

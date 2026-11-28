@@ -735,6 +735,51 @@ impl Game {
         }
 
         warnings.append(&mut run.warnings);
+        // The use is paid by the SOURCE TOKEN (#134): its own pool and its
+        // own recharge mark. The creature is the template and never changes.
+        let mut paid = source_token.clone();
+        if !ability.resource_key.is_empty() {
+            let amount = ability.resource_amount.max(0);
+            match paid
+                .resources
+                .iter_mut()
+                .find(|r| r.key == ability.resource_key)
+            {
+                Some(r) => {
+                    if r.current < amount {
+                        warnings.push(warning(
+                            "not_enough_resource",
+                            format!(
+                                "{} needs {} {} but only {} left",
+                                ability.name, amount, ability.resource_key, r.current
+                            ),
+                        ));
+                    }
+                    r.current = r.current.saturating_sub(amount).max(0);
+                }
+                None => warnings.push(warning(
+                    "not_enough_resource",
+                    format!(
+                        "{} needs {} {} but the creature has none",
+                        ability.name, amount, ability.resource_key
+                    ),
+                )),
+            }
+        }
+        if ability.recharge.is_some() {
+            if paid
+                .recharge_spent_ability_ids
+                .contains(&ability.ability_id)
+            {
+                warnings.push(warning(
+                    "ability_recharging",
+                    format!("{} has not recharged yet", ability.name),
+                ));
+            } else {
+                paid.recharge_spent_ability_ids
+                    .push(ability.ability_id.clone());
+            }
+        }
         let resolution = Resolution {
             resolution_id: format!("res-{}", run.n),
             source_token_id: source_token.token_id,
@@ -769,6 +814,28 @@ impl Game {
                 });
                 self.tokens[w.index] = token;
             }
+        }
+        // The source token last, if its pools or spent list changed; it
+        // may also have been a target, so start from the committed token.
+        let current = self.tokens[source_index].clone();
+        let mut updated = current.clone();
+        updated.resources = paid.resources;
+        updated.recharge_spent_ability_ids = paid.recharge_spent_ability_ids;
+        if updated != current {
+            events.push((
+                event::Kind::TokenUpserted(TokenUpserted {
+                    token: Some(updated.clone()),
+                }),
+                Vec::new(),
+            ));
+            if before.iter().all(|b: &Before| b.index != source_index) {
+                before.push(Before {
+                    index: source_index,
+                    token_id: current.token_id.clone(),
+                    token: Some(current),
+                });
+            }
+            self.tokens[source_index] = updated;
         }
         Ok(Group {
             events,

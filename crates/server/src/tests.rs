@@ -89,6 +89,30 @@ fn creature(id: &str, owner: &str) -> Creature {
     }
 }
 
+/// Fill every token's live resources and spent recharge ids from its
+/// creature, as the server does on create, seed load and re-import.
+fn live(c: &mut Campaign) {
+    for i in 0..c.tokens.len() {
+        let sheet = c
+            .creatures
+            .iter()
+            .find(|s| {
+                !c.tokens[i].creature_id.is_empty() && s.creature_id == c.tokens[i].creature_id
+            })
+            .cloned();
+        if let Some(sheet) = sheet {
+            crate::campaign::fill_live_state(&mut c.tokens[i], &sheet);
+        }
+    }
+}
+
+/// [`live`], then mark `ids` as spent recharge abilities of `token_id`.
+fn spent_on(c: &mut Campaign, token_id: &str, ids: &[&str]) {
+    live(c);
+    let t = c.tokens.iter_mut().find(|t| t.token_id == token_id);
+    t.expect("token").recharge_spent_ability_ids = ids.iter().map(|s| s.to_string()).collect();
+}
+
 fn scene(id: &str, cell: f32, feet: f32) -> Scene {
     Scene {
         scene_id: id.into(),
@@ -1078,6 +1102,7 @@ mod use_ability {
             vec![attack_step(4, "1d6")],
         )];
         c.tokens.push(token("t-bare", "", &["alice"], false, 175.0));
+        live(&mut c);
         c
     }
 
@@ -1102,10 +1127,11 @@ mod use_ability {
         Scripted::new(&[14, 3])
     }
 
+    /// The live slots of the token t-alice (the creature's are the template).
     fn slots(c: &Campaign) -> i32 {
-        c.creatures
+        c.tokens
             .iter()
-            .find(|x| x.creature_id == "c-alice")
+            .find(|x| x.token_id == "t-alice")
             .and_then(|x| x.resources.first())
             .map(|r| r.current)
             .expect("slots")
@@ -1194,7 +1220,7 @@ mod use_ability {
     }
 
     #[test]
-    fn spent_resource_adds_a_creature_upserted_after_the_resolution() {
+    fn spent_resource_adds_the_source_token_after_the_resolution() {
         let mut c = armed();
         let events = run_with(
             &mut c,
@@ -1219,21 +1245,23 @@ mod use_ability {
             Some(event::Kind::TokenUpserted(_))
         ));
         match events[2].kind.as_ref() {
-            Some(event::Kind::CreatureUpserted(u)) => {
-                let cr = u.creature.as_ref().expect("creature");
-                assert_eq!(cr.creature_id, "c-alice");
-                assert_eq!(cr.resources[0].current, 1);
+            Some(event::Kind::TokenUpserted(u)) => {
+                let t = u.token.as_ref().expect("token");
+                assert_eq!(t.token_id, "t-alice");
+                assert_eq!(t.resources[0].current, 1);
             }
-            other => panic!("expected CreatureUpserted, got {other:?}"),
+            other => panic!("expected TokenUpserted, got {other:?}"),
         }
-        assert_eq!(slots(&c), 1, "campaign state updated");
+        assert_eq!(slots(&c), 1, "token state updated");
+        let sheet = c.creatures.iter().find(|x| x.creature_id == "c-alice");
+        assert_eq!(sheet.unwrap().resources[0].current, 2, "template untouched");
     }
 
     #[test]
     fn warnings_ride_on_the_resolution_event_and_never_stop_the_action() {
         let mut c = armed();
         // `smite` now costs 3 of the 2 slots: it warns, still spends (the
-        // slots floor at 0) and so emits a CreatureUpserted too. The goblin
+        // slots floor at 0) and so emits a TokenUpserted for the source too. The goblin
         // is also moved beyond the 30 ft range (t-alice at x=105, 8 cells =
         // 40 ft).
         c.creatures
@@ -1258,10 +1286,10 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        assert_eq!(events.len(), 3, "resolution, goblin token, creature");
+        assert_eq!(events.len(), 3, "resolution, goblin token, source token");
         assert!(matches!(
             events[2].kind,
-            Some(event::Kind::CreatureUpserted(_))
+            Some(event::Kind::TokenUpserted(_))
         ));
         assert_eq!(slots(&c), 0, "slots floor at zero");
         let r = resolution_of(&events[0]);
@@ -1356,10 +1384,7 @@ mod use_ability {
         let kept = resolution_of(&c.log[1]);
         assert_eq!(kept.outcomes[0].damage_rolls.len(), 1);
         assert!(matches!(c.log[2].kind, Some(event::Kind::TokenUpserted(_))));
-        assert!(matches!(
-            c.log[3].kind,
-            Some(event::Kind::CreatureUpserted(_))
-        ));
+        assert!(matches!(c.log[3].kind, Some(event::Kind::TokenUpserted(_))));
         assert_eq!(resolution_of(&c.log[4]).outcomes[0].token_id, "t-hidden");
         // The hidden token's numbers are in the log, unredacted.
         match c.log[5].kind.as_ref() {
@@ -1738,6 +1763,7 @@ mod use_ability {
         goblin.abilities[0].recharge_spent = true;
         c.tokens
             .push(token("t-bob", "c-bob", &["bob"], false, 245.0));
+        spent_on(&mut c, "t-goblin", &["claw"]);
         c.scenes[0].grid.as_mut().expect("grid").kind = pb::GridKind::Square as i32;
         let events = run_with(
             &mut c,
@@ -1802,8 +1828,8 @@ mod use_ability {
     #[test]
     fn a_player_never_receives_a_monsters_creature() {
         let mut c = armed();
-        // Give the goblin a spendable resource so its claw emits a monster
-        // CreatureUpserted for the event filter to hold back.
+        // Give the goblin a spendable resource: the claw spends it on the
+        // goblin TOKEN, and no creature event is emitted at all.
         let goblin = c
             .creatures
             .iter_mut()
@@ -1817,6 +1843,7 @@ mod use_ability {
         }];
         goblin.abilities[0].resource_key = "uses".into();
         goblin.abilities[0].resource_amount = 1;
+        live(&mut c);
         let mut all = Vec::new();
         all.extend(
             run_with(
@@ -1837,19 +1864,31 @@ mod use_ability {
             .unwrap(),
         );
         let monsters = ["c-goblin", "c-hidden"];
-        let monster_upsert = all
-            .iter()
-            .find(|e| {
-                matches!(&e.kind, Some(event::Kind::CreatureUpserted(u))
-                    if u.creature.as_ref().is_some_and(|x| x.creature_id == "c-goblin"))
-            })
-            .expect("the claw emits a goblin CreatureUpserted");
-        assert!(c.event_for(monster_upsert, &viewer(&c, "gm")).is_some());
+        assert!(
+            all.iter()
+                .all(|e| !matches!(e.kind, Some(event::Kind::CreatureUpserted(_)))),
+            "an ability use never emits a creature"
+        );
+        assert_eq!(
+            c.creatures
+                .iter()
+                .find(|x| x.creature_id == "c-goblin")
+                .unwrap()
+                .resources[0]
+                .current,
+            1,
+            "the template keeps its value"
+        );
+        assert_eq!(
+            c.tokens
+                .iter()
+                .find(|x| x.token_id == "t-goblin")
+                .unwrap()
+                .resources[0]
+                .current,
+            0
+        );
         for who in ["alice", "bob", "spec"] {
-            assert!(
-                c.event_for(monster_upsert, &viewer(&c, who)).is_none(),
-                "{who} must not get the goblin upsert"
-            );
             let v = viewer(&c, who);
             let snap = c.snapshot_for(&v);
             assert!(
@@ -1876,7 +1915,7 @@ mod use_ability {
     }
 
     #[test]
-    fn creature_upserted_keeps_its_own_visibility() {
+    fn live_pools_in_the_source_token_event_keep_hp_visibility() {
         let mut c = armed();
         let events = run_with(
             &mut c,
@@ -1885,11 +1924,19 @@ mod use_ability {
             &mut hit_script(),
         )
         .unwrap();
-        // alice's sheet: GM and alice (owner and controller) only.
-        assert!(c.event_for(&events[2], &viewer(&c, "gm")).is_some());
-        assert!(c.event_for(&events[2], &viewer(&c, "alice")).is_some());
-        assert!(c.event_for(&events[2], &viewer(&c, "bob")).is_none());
-        assert!(c.event_for(&events[2], &viewer(&c, "spec")).is_none());
+        // alice's token: everyone sees it, but only the GM and its controller
+        // see the live pools.
+        let pools = |who: &str| {
+            let out = c.event_for(&events[2], &viewer(&c, who)).expect("event");
+            let Some(event::Kind::TokenUpserted(u)) = out.kind else {
+                panic!("token event")
+            };
+            u.token.expect("token").resources.len()
+        };
+        assert_eq!(pools("gm"), 1);
+        assert_eq!(pools("alice"), 1);
+        assert_eq!(pools("bob"), 0);
+        assert_eq!(pools("spec"), 0);
     }
 }
 
@@ -2883,6 +2930,7 @@ mod undoing {
             }],
             ..Default::default()
         });
+        live(&mut c);
         c
     }
 
@@ -2985,7 +3033,11 @@ mod undoing {
     #[test]
     fn undo_an_attack_restores_hit_points_health_state_and_the_spell_slot() {
         let mut c = world();
-        let (goblin0, alice0) = (stored(&c, "t-goblin").clone(), sheet(&c, "c-alice").clone());
+        let (goblin0, alice0) = (
+            stored(&c, "t-goblin").clone(),
+            stored(&c, "t-alice").clone(),
+        );
+        let sheet0 = sheet(&c, "c-alice").clone();
         // d20 15 + 5 beats AC 15; 1d8 shows 6, +3 = 9 damage.
         let used = run_with(
             &mut c,
@@ -2994,30 +3046,32 @@ mod undoing {
             &mut Scripted::new(&[14, 5]),
         )
         .unwrap();
-        assert_eq!(used.len(), 3, "resolution, goblin token, alice sheet");
+        assert_eq!(used.len(), 3, "resolution, goblin token, alice token");
         assert_ne!(stored(&c, "t-goblin").hp_current, goblin0.hp_current);
         assert_ne!(stored(&c, "t-goblin").health_state, goblin0.health_state);
-        assert_eq!(sheet(&c, "c-alice").resources[0].current, 2);
+        assert_eq!(stored(&c, "t-alice").resources[0].current, 2);
+        assert_eq!(sheet(&c, "c-alice"), &sheet0, "the sheet is the template");
 
         let undone = run(&mut c, "gm", undo(used[0].seq)).unwrap();
         assert_eq!(stored(&c, "t-goblin"), &goblin0);
-        assert_eq!(sheet(&c, "c-alice"), &alice0);
+        assert_eq!(stored(&c, "t-alice"), &alice0);
+        assert_eq!(sheet(&c, "c-alice"), &sheet0);
         assert_eq!(
             undone.iter().map(|e| e.seq).collect::<Vec<_>>(),
             [4, 5, 6, 7, 8]
         );
         assert!(undone.iter().all(|e| e.client_intent_id == "undo-1"));
         match kinds(&undone)[..] {
-            [event::Kind::TokenUpserted(t), event::Kind::CreatureUpserted(s), event::Kind::EventUndone(a), event::Kind::EventUndone(b), event::Kind::EventUndone(d)] =>
+            [event::Kind::TokenUpserted(s), event::Kind::TokenUpserted(t), event::Kind::EventUndone(a), event::Kind::EventUndone(b), event::Kind::EventUndone(d)] =>
             {
                 assert_eq!(t.token.as_ref(), Some(&goblin0));
-                assert_eq!(s.creature.as_ref(), Some(&alice0));
+                assert_eq!(s.token.as_ref(), Some(&alice0));
                 assert_eq!((a.undone_seq, b.undone_seq, d.undone_seq), (1, 2, 3));
             }
             ref other => panic!("unexpected undo group: {other:?}"),
         }
         // The players see the restored health_state and no hit points.
-        let e = c.event_for(&undone[0], &viewer(&c, "bob")).expect("token");
+        let e = c.event_for(&undone[1], &viewer(&c, "bob")).expect("token");
         match e.kind {
             Some(event::Kind::TokenUpserted(u)) => {
                 let t = u.token.expect("token");
@@ -3191,9 +3245,9 @@ mod undoing {
     }
 
     #[test]
-    fn a_creature_shared_by_two_groups_blocks_too() {
+    fn a_token_shared_by_two_groups_blocks_too() {
         let mut c = world();
-        // Both attacks spend alice's slot but hit different tokens.
+        // Both attacks spend t-alice's slot but hit different tokens.
         let mut bolt = |target: &str| {
             run_with(
                 &mut c,
@@ -3563,6 +3617,7 @@ mod encountering {
         let mut dragon = creature("c-dragon", "alice");
         dragon.abilities = vec![breath(true, 1)];
         c.creatures.push(dragon);
+        spent_on(&mut c, "t-dragon", &["breath"]);
         running(&mut c, &["t-alice", "t-dragon", "t-hidden"], 1);
         let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
         let roll = events
@@ -3798,16 +3853,20 @@ mod encountering {
                 ..breath(false, 2)
             },
         ];
+        spent_on(&mut c, "t-goblin", &["breath"]);
         // Fails: the die shows 4 (value 3) against 5.
         let events = run_with(&mut c, "bob", end_turn("enc-1"), &mut Scripted::new(&[3])).unwrap();
-        assert_eq!(events.len(), 2, "no creature event on a failure");
+        assert_eq!(events.len(), 2, "no token event on a failure");
         let r = roll_of(&events[1]);
         assert_eq!(r.label, "Fire Breath recharge");
         assert_eq!(r.total, 4);
         assert_eq!(r.visibility, RollVisibility::GmOnly as i32);
         assert_eq!(r.roller_creature_id, "c-goblin");
         assert!(!r.roll_id.is_empty());
-        assert!(c.creatures[1].abilities[0].recharge_spent);
+        assert_eq!(
+            stored(&c, "t-goblin").recharge_spent_ability_ids,
+            ["breath"]
+        );
         assert!(c.event_for(&events[1], &viewer(&c, "alice")).is_none());
 
         // Succeeds on the next goblin turn: 5 or more. Alice and bob go first.
@@ -3817,14 +3876,14 @@ mod encountering {
         let events = run_with(&mut c, "gm", end_turn("enc-1"), &mut Scripted::new(&[4])).unwrap();
         assert_eq!(events.len(), 3);
         assert_eq!(roll_of(&events[1]).total, 5);
-        let Some(event::Kind::CreatureUpserted(u)) = events[2].kind.as_ref() else {
-            panic!("expected CreatureUpserted, got {:?}", events[2].kind);
+        let Some(event::Kind::TokenUpserted(u)) = events[2].kind.as_ref() else {
+            panic!("expected TokenUpserted, got {:?}", events[2].kind);
         };
-        let sheet = u.creature.as_ref().unwrap();
-        assert!(!sheet.abilities[0].recharge_spent);
-        assert!(sheet.abilities[1].recharge_spent, "no rule, left alone");
-        assert_eq!(&c.creatures[1], sheet);
-        assert_eq!(c.groups.last().unwrap().changed_creature_ids, ["c-goblin"]);
+        let token = u.token.as_ref().unwrap();
+        assert!(token.recharge_spent_ability_ids.is_empty());
+        assert_eq!(token, stored(&c, "t-goblin"));
+        assert!(c.groups.last().unwrap().changed_creature_ids.is_empty());
+        assert_eq!(c.groups.last().unwrap().changed_token_ids, ["t-goblin"]);
     }
 
     #[test]
@@ -3833,6 +3892,7 @@ mod encountering {
         running(&mut c, &["t-goblin", "t-alice"], 1);
         let alice = c.creatures.iter_mut().find(|x| x.creature_id == "c-alice");
         alice.expect("c-alice").abilities = vec![breath(true, 6)];
+        spent_on(&mut c, "t-alice", &["breath"]);
         let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
         let r = roll_of(&events[1]);
         assert_eq!(r.visibility, RollVisibility::Public as i32);
@@ -3844,6 +3904,7 @@ mod encountering {
         let hidden = hidden.expect("c-hidden");
         hidden.owner_user_id = "bob".into();
         hidden.abilities = vec![breath(true, 6)];
+        spent_on(&mut c, "t-hidden", &["breath"]);
         let events = run(&mut c, "gm", end_turn("enc-1")).unwrap();
         assert_eq!(
             roll_of(&events[1]).visibility,
@@ -5098,5 +5159,417 @@ mod audit_132 {
         );
         // At the limit the old checks decide: 32 adds fit.
         run(&mut c, "gm", set("t-goblin", ids(MAX_CONDITIONS), vec![])).unwrap();
+    }
+}
+
+// ------------------------------------------- per-token state (#134, ADR 0016)
+
+/// The Creature is the template; each token holds its own resources and its
+/// own spent recharge abilities.
+mod per_token_state {
+    use super::*;
+    use tt_contracts::v1 as pb;
+    use tt_contracts::v1::{Ability, EffectStep, Provenance, Recharge, Resource, Snapshot};
+
+    fn attack_ability(id: &str, resource: Option<(&str, i32)>, recharge: Option<u32>) -> Ability {
+        Ability {
+            ability_id: id.into(),
+            name: id.into(),
+            targeting: Some(pb::Targeting {
+                shape: pb::TargetShape::Creatures as i32,
+                range_feet: 30.0,
+                max_targets: 1,
+                ..Default::default()
+            }),
+            steps: vec![EffectStep {
+                step: Some(pb::effect_step::Step::Attack(pb::AttackStep {
+                    to_hit_bonus: 5,
+                    damage: vec![pb::DamagePart {
+                        dice: "1d8+3".into(),
+                        r#type: pb::DamageType::Slashing as i32,
+                    }],
+                })),
+            }],
+            resource_key: resource.map_or(String::new(), |r| r.0.into()),
+            resource_amount: resource.map_or(0, |r| r.1),
+            recharge: recharge.map(|min_roll| Recharge { min_roll }),
+            ..Default::default()
+        }
+    }
+
+    fn pool(key: &str, current: i32, max: i32) -> Resource {
+        Resource {
+            key: key.into(),
+            label: key.into(),
+            current,
+            max,
+        }
+    }
+
+    /// The test campaign with a "c-gob" sheet (recharge `breath`, 5+) and a
+    /// "c-caster" sheet (two slots, `bolt` spends one), plus a shared id
+    /// source so several tokens can be created.
+    fn world() -> (Campaign, SequentialIds) {
+        let mut c = campaign();
+        let mut gob = creature("c-gob", "");
+        gob.abilities = vec![attack_ability("breath", None, Some(5))];
+        let mut caster = creature("c-caster", "alice");
+        caster.resources = vec![pool("slots", 2, 2)];
+        caster.abilities = vec![attack_ability("bolt", Some(("slots", 1)), None)];
+        c.creatures.push(gob);
+        c.creatures.push(caster);
+        (c, SequentialIds::new())
+    }
+
+    fn step(
+        c: &mut Campaign,
+        who: &str,
+        i: Intent,
+        ids: &mut SequentialIds,
+    ) -> Result<Vec<Event>, Rejection> {
+        c.apply(who, i, 1_000, &mut Scripted::new(&[14, 3]), ids)
+    }
+
+    /// A token of `creature` made with CreateTokenIntent; returns its id.
+    fn place(
+        c: &mut Campaign,
+        ids: &mut SequentialIds,
+        creature: &str,
+        controllers: &[&str],
+        x: f32,
+    ) -> String {
+        let i = intent_of(intent::Kind::CreateToken(pb::CreateTokenIntent {
+            scene_id: "s1".into(),
+            creature_id: creature.into(),
+            position: Some(p(x, 105.0)),
+            controller_user_ids: controllers.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }));
+        let events = step(c, "gm", i, ids).unwrap();
+        match events[0].kind.as_ref() {
+            Some(event::Kind::TokenUpserted(u)) => u.token.as_ref().unwrap().token_id.clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn use_ab(source: &str, ability: &str, target: &str) -> Intent {
+        intent_of(intent::Kind::UseAbility(pb::UseAbilityIntent {
+            source_token_id: source.into(),
+            ability_id: ability.into(),
+            target_token_ids: vec![target.into()],
+            ..Default::default()
+        }))
+    }
+
+    fn tok<'a>(c: &'a Campaign, id: &str) -> &'a Token {
+        c.tokens.iter().find(|t| t.token_id == id).expect("token")
+    }
+
+    fn warning_codes(events: &[Event]) -> Vec<String> {
+        match events[0].kind.as_ref() {
+            Some(event::Kind::ResolutionUpdated(u)) => u
+                .resolution
+                .as_ref()
+                .unwrap()
+                .warnings
+                .iter()
+                .map(|w| w.code.clone())
+                .collect(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn sheet<'a>(c: &'a Campaign, id: &str) -> &'a Creature {
+        c.creatures.iter().find(|x| x.creature_id == id).unwrap()
+    }
+
+    fn undo_of(seq: u64) -> Intent {
+        intent_of(intent::Kind::Undo(pb::UndoIntent { event_seq: seq }))
+    }
+
+    fn has_creature_event(events: &[Event]) -> bool {
+        events
+            .iter()
+            .any(|e| matches!(e.kind, Some(event::Kind::CreatureUpserted(_))))
+    }
+
+    #[test]
+    fn three_goblins_from_one_sheet_recharge_on_their_own() {
+        let (mut c, mut ids) = world();
+        let g: Vec<String> = [175.0, 245.0, 315.0]
+            .iter()
+            .map(|x| place(&mut c, &mut ids, "c-gob", &[], *x))
+            .collect();
+        let template = sheet(&c, "c-gob").clone();
+        assert!(g
+            .iter()
+            .all(|id| tok(&c, id).recharge_spent_ability_ids.is_empty()));
+
+        let first = step(&mut c, "gm", use_ab(&g[0], "breath", "t-alice"), &mut ids).unwrap();
+        assert!(!warning_codes(&first).contains(&"ability_recharging".to_string()));
+        assert_eq!(tok(&c, &g[0]).recharge_spent_ability_ids, ["breath"]);
+        assert!(tok(&c, &g[1]).recharge_spent_ability_ids.is_empty());
+        assert_eq!(sheet(&c, "c-gob"), &template, "the creature is not changed");
+        assert!(!has_creature_event(&first));
+
+        // Only the spent token reports ability_recharging.
+        let again = step(&mut c, "gm", use_ab(&g[0], "breath", "t-alice"), &mut ids).unwrap();
+        assert!(warning_codes(&again).contains(&"ability_recharging".to_string()));
+        for other in &g[1..] {
+            let ok = step(&mut c, "gm", use_ab(other, "breath", "t-alice"), &mut ids).unwrap();
+            assert!(!warning_codes(&ok).contains(&"ability_recharging".to_string()));
+        }
+        assert_eq!(sheet(&c, "c-gob"), &template);
+    }
+
+    #[test]
+    fn the_recharge_roll_happens_only_at_the_spent_tokens_own_turn() {
+        let (mut c, mut ids) = world();
+        let g: Vec<String> = [175.0, 245.0, 315.0]
+            .iter()
+            .map(|x| place(&mut c, &mut ids, "c-gob", &[], *x))
+            .collect();
+        step(&mut c, "gm", use_ab(&g[1], "breath", "t-alice"), &mut ids).unwrap();
+        c.encounters.push(Encounter {
+            encounter_id: "enc-1".into(),
+            scene_id: "s1".into(),
+            round: 1,
+            turn_index: 0,
+            combatants: g
+                .iter()
+                .enumerate()
+                .map(|(i, t)| Combatant {
+                    token_id: t.clone(),
+                    initiative: 20 - i as i32,
+                    order: i as u32,
+                    ..Default::default()
+                })
+                .collect(),
+        });
+        let end = |c: &mut Campaign, ids: &mut SequentialIds, die: u64| {
+            let i = intent_of(intent::Kind::EndTurn(pb::EndTurnIntent {
+                encounter_id: "enc-1".into(),
+            }));
+            c.apply("gm", i, 1_000, &mut Scripted::new(&[die]), ids)
+                .unwrap()
+        };
+        let rolls = |events: &[Event]| {
+            events
+                .iter()
+                .filter(|e| matches!(e.kind, Some(event::Kind::DiceRolled(_))))
+                .count()
+        };
+        // Goblin 0 ends: goblin 1's turn starts. Its breath is spent; the die
+        // shows 3 against 5, so it stays spent.
+        let events = end(&mut c, &mut ids, 2);
+        assert_eq!(rolls(&events), 1);
+        assert_eq!(tok(&c, &g[1]).recharge_spent_ability_ids, ["breath"]);
+        // Goblin 2's turn: nothing spent there, no roll.
+        let events = end(&mut c, &mut ids, 5);
+        assert_eq!(rolls(&events), 0);
+        // Goblin 0's turn (round 2): no roll either.
+        let events = end(&mut c, &mut ids, 5);
+        assert_eq!(rolls(&events), 0);
+        // Goblin 1 again: the die shows 6, it recharges, and only that token
+        // changes.
+        let events = end(&mut c, &mut ids, 5);
+        assert_eq!(rolls(&events), 1);
+        assert!(tok(&c, &g[1]).recharge_spent_ability_ids.is_empty());
+        let upserts: Vec<&Token> = events
+            .iter()
+            .filter_map(|e| match e.kind.as_ref() {
+                Some(event::Kind::TokenUpserted(u)) => u.token.as_ref(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(upserts.len(), 1);
+        assert_eq!(upserts[0].token_id, g[1]);
+        assert!(!has_creature_event(&events));
+    }
+
+    #[test]
+    fn spell_slots_are_spent_per_token() {
+        let (mut c, mut ids) = world();
+        let a = place(&mut c, &mut ids, "c-caster", &["alice"], 175.0);
+        let b = place(&mut c, &mut ids, "c-caster", &["bob"], 245.0);
+        assert_eq!(tok(&c, &a).resources, tok(&c, &b).resources);
+        assert_eq!(tok(&c, &a).resources[0].current, 2);
+        step(&mut c, "alice", use_ab(&a, "bolt", "t-goblin"), &mut ids).unwrap();
+        assert_eq!(tok(&c, &a).resources[0].current, 1);
+        assert_eq!(tok(&c, &b).resources[0].current, 2, "the other caster");
+        assert_eq!(sheet(&c, "c-caster").resources[0].current, 2, "template");
+        // Bob's token has its own two slots; running dry warns only for it.
+        step(&mut c, "bob", use_ab(&b, "bolt", "t-goblin"), &mut ids).unwrap();
+        step(&mut c, "bob", use_ab(&b, "bolt", "t-goblin"), &mut ids).unwrap();
+        let dry = step(&mut c, "bob", use_ab(&b, "bolt", "t-goblin"), &mut ids).unwrap();
+        assert!(warning_codes(&dry).contains(&"not_enough_resource".to_string()));
+        assert_eq!(tok(&c, &b).resources[0].current, 0);
+        assert_eq!(tok(&c, &a).resources[0].current, 1);
+    }
+
+    #[test]
+    fn undo_restores_that_tokens_state_only() {
+        let (mut c, mut ids) = world();
+        let g: Vec<String> = [175.0, 245.0]
+            .iter()
+            .map(|x| place(&mut c, &mut ids, "c-gob", &[], *x))
+            .collect();
+        let template = sheet(&c, "c-gob").clone();
+        let first = step(&mut c, "gm", use_ab(&g[0], "breath", "t-alice"), &mut ids).unwrap();
+        // The second goblin hits another target, so the later group shares
+        // nothing with the first.
+        step(&mut c, "gm", use_ab(&g[1], "breath", "t-goblin"), &mut ids).unwrap();
+        let g1_after = tok(&c, &g[1]).clone();
+        let undone = step(&mut c, "gm", undo_of(first[0].seq), &mut ids).unwrap();
+        assert!(tok(&c, &g[0]).recharge_spent_ability_ids.is_empty());
+        assert_eq!(tok(&c, &g[1]), &g1_after, "the other goblin stays spent");
+        assert_eq!(g1_after.recharge_spent_ability_ids, ["breath"]);
+        assert_eq!(sheet(&c, "c-gob"), &template, "nothing on the creature");
+        assert!(!has_creature_event(&undone));
+
+        // A later use that spends the same token's slot blocks undoing the
+        // earlier one.
+        let (mut c, mut ids) = world();
+        let a = place(&mut c, &mut ids, "c-caster", &["alice"], 175.0);
+        let first = step(&mut c, "alice", use_ab(&a, "bolt", "t-alice"), &mut ids).unwrap();
+        step(&mut c, "alice", use_ab(&a, "bolt", "t-goblin"), &mut ids).unwrap();
+        let r = step(&mut c, "gm", undo_of(first[0].seq), &mut ids);
+        assert_eq!(code(r), "undo_blocked");
+    }
+
+    #[test]
+    fn players_see_a_tokens_pools_only_if_they_control_it() {
+        let (mut c, mut ids) = world();
+        let a = place(&mut c, &mut ids, "c-caster", &["alice"], 175.0);
+        let b = place(&mut c, &mut ids, "c-caster", &["bob"], 245.0);
+        let g = place(&mut c, &mut ids, "c-gob", &[], 315.0);
+        step(&mut c, "gm", use_ab(&g, "breath", "t-alice"), &mut ids).unwrap();
+        let seen = |who: &str| -> Vec<(String, usize, usize)> {
+            c.snapshot_for(&viewer(&c, who))
+                .tokens
+                .iter()
+                .filter(|t| [&a, &b, &g].contains(&&t.token_id))
+                .map(|t| {
+                    (
+                        t.token_id.clone(),
+                        t.resources.len(),
+                        t.recharge_spent_ability_ids.len(),
+                    )
+                })
+                .collect()
+        };
+        let row = |id: &String, pools: usize, spent: usize| (id.clone(), pools, spent);
+        assert_eq!(seen("gm"), [row(&a, 1, 0), row(&b, 1, 0), row(&g, 0, 1)]);
+        assert_eq!(seen("alice"), [row(&a, 1, 0), row(&b, 0, 0), row(&g, 0, 0)]);
+        assert_eq!(seen("bob"), [row(&a, 0, 0), row(&b, 1, 0), row(&g, 0, 0)]);
+        assert!(seen("spec").iter().all(|t| t.1 == 0 && t.2 == 0));
+        // The same rule on an event.
+        let used = step(&mut c, "alice", use_ab(&a, "bolt", "t-goblin"), &mut ids).unwrap();
+        let ev = used
+            .iter()
+            .find(|e| match e.kind.as_ref() {
+                Some(event::Kind::TokenUpserted(u)) => {
+                    u.token.as_ref().is_some_and(|t| t.token_id == a)
+                }
+                _ => false,
+            })
+            .unwrap();
+        let pools = |who: &str| match c.event_for(ev, &viewer(&c, who)).unwrap().kind {
+            Some(event::Kind::TokenUpserted(u)) => u.token.unwrap().resources.len(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!((pools("gm"), pools("alice"), pools("bob")), (1, 1, 0));
+    }
+
+    #[test]
+    fn re_import_reconciles_live_state_with_the_new_sheet() {
+        let mut c = campaign();
+        let mut ids = SequentialIds::new();
+        let sheet_v1 = {
+            let mut s = creature("x", "");
+            s.provenance = Some(Provenance {
+                source: "adventurers-anvil".into(),
+                external_id: "monk".into(),
+                ..Default::default()
+            });
+            s.resources = vec![pool("slots", 4, 4), pool("ki", 3, 3)];
+            s.abilities = vec![
+                attack_ability("flurry", None, Some(5)),
+                attack_ability("gone", None, Some(6)),
+            ];
+            s
+        };
+        let out = c
+            .import_creature("gm", sheet_v1.clone(), Vec::new(), 5_000, &mut ids)
+            .unwrap();
+        assert!(out.token_events.is_empty());
+        let id = out.creature.creature_id.clone();
+        let t = place(&mut c, &mut ids, &id, &[], 175.0);
+        assert_eq!(tok(&c, &t).resources.len(), 2);
+        // Spend: slots 4 -> 3, ki 3 -> 1; both abilities spent.
+        {
+            let token = c.tokens.iter_mut().find(|x| x.token_id == t).unwrap();
+            token.resources[0].current = 3;
+            token.resources[1].current = 1;
+            token.recharge_spent_ability_ids = vec!["flurry".into(), "gone".into()];
+        }
+        let untouched = place(&mut c, &mut ids, "c-goblin", &[], 245.0);
+        let untouched_before = tok(&c, &untouched).clone();
+
+        let mut sheet_v2 = sheet_v1;
+        sheet_v2.resources = vec![pool("slots", 2, 2), pool("rage", 3, 3)];
+        sheet_v2.abilities = vec![attack_ability("flurry", None, Some(5))];
+        let out = c
+            .import_creature("gm", sheet_v2, Vec::new(), 6_000, &mut ids)
+            .unwrap();
+        assert!(out.replaced);
+        assert_eq!(out.token_events.len(), 1);
+        let ev = &out.token_events[0];
+        assert_eq!(ev.seq, out.event.seq + 1);
+        let token = tok(&c, &t);
+        let Some(event::Kind::TokenUpserted(u)) = ev.kind.as_ref() else {
+            panic!("expected TokenUpserted, got {:?}", ev.kind);
+        };
+        assert_eq!(u.token.as_ref(), Some(token));
+        let pools: Vec<(&str, i32, i32)> = token
+            .resources
+            .iter()
+            .map(|r| (r.key.as_str(), r.current, r.max))
+            .collect();
+        // slots: clamped 3 -> 2; ki dropped; rage is new and starts full.
+        assert_eq!(pools, [("slots", 2, 2), ("rage", 3, 3)]);
+        assert_eq!(token.recharge_spent_ability_ids, ["flurry"]);
+        assert_eq!(tok(&c, &untouched), &untouched_before);
+        let g = c.groups.last().unwrap();
+        assert_eq!(g.changed_token_ids, std::slice::from_ref(&t));
+        assert_eq!((g.first_seq, g.last_seq), (out.event.seq, ev.seq));
+        // Importing the same sheet again changes no token.
+        let same = sheet(&c, &id).clone();
+        let again = c
+            .import_creature("gm", same, Vec::new(), 7_000, &mut ids)
+            .unwrap();
+        assert!(again.token_events.is_empty());
+    }
+
+    #[test]
+    fn seed_tokens_get_their_state_filled_at_load() {
+        let mut caster = creature("c-caster", "");
+        caster.resources = vec![pool("slots", 3, 3)];
+        caster.abilities = vec![attack_ability("bolt", Some(("slots", 1)), Some(5))];
+        let mut linked = token("t-1", "c-caster", &[], false, 105.0);
+        linked.recharge_spent_ability_ids = vec!["bolt".into(), "nope".into()];
+        let props = token("t-prop", "", &[], false, 175.0);
+        let c = Campaign::from_snapshot(Snapshot {
+            scenes: vec![scene("s1", 70.0, 5.0)],
+            tokens: vec![linked, props.clone()],
+            creatures: vec![caster],
+            ..Default::default()
+        });
+        let t = tok(&c, "t-1");
+        assert_eq!(t.resources.len(), 1);
+        assert_eq!((t.resources[0].current, t.resources[0].max), (3, 3));
+        assert_eq!(t.recharge_spent_ability_ids, ["bolt"]);
+        assert!(tok(&c, "t-prop").resources.is_empty());
+        assert_eq!(tok(&c, "t-prop").hp_max, props.hp_max);
     }
 }

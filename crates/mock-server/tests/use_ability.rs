@@ -465,6 +465,11 @@ async fn scorching_ray_ignores_extra_targets_and_skips_unlisted_steps() {
     let codes: Vec<&str> = e.warnings.iter().map(|w| w.code.as_str()).collect();
     assert_eq!(codes, ["extra_targets_ignored"]);
     assert_eq!(r.warnings, e.warnings);
+    // Every attack missed; the caster's token follows (a spent slot).
+    assert!(matches!(
+        recv_event(&mut ws).await.kind,
+        Some(event::Kind::TokenUpserted(_))
+    ));
 
     // Two targets: only steps 0 and 1 are rolled, and no warning.
     use_ability(
@@ -613,8 +618,9 @@ async fn resolution_and_roll_ids_are_unique_across_resolutions_and_freeform_roll
         )
         .await;
         let mut e = recv_event(&mut ws).await;
-        // The first resolution also upserts the goblin it knocked down.
-        if matches!(e.kind, Some(event::Kind::TokenUpserted(_))) {
+        // A resolution also upserts the goblin it knocked down and the
+        // caster's token (a spent slot).
+        while matches!(e.kind, Some(event::Kind::TokenUpserted(_))) {
             e = recv_event(&mut ws).await;
         }
         match e.kind {

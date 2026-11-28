@@ -203,4 +203,29 @@ message Token {
   // When the timed entries of `conditions` end (see ConditionTimer). Filtered
   // like `conditions`: sent to everyone who receives the token.
   repeated ConditionTimer condition_timers = 19;
+  // This token's live resource pools (spell slots, rage, ...), one per
+  // Creature.resources key, in the creature's order. The Creature is the
+  // template: its resources[].max, and each Ability's `recharge`, define the
+  // pools. Creature.resources[].current and Ability.recharge_spent are the
+  // template (initial) values and are not changed in play. Several tokens can
+  // share one creature, so each token spends and recharges on its own. Filled
+  // by the server (CreateTokenIntent, seeds, re-import of the sheet); same
+  // viewers as hp_current (GM and controllers), empty for others.
+  repeated TokenResource resources = 20;
+  // Ids of this token's creature's recharge abilities that are spent and
+  // waiting to recharge (rolled at the start of this token's own turn). Filled
+  // and visible like `resources`; empty for other viewers.
+  repeated string recharge_spent_ability_ids = 21;
+}
+
+// One live pool of a token. Mirrors Creature's Resource (creature.proto cannot
+// be imported here: it imports this file).
+message TokenResource {
+  // Same key as the creature's Resource.
+  string key = 1;
+  string label = 2;
+  // Live value, 0..=max.
+  int32 current = 3;
+  // From the creature at the time the server last filled the token.
+  int32 max = 4;
 }
